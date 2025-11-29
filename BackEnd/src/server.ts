@@ -41,14 +41,23 @@ app.use(
 // ----------------------------
 //  🌍 CORS CORRECT (une seule fois !)
 // ----------------------------
-const allowedOrigin = env.FRONTEND_ORIGIN || 'http://localhost:5173';
+const allowedOrigin = [
+  'http://localhost:5173',
+  'https://epion-clean.vercel.app',
+  'https://epion.app',
+  'https://www.epion.app',
+];
 
 app.use(
   cors({
-    origin: allowedOrigin,
+    origin(origin, callback) {
+      if (!origin) return callback(null, true);
+      if(allowedOrigin.includes(origin)) {
+        return callback(null, true);
+      }
+      return callback(new Error('Not allowed by CORS'));
+    },
     credentials: true,
-    methods: ['GET', 'POST', 'PUT', 'PATCH', 'DELETE'],
-    allowedHeaders: ['Content-Type', 'Authorization', 'X-CSRF-Token'],
   }),
 );
 
