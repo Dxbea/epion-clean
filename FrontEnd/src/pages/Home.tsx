@@ -1,6 +1,7 @@
 import React, { JSX } from 'react';
 import { H1, H2, H3, Body, Lead, Button } from '@/components/ui';
 import { useI18n } from '@/i18n/I18nContext';
+// TODO: small change to trigger Vercel build
 
 const Section: React.FC<React.PropsWithChildren<{ id?: string; className?: string }>> = ({ id, className = '', children }) => (
   <section id={id} className={`mx-auto w-full max-w-7xl px-4 sm:px-6 lg:px-8 ${className}`}>{children}</section>
