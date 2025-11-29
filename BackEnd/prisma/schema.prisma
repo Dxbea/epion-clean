@@ -1,0 +1,288 @@
+// BackEnd/prisma/schema.prisma
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  // .env doit contenir : DATABASE_URL="postgresql://postgres:postgres@localhost:5432/epion?schema=public"
+  url      = env("DATABASE_URL")
+}
+
+enum Role {
+  USER
+  ADMIN
+}
+
+enum ArticleStatus {
+  DRAFT
+  PUBLISHED
+  ARCHIVED
+}
+
+model User {
+  id           String   @id @default(cuid())
+  email        String   @unique
+  name         String?
+  role         Role     @default(USER)
+  passwordHash String?
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+  username     String?  @unique
+  phone        String?
+  avatarUrl    String?
+
+  articles    Article[]         @relation("AuthorArticles")
+  saved       SavedArticle[]
+  messages    ChatMessage[]
+  sessions    ChatSession[]
+  Session     Session[]
+  comments    Comment[]         @relation("UserComments")
+  reactions   ArticleReaction[] @relation("UserReactions")
+  ArticleView ArticleView[]
+  ChatFolder  ChatFolder[]
+
+  emailVerifications EmailVerification[]
+  emailVerifiedAt    DateTime?
+
+  passwordResets PasswordReset[] // back-rel manquante
+}
+
+model EmailVerification {
+  id        String    @id @default(cuid())
+  userId    String
+  user      User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  token     String    @unique
+  expiresAt DateTime
+  usedAt    DateTime?
+  createdAt DateTime  @default(now())
+
+  @@index([userId])
+}
+
+model Session {
+  id        String    @id @default(cuid())
+  userId    String
+  user      User      @relation(fields: [userId], references: [id])
+  createdAt DateTime  @default(now())
+  expiresAt DateTime?
+  revokedAt DateTime?
+}
+
+model Category {
+  id        String   @id @default(cuid())
+  slug      String   @unique
+  name      String
+  createdAt DateTime @default(now())
+
+  articles Article[]
+}
+
+// ---------------- Article ----------------
+model Article {
+  id        String        @id @default(cuid())
+  slug      String        @unique
+  title     String
+  summary   String?
+  content   String?
+  status    ArticleStatus @default(DRAFT)
+  imageUrl  String?
+  createdAt DateTime      @default(now())
+  updatedAt DateTime      @updatedAt
+
+  authorId String?
+  author   User?   @relation("AuthorArticles", fields: [authorId], references: [id], onDelete: Cascade)
+
+  categoryId String?
+  category   Category? @relation(fields: [categoryId], references: [id], onDelete: SetNull)
+
+  savedBy SavedArticle[]
+
+  // (déjà présents si tu as les vues/stats)
+  views ArticleView[] @relation("ArticleViews")
+  stats ArticleStats? @relation("ArticleStats")
+
+  // IA
+  generationPrompt   String?
+  generationConfig   Json?
+  generatedAt        DateTime?
+  generationVersion  Int       @default(0)
+  aiLockedFields     Json?     // ex: ["title", "summary", "content"]
+
+  // 🔥 Add these two back-relations:
+  comments  Comment[]         @relation("ArticleComments")
+  reactions ArticleReaction[] @relation("ArticleReactions")
+
+  @@index([authorId])
+  @@index([categoryId])
+  @@index([status, createdAt])
+}
+
+model SavedArticle {
+  userId    String
+  articleId String
+  savedAt   DateTime @default(now())
+
+  user    User    @relation(fields: [userId], references: [id], onDelete: Cascade)
+  article Article @relation(fields: [articleId], references: [id], onDelete: Cascade)
+
+  @@id([userId, articleId])
+  @@index([articleId])
+}
+
+// prisma/schema.prisma
+model ArticleView {
+  id        String  @id @default(cuid())
+  articleId String
+  // ✅ le nom "ArticleViews" doit matcher celui côté Article
+  article   Article @relation("ArticleViews", fields: [articleId], references: [id], onDelete: Cascade)
+
+  userId String?
+  // (une seule relation User<->ArticleView, donc pas besoin de nom ici)
+  user   User?   @relation(fields: [userId], references: [id], onDelete: SetNull)
+
+  viewerHash String? // hash(IP + UA) pour anonymes
+  createdAt  DateTime @default(now())
+
+  @@index([articleId, createdAt])
+  @@index([articleId, userId, createdAt])
+  @@index([articleId, viewerHash, createdAt])
+}
+
+model ArticleStats {
+  articleId String  @unique
+  // ✅ le nom "ArticleStats" doit matcher celui côté Article
+  article   Article @relation("ArticleStats", fields: [articleId], references: [id], onDelete: Cascade)
+
+  viewsAll      Int       @default(0)
+  views7d       Int       @default(0)
+  views30d      Int       @default(0)
+  savesAll      Int       @default(0)
+  trendingScore Float     @default(0)
+  lastViewedAt  DateTime?
+  updatedAt     DateTime  @updatedAt
+}
+
+// ---------------- Enums ----------------
+enum ReactionType {
+  LIKE
+  CLAP
+  HEART
+  FIRE
+  THINK
+}
+
+model Comment {
+  id        String   @id @default(cuid())
+  articleId String
+  userId    String?
+  content   String
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  // Threads
+  parentId String?
+  parent   Comment?  @relation("CommentReplies", fields: [parentId], references: [id], onDelete: Cascade)
+  replies  Comment[] @relation("CommentReplies")
+
+  // Relations
+  article Article @relation("ArticleComments", fields: [articleId], references: [id], onDelete: Cascade)
+  user    User?   @relation("UserComments", fields: [userId], references: [id], onDelete: SetNull)
+
+  @@index([articleId, createdAt])
+  @@index([userId])
+  @@index([parentId])
+}
+
+// ---------------- Reaction ----------------
+model ArticleReaction {
+  userId    String
+  articleId String
+  type      ReactionType @default(LIKE)
+  createdAt DateTime     @default(now())
+
+  // Relations
+  user    User    @relation("UserReactions", fields: [userId], references: [id], onDelete: Cascade)
+  article Article @relation("ArticleReactions", fields: [articleId], references: [id], onDelete: Cascade)
+
+  // One reaction per (user, article, type)
+  @@id([userId, articleId, type])
+  @@index([articleId])
+}
+
+// --- Enums (keep only one copy) ---
+enum ChatRole {
+  user
+  assistant
+}
+
+enum Rigor {
+  fast
+  balanced
+  precise
+}
+
+// --- Models ---
+
+model ChatFolder {
+  id        String   @id @default(cuid())
+  userId    String
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  name      String
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  sessions ChatSession[]
+
+  @@unique([userId, name])
+}
+
+model ChatSession {
+  id     String @id @default(cuid())
+  userId String
+  user   User   @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  topic    String?
+  mode     Rigor   @default(balanced) // rigor level persisted
+  folderId String? // optional folder
+
+  folder   ChatFolder?   @relation(fields: [folderId], references: [id], onDelete: SetNull)
+  messages ChatMessage[]
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([userId, updatedAt])
+  @@index([folderId])
+}
+
+model ChatMessage {
+  id String @id @default(cuid())
+
+  sessionId String
+  session   ChatSession @relation(fields: [sessionId], references: [id], onDelete: Cascade)
+
+  userId String? // null for assistant
+  user   User?   @relation(fields: [userId], references: [id], onDelete: SetNull)
+
+  role     ChatRole
+  content  String
+  metadata Json?
+
+  createdAt DateTime @default(now())
+
+  @@index([sessionId, createdAt])
+  @@index([userId, createdAt]) // ⬅️ ajouté pour le count { where: { userId } }
+}
+
+model PasswordReset {
+  id        String    @id @default(cuid())
+  userId    String
+  user      User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  token     String    @unique
+  expiresAt DateTime
+  usedAt    DateTime?
+  createdAt DateTime  @default(now())
+
+  @@index([userId])
+}

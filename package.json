@@ -1,0 +1,6 @@
+{
+  "dependencies": {
+    "react-markdown": "^10.1.0",
+    "sanitize-html": "^2.17.0"
+  }
+}

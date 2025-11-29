@@ -1,0 +1,14 @@
+[
+  { "id":"1","title":"Tonight as Arsenal...","imageUrl":"@/img/a1.jpg","url":"https://example.com/1","publishedAt":"2025-08-12T09:00:00Z","category":"Sport","views":520 },
+  { "id":"2","title":"Popcar set for Tour...","imageUrl":"/img/a1.jpg","url":"https://example.com/2","publishedAt":"2025-08-12T08:00:00Z","category":"Sport","views":410 },
+  { "id":"3","title":"Unforios Lions...","imageUrl":"/img/a1.jpg","url":"https://example.com/3","publishedAt":"2025-08-12T07:00:00Z","category":"Sport","views":380 },
+  { "id":"4","title":"UK condemns Hong Kong...","imageUrl":"/img/a1.jpg","url":"https://example.com/4","publishedAt":"2025-08-12T10:00:00Z","category":"World Conflict","views":120 },
+  { "id":"5","title":"Thai & Cambodian...","imageUrl":"/img/a1.jpg","url":"https://example.com/5","publishedAt":"2025-08-12T06:30:00Z","category":"World Conflict","views":150 },
+  { "id":"6","title":"School leavers joining...","imageUrl":"/img/a1.jpg","url":"https://example.com/6","publishedAt":"2025-08-11T22:10:00Z","category":"World Conflict","views":90 },
+  { "id":"7","title":"Insurance giant...","imageUrl":"/img/a1.jpg","url":"https://example.com/7","publishedAt":"2025-08-12T11:00:00Z","category":"Tech","views":260 },
+  { "id":"8","title":"Opticians split...","imageUrl":"/img/a1.jpg","url":"https://example.com/8","publishedAt":"2025-08-12T02:00:00Z","category":"Tech","views":190 },
+  { "id":"9","title":"Video game creation...","imageUrl":"/img/a1.jpg","url":"https://example.com/9","publishedAt":"2025-08-12T01:00:00Z","category":"Tech","views":130 },
+  { "id":"10","title":"Eurozone PMI slips","imageUrl":"/img/a1.jpg","url":"https://example.com/10","publishedAt":"2025-08-12T09:30:00Z","category":"Economy","views":300 },
+  { "id":"11","title":"Energy prices fall","imageUrl":"/img/a1.jpg","url":"https://example.com/11","publishedAt":"2025-08-11T23:30:00Z","category":"Economy","views":80 },
+  { "id":"12","title":"Startups raise...","imageUrl":"./img/a1.jpg","url":"https://example.com/12","publishedAt":"2025-08-11T12:00:00Z","category":"Economy","views":60 }
+]

@@ -1,0 +1,198 @@
+/* DEBUT src/styles/theme.css */
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+/* ================= Base / Fonts ================= */
+@layer base {
+  :root {
+    /* Font tokens: display vs body */
+    --font-display: "Thermal-variable", "thermal-variable", ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto, Inter, "Helvetica Neue", Arial, "Apple Color Emoji", "Segoe UI Emoji";
+    --font-body: ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto, Inter, "Helvetica Neue", Arial, "Apple Color Emoji", "Segoe UI Emoji";
+  }
+  html { font-family: var(--font-body); }
+  body { font-family: var(--font-body); }
+  h1, h2, h3, h4, .display { font-family: var(--font-display); font-variation-settings: "opsz" 100, "wght" 600; }
+}
+
+:root {
+  --bg: #FAFAF5; --fg: #000000; --muted: #6B7280;
+
+  /* Brand palette (claire) */
+  --brand-white:    #FAFAF5;
+  --brand-black:    #111111;
+  --brand-gray:     #EDEDED;
+
+  --brand-turquoise:       #38A6A6;
+  --brand-turquoise-light: #58C6C6;
+  --brand-cyan:            #78DCE3;
+  --brand-lime:            #CBEA62;
+  --brand-lime-light:      #B7E87C;
+}
+.dark {
+  --bg: #0A0A0A; --fg: #F4F4F5; --muted: #9CA3AF;
+
+  /* Optionnel : légers ajustements en dark */
+  --brand-gray: #2B2B2B;
+}
+html, body, #root { height: 100%; }
+body { background: var(--bg); color: var(--fg); }
+
+/* ================= Effects & helpers ================= */
+.glass { @apply bg-white/10 dark:bg-white/5 backdrop-blur-md border border-white/20 dark:border-white/10 shadow-soft; }
+.accent-line {
+  height: 2px; width: 6rem;
+  background: linear-gradient(90deg, var(--brand-turquoise), transparent);
+}
+html.a11y-contrast body { filter: contrast(1.1) saturate(1.05); }
+html { scroll-behavior: smooth; }
+.anchor-section { scroll-margin-top: 96px; }
+
+/* App layout toggles */
+html.epion-hide-app-header [data-app-header] { display: none !important; }
+html.epion-hide-app-footer  [data-footer],
+html.epion-hide-app-footer  [data-footer="epion-new"] { display: none !important; }
+/* Chat-only layout toggles (scoped by body class) */
+body.chat-hide-app-header [data-app-header] { display: none !important; }
+body.chat-hide-app-footer [data-app-footer] { display: none !important; }
+html[data-hide-app-header] [data-app-header] { display: none !important; }
+html[data-hide-footer]     [data-app-footer] { display: none !important; }
+
+/* Footer metrics */
+:root{
+  --app-header-h: 64px;
+  --app-footer-h: 360px;
+  --footer-offset: var(--app-footer-h);
+}
+
+/* Espace réservé au footer (utilisé par la page Chat) */
+[data-footer-spacer]{ display:block; height:var(--app-footer-h); }
+html.epion-hide-app-footer [data-footer-spacer],
+body.chat-hide-app-footer [data-footer-spacer],
+html[data-hide-footer] [data-footer-spacer]{ display:none !important; }
+
+/* Hauteur de footer “effective” = 0 si footer caché, sinon réelle */
+:root { --footer-visible-h: var(--app-footer-h); }
+html.epion-hide-app-footer,
+body.chat-hide-app-footer,
+html[data-hide-footer] { --footer-visible-h: 0px !important; }
+
+/* ================= Components (Tailwind layer) ================= */
+@layer components {
+  .form-input {
+    @apply w-full rounded-xl border px-3 py-2
+           bg-white text-neutral-900
+           border-black/10
+           placeholder:opacity-60
+           dark:bg-neutral-900 dark:text-neutral-100 dark:border-white/10;
+  }
+  .form-textarea {
+    @apply w-full rounded-xl border px-3 py-2
+           bg-white text-neutral-900
+           border-black/10
+           placeholder:opacity-60
+           dark:bg-neutral-900 dark:text-neutral-100 dark:border-white/10;
+  }
+  .form-select {
+    @apply w-full rounded-xl border px-3 py-2
+           bg-white text-neutral-900
+           border-black/10
+           dark:bg-neutral-900 dark:text-neutral-100 dark:border-white/10;
+  }
+  .chip {
+    @apply rounded-full border px-3 py-1 text-sm
+           border-black/10
+           dark:border-white/10;
+  }
+  .btn-primary {
+  @apply rounded-xl px-4 py-2 text-white disabled:opacity-60;
+  background: var(--brand-turquoise);
+}
+  .btn-ghost {
+    @apply rounded-xl border px-4 py-2 text-sm
+           hover:bg-black/5
+           border-black/10
+           dark:border-white/10 dark:hover:bg-white/10;
+  }
+}
+
+/* ================= Scrollbars ================= */
+/* Variables de couleur pour les scrollbars (light/dark) */
+:root{
+  --scroll-thumb: rgba(0,0,0,.28);
+  --scroll-thumb-hover: rgba(0,0,0,.45);
+}
+.dark{
+  --scroll-thumb: rgba(255,255,255,.28);
+  --scroll-thumb-hover: rgba(255,255,255,.45);
+}
+
+/* Chat scroll (zone de chat principale) */
+.chat-scroll{
+  scrollbar-gutter: stable both-edges;
+  overscroll-behavior: contain;
+  /* Firefox */
+  scrollbar-width: thin;
+  scrollbar-color: rgba(128,128,128,.35) transparent;
+}
+.chat-scroll::-webkit-scrollbar{ width: 8px; }
+.chat-scroll::-webkit-scrollbar-thumb{
+  background: rgba(128,128,128,.35);
+  border-radius: 999px;
+  border: 2px solid transparent;
+  background-clip: padding-box;
+}
+.chat-scroll::-webkit-scrollbar-track{ background: transparent; }
+
+/* Scroll fin réutilisable */
+.thin-scroll{
+  /* Firefox */
+  scrollbar-width: thin;
+  scrollbar-color: var(--scroll-thumb) transparent;
+
+  /* Chromium / WebKit */
+  scrollbar-gutter: stable;
+  overscroll-behavior: contain;
+}
+.thin-scroll::-webkit-scrollbar{ width: 8px; height: 8px; }
+.thin-scroll::-webkit-scrollbar-track{ background: transparent; }
+.thin-scroll::-webkit-scrollbar-thumb{
+  background-color: var(--scroll-thumb);
+  border-radius: 9999px;
+  border: 2px solid transparent;
+  background-clip: padding-box;
+}
+.thin-scroll:hover::-webkit-scrollbar-thumb{
+  background-color: var(--scroll-thumb-hover);
+}
+/* Cache les boutons ↑/↓ (Edge/Chrome) */
+.thin-scroll::-webkit-scrollbar-button{ width:0; height:0; display:none; }
+:root { color-scheme: light; }
+.dark { color-scheme: dark; }
+.btn-primary:hover { background: var(--brand-turquoise-light); }
+.bg-epion {
+  background: linear-gradient(135deg,
+    var(--brand-turquoise) 0%,
+    var(--brand-cyan) 40%,
+    var(--brand-lime) 100%
+  );
+}
+/* Hide the browser's built-in password reveal/clear buttons (Edge/IE/Chromium Edge) */
+.no-native-reveal::-ms-reveal,
+.no-native-reveal::-ms-clear { display: none; }
+
+/* Reduce odd autofill/reveal buttons in some WebKit builds */
+.no-native-reveal::-webkit-credentials-auto-fill-button,
+.no-native-reveal::-webkit-contacts-auto-fill-button {
+  visibility: hidden; display: none;
+}
+
+/* Optional: prevent any OS appearance from forcing it back */
+.no-native-reveal { -webkit-appearance: none; appearance: none; }
+/* ================= Custom utilities ================= */
+@layer utilities {
+  .shadow-soft {
+    /* tu peux ajuster la valeur si tu veux exactement la même ombre qu'avant */
+    box-shadow: 0 24px 60px rgba(15, 23, 42, 0.12);
+  }
+}

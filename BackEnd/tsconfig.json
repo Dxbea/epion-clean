@@ -1,0 +1,23 @@
+{
+  "compilerOptions": {
+    "baseUrl": ".",
+    "paths": {
+      "@/*": ["src/*"]
+    },
+    "target": "ES2020",
+    "lib": ["ES2020", "DOM", "DOM.Iterable"],
+    "module": "ESNext",
+    "moduleResolution": "Bundler",
+    "jsx": "react-jsx",                 // 👈 this removes “Cannot use JSX unless the --jsx flag is provided”
+    "strict": true,
+    "noEmit": true,
+    "isolatedModules": true,
+    "esModuleInterop": true,
+    "skipLibCheck": true,
+    "resolveJsonModule": true,
+    "types": ["vite/client", "react", "react-dom", "node" ]
+  },
+
+
+  "include": ["src", "vite-env.d.ts", "BackEnd/middleware", "BackEnd/index.ts", "BackEnd/routes"]
+}
