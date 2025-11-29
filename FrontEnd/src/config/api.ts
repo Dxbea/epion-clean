@@ -1,4 +1,5 @@
 // src/lib/api.ts
+const PROD_API_BASE = 'https://epion-clean.onrender.com';
 export const API_BASE =
   import.meta.env.VITE_API_URL || 'http://localhost:5175';
 
