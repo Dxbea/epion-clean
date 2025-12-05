@@ -1,6 +1,8 @@
 // src/main.tsx
 import React from 'react'
 import ReactDOM from 'react-dom/client'
+import { inject } from '@vercel/analytics';
+inject();
 
 import '@/styles/theme.css'
 import { I18nProvider } from '@/i18n/I18nContext'
