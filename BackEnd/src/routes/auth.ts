@@ -11,6 +11,10 @@ import {
   setSessionCookie,
   clearSessionCookie,
 } from '../lib/session';
+import { sendMail, APP_URL } from '../lib/mailer';
+import { getCurrentUserId } from '../lib/currentUser';
+
+
 
 const router = Router();
 
@@ -130,6 +134,61 @@ router.post('/auth/login', loginLimiter, async (req, res, next) => {
     next(e);
   }
 });
+// 🔁 Demander (ou redemander) un email de vérification
+// POST /api/auth/request-verify  { email }
+router.post('/auth/request-verify', async (req, res, next) => {
+  try {
+    const email = String(req.body?.email || '').trim().toLowerCase();
+    if (!email) {
+      return res.status(400).json({ error: 'invalid_email' });
+    }
+
+    // Ne pas révéler si le compte existe → on répond pareil dans tous les cas
+    const user = await prisma.user.findUnique({
+      where: { email },
+      select: { id: true, email: true },
+    });
+
+    if (!user) {
+      // On fait comme si tout allait bien
+      return res.status(204).end();
+    }
+
+    // Nettoyer d’anciens tokens
+    await prisma.emailVerificationToken.deleteMany({
+      where: { userId: user.id },
+    });
+
+    const token = crypto.randomUUID();
+    const expiresAt = new Date(Date.now() + 1000 * 60 * 60 * 24); // 24 h
+
+    await prisma.emailVerificationToken.create({
+      data: {
+        userId: user.id,
+        token,
+        expiresAt,
+      },
+    });
+
+    const appUrl = process.env.APP_URL ?? 'http://localhost:5173';
+    const verifyUrl = `${appUrl}/api/auth/verify-email?token=${encodeURIComponent(token)}`;
+
+
+    await sendMail({
+      to: user.email,
+      subject: 'Verify your email for Epion',
+      text: `Click this link to verify your email:\n\n${verifyUrl}`,
+      html: `<p>Click this link to verify your email:</p>
+             <p><a href="${verifyUrl}">${verifyUrl}</a></p>
+             <p>This link is valid for 24 hours.</p>`,
+    });
+
+    return res.status(204).end();
+  } catch (e) {
+    next(e);
+  }
+});
+
 
 
 /* ------------------------ LOGOUT ------------------------ */
@@ -298,4 +357,102 @@ router.delete('/auth/sessions/others', async (req, res) => {
   });
 
   res.json({ ok: true });
+});
+
+
+// POST /api/auth/email/verification-link
+// POST /api/auth/email/verification-link
+router.post('/auth/email/verification-link', async (req, res, next) => {
+  try {
+    const userId = await getCurrentUserId(req, res);
+
+    const user = await prisma.user.findUnique({
+      where: { id: userId },
+      select: { id: true, email: true, emailVerifiedAt: true },
+    });
+
+    if (!user) return res.status(401).json({ error: 'NO_SESSION' });
+
+    // déjà vérifié → on ne renvoie pas de mail
+    if (user.emailVerifiedAt) {
+      return res.status(204).end();
+    }
+
+    // on supprime les anciens tokens de ce user
+await prisma.emailVerificationToken.deleteMany({
+  where: { userId: user.id },
+});
+
+const token = crypto.randomUUID();
+const expiresAt = new Date(Date.now() + 1000 * 60 * 60 * 24); // 24 h
+
+await prisma.emailVerificationToken.create({
+  data: {
+    userId: user.id,
+    token,
+    expiresAt,
+  },
+});
+
+
+    // auth.ts – dans router.post('/auth/email/verification-link', ...)
+const verifyUrl = `${APP_URL}/api/auth/verify-email?token=${encodeURIComponent(token)}`;
+
+
+
+    await sendMail({
+      to: user.email,
+      subject: 'Verify your email for Epion',
+      text: `Click this link to verify your email:\n\n${verifyUrl}`,
+      html: `<p>Click this link to verify your email:</p>
+             <p><a href="${verifyUrl}">${verifyUrl}</a></p>
+             <p>This link is valid for 24 hours.</p>`,
+    });
+
+    return res.status(204).end();
+  } catch (e) {
+    console.error('[verify-email-link] error:', e);
+    return res.status(500).json({ error: 'INTERNAL_ERROR' });
+  }
+});
+
+
+
+// GET /api/auth/verify-email?token=...
+router.get('/auth/verify-email', async (req, res, next) => {
+  try {
+    const token = String(req.query.token || '').trim();
+    if (!token) {
+      return res.status(400).send('Invalid verification link.');
+    }
+
+    const record = await prisma.emailVerificationToken.findUnique({
+      where: { token },
+    });
+
+    if (!record) {
+      return res.status(400).send('Invalid or expired verification link.');
+    }
+
+    if (record.expiresAt < new Date()) {
+      return res.status(400).send('Verification link has expired.');
+    }
+
+    await prisma.$transaction([
+      prisma.user.update({
+        where: { id: record.userId },
+        data: { emailVerifiedAt: new Date() },
+      }),
+      prisma.emailVerificationToken.delete({
+        where: { id: record.id },
+      }),
+    ]);
+
+    const redirectBase =
+      process.env.APP_VERIFY_REDIRECT_URL ?? 'http://localhost:5173/account';
+
+    return res.redirect(`${redirectBase}?email_verified=1`);
+  } catch (e) {
+    next(e);
+  }
 });

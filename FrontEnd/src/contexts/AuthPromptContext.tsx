@@ -2,11 +2,14 @@
 import * as React from 'react';
 import { useNavigate } from 'react-router-dom';
 
+type AuthPromptKind = 'signin' | 'verify_email';
+
 type AuthPromptOptions = {
   title?: string;
   message?: string;
   redirectTo?: string;
   primaryLabel?: string;
+  kind?: AuthPromptKind; // <-- nouveau
 };
 
 type AuthPromptContextValue = {
@@ -25,19 +28,31 @@ export function AuthPromptProvider({ children }: { children: React.ReactNode }) 
   const [open, setOpen] = React.useState(false);
   const [title, setTitle] = React.useState<string>('Sign in required');
   const [message, setMessage] = React.useState<string>('');
-  const [redirectTo, setRedirectTo] = React.useState<string>('/settings#account');
-  const [primaryLabel, setPrimaryLabel] = React.useState<string>('Sign in');
+  const [redirectTo, setRedirectTo] =
+    React.useState<string>('/settings#account');
+  const [primaryLabel, setPrimaryLabel] =
+    React.useState<string>('Sign in');
 
   const navigate = useNavigate();
 
   const requireAuth = React.useCallback((opts?: AuthPromptOptions) => {
-    setTitle(opts?.title ?? 'Sign in required');
-    setMessage(
-      opts?.message ??
-        'You need an account to use this feature. Sign in or create one for free.',
-    );
+    const kind: AuthPromptKind = opts?.kind ?? 'signin';
+
+    const defaultTitle =
+      kind === 'verify_email' ? 'Verify your email' : 'Sign in required';
+
+    const defaultMessage =
+      kind === 'verify_email'
+        ? 'You need to verify your email address before using this feature. Go to Settings → Account to resend the verification link.'
+        : 'You need an account to use this feature. Sign in or create one for free.';
+
+    const defaultPrimaryLabel =
+      kind === 'verify_email' ? 'Go to account' : 'Sign in';
+
+    setTitle(opts?.title ?? defaultTitle);
+    setMessage(opts?.message ?? defaultMessage);
     setRedirectTo(opts?.redirectTo ?? '/settings#account');
-    setPrimaryLabel(opts?.primaryLabel ?? 'Sign in');
+    setPrimaryLabel(opts?.primaryLabel ?? defaultPrimaryLabel);
     setOpen(true);
   }, []);
 

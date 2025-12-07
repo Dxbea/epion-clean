@@ -13,20 +13,23 @@ export default function VerifyEmailActions({ email }: { email: string }) {
   async function resend() {
     try {
       setBusy(true);
-      await fetch(`${API_BASE}/api/auth/request-verify`, {
+      const res = await fetch(`${API_BASE}/api/auth/email/verification-link`, {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
         credentials: 'include',
-        body: JSON.stringify({ email }),
       });
-      push('If this email exists, we sent a verification link.', 'success')
-    }catch {
-  push('Could not send verification email. Try again.', 'error') // ⬅️ NEW
+
+      if (!res.ok) {
+        throw new Error(`HTTP ${res.status}`);
+      }
+
+      push('If this email exists, we sent a verification link.', 'success');
+    } catch (e) {
+      console.error('verify email error:', e);
+      push('Could not send verification email. Try again.', 'error');
     } finally {
       setBusy(false);
     }
   }
-  
 
   return (
     <Button onClick={resend} disabled={busy}>

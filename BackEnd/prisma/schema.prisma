@@ -42,22 +42,10 @@ model User {
   ArticleView ArticleView[]
   ChatFolder  ChatFolder[]
 
-  emailVerifications EmailVerification[]
-  emailVerifiedAt    DateTime?
+  emailVerifiedAt DateTime?
 
-  passwordResets PasswordReset[] // back-rel manquante
-}
-
-model EmailVerification {
-  id        String    @id @default(cuid())
-  userId    String
-  user      User      @relation(fields: [userId], references: [id], onDelete: Cascade)
-  token     String    @unique
-  expiresAt DateTime
-  usedAt    DateTime?
-  createdAt DateTime  @default(now())
-
-  @@index([userId])
+  passwordResets         PasswordReset[] // back-rel manquante
+  EmailVerificationToken EmailVerificationToken[]
 }
 
 model Session {
@@ -103,11 +91,11 @@ model Article {
   stats ArticleStats? @relation("ArticleStats")
 
   // IA
-  generationPrompt   String?
-  generationConfig   Json?
-  generatedAt        DateTime?
-  generationVersion  Int       @default(0)
-  aiLockedFields     Json?     // ex: ["title", "summary", "content"]
+  generationPrompt  String?
+  generationConfig  Json?
+  generatedAt       DateTime?
+  generationVersion Int       @default(0)
+  aiLockedFields    Json? // ex: ["title", "summary", "content"]
 
   // 🔥 Add these two back-relations:
   comments  Comment[]         @relation("ArticleComments")
@@ -283,6 +271,18 @@ model PasswordReset {
   expiresAt DateTime
   usedAt    DateTime?
   createdAt DateTime  @default(now())
+
+  @@index([userId])
+}
+
+model EmailVerificationToken {
+  id        String   @id @default(cuid())
+  userId    String
+  token     String   @unique
+  createdAt DateTime @default(now())
+  expiresAt DateTime
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
 
   @@index([userId])
 }

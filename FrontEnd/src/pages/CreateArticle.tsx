@@ -5,6 +5,7 @@ import SectionHeader from '@/components/SectionHeader';
 import { API_BASE } from '@/config/api';
 import { useMe } from '@/contexts/MeContext';
 import { withCsrf } from '@/lib/csrf';
+import { useAuthPrompt } from '@/contexts/AuthPromptContext';
 
 // Anti-XSS rapide
 const stripTags = (s: string) => s.replace(/<[^>]*>/g, '');
@@ -44,6 +45,7 @@ type Category = { id: string; name: string; slug: string };
 export default function CreateArticlePage() {
   const navigate = useNavigate();
   const { me, loading: meLoading } = useMe();
+  const { requireAuth } = useAuthPrompt();
 
   // 1) ce que l’utilisateur veut que l’IA écrive
   const [prompt, setPrompt] = React.useState('');
@@ -63,6 +65,8 @@ export default function CreateArticlePage() {
   const [showAdvanced, setShowAdvanced] = React.useState(false);
   const [submitting, setSubmitting] = React.useState(false);
   const [error, setError] = React.useState<string | null>(null);
+
+  const emailNotVerified = !!me && !me.emailVerifiedAt;
 
   // charger catégories
   React.useEffect(() => {
@@ -87,10 +91,22 @@ export default function CreateArticlePage() {
     };
   }, []);
 
+ React.useEffect(() => {
+  if (!meLoading && emailNotVerified) {
+    requireAuth({
+      kind: 'verify_email',
+      message:
+        'You need to verify your email address before creating articles. Go to Settings → Account to resend the verification link.',
+      redirectTo: '/settings#account',
+    });
+  }
+}, [meLoading, emailNotVerified, requireAuth]);
+
+
   // image de la catégorie
   const cat = React.useMemo(
     () => cats.find((c) => c.id === categoryId) || null,
-    [cats, categoryId]
+    [cats, categoryId],
   );
   const catKey = (cat?.slug || cat?.name || 'news').toLowerCase();
   const stockList = STOCK_IMAGES[catKey] || STOCK_IMAGES.news;
@@ -106,13 +122,33 @@ export default function CreateArticlePage() {
 
   async function onSubmit(e: React.FormEvent) {
     e.preventDefault();
-    if (!prompt.trim()) return;
 
-// 🔒 XSS
-if (forbidHtml(prompt)) {
-  setError('HTML tags are not allowed in the prompt.');
+    if (!me) {
+      requireAuth({
+        message: 'You need an account to create articles.',
+        redirectTo: '/settings#account',
+      });
+      return;
+    }
+
+    if (emailNotVerified) {
+  requireAuth({
+    kind: 'verify_email',
+    message:
+      'You need to verify your email address before creating articles. Go to Settings → Account to resend the verification link.',
+    redirectTo: '/settings#account',
+  });
   return;
 }
+
+
+    if (!prompt.trim()) return;
+
+    // 🔒 XSS
+    if (forbidHtml(prompt)) {
+      setError('HTML tags are not allowed in the prompt.');
+      return;
+    }
 
     if (promptTooLong) {
       setError(`Le prompt est trop long (${prompt.length} / ${MAX_PROMPT_CHARS} caractères).`);
@@ -146,14 +182,13 @@ if (forbidHtml(prompt)) {
       };
 
       const res = await fetch(
-  `${API_BASE}/api/articles`,
-  await withCsrf({
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify(payload),
-  })
-);
-
+        `${API_BASE}/api/articles`,
+        await withCsrf({
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(payload),
+        }),
+      );
 
       if (!res.ok) {
         const msg = await res.text().catch(() => '');
@@ -193,15 +228,50 @@ if (forbidHtml(prompt)) {
         <SectionHeader title="Create an article (AI-first)" />
 
         <div className="rounded-2xl border border-black/10 bg-white p-4 text-sm shadow-sm dark:border-white/10 dark:bg-neutral-950">
-          <p className="mb-3">
-            You need an account to create articles with Epion.
-          </p>
+          <p className="mb-3">You need an account to create articles with Epion.</p>
           <div className="flex gap-3">
             <Link
               to="/settings#account"
               className="rounded-xl bg-black px-4 py-2 text-white dark:bg-white dark:text-black"
             >
               Sign in / Create account
+            </Link>
+            <Link
+              to="/actuality"
+              className="rounded-xl border px-4 py-2 hover:bg-black/5 dark:border-white/10"
+            >
+              Back to Actuality
+            </Link>
+          </div>
+        </div>
+      </main>
+    );
+  }
+
+  if (emailNotVerified) {
+    return (
+      <main className="mx-auto w-full max-w-3xl px-4 py-10 space-y-6">
+        <nav className="text-sm opacity-70">
+          <Link to="/actuality" className="hover:underline">
+            Actuality
+          </Link>
+          <span className="mx-2">/</span>
+          <span>Create</span>
+        </nav>
+
+        <SectionHeader title="Create an article (AI-first)" />
+
+        <div className="rounded-2xl border border-black/10 bg-white p-4 text-sm shadow-sm dark:border-white/10 dark:bg-neutral-950">
+          <p className="mb-3">
+            You need to verify your email address before creating articles.  
+            Go to Settings → Account to resend the verification link.
+          </p>
+          <div className="flex gap-3">
+            <Link
+              to="/settings#account"
+              className="rounded-xl bg-black px-4 py-2 text-white dark:bg-white dark:text-black"
+            >
+              Go to account
             </Link>
             <Link
               to="/actuality"
@@ -314,7 +384,7 @@ if (forbidHtml(prompt)) {
         </div>
 
         {showAdvanced && (
-          <div className="space-y-3 rounded-2xl border border-black/10 p-4 dark:border:white/10 dark:border-white/10">
+          <div className="space-y-3 rounded-2xl border border-black/10 p-4 dark:border-white/10">
             <label className="block text-sm font-medium">Cover image</label>
 
             <div className="flex gap-2">
@@ -323,7 +393,7 @@ if (forbidHtml(prompt)) {
                 onClick={() => setImageMode('auto')}
                 className={`rounded-full border px-3 py-1 text-sm dark:border-white/10 ${
                   imageMode === 'auto'
-                    ? 'bg-black text-white dark:bg:white dark:bg-white dark:text-black'
+                    ? 'bg-black text-white dark:bg-white dark:text-black'
                     : ''
                 }`}
               >
@@ -345,7 +415,7 @@ if (forbidHtml(prompt)) {
                 onClick={() => setImageMode('stock')}
                 className={`rounded-full border px-3 py-1 text-sm dark:border-white/10 ${
                   imageMode === 'stock'
-                    ? 'bg-black text-white dark:bg-white dark:text-black'
+                    ? 'bg-black text-white dark:bg:white dark:text-black'
                     : ''
                 }`}
               >

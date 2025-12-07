@@ -7,11 +7,10 @@ import ReactMarkdown from 'react-markdown';
 import { useMe } from '@/contexts/MeContext';
 import { useDirtyGuard } from '@/hooks/useDirtyGuard';
 import { withCsrf } from '@/lib/csrf';
+import { useAuthPrompt } from '@/contexts/AuthPromptContext';
 
 const stripTags = (s: string) => s.replace(/<[^>]*>/g, '');
 const forbidHtml = (s: string): boolean => /<|>/.test(s);
-
-
 
 const STOCK_IMAGES: Record<string, string[]> = {
   tech: [
@@ -57,6 +56,8 @@ export default function EditArticlePage() {
   const navigate = useNavigate();
 
   const { me, loading: meLoading } = useMe();
+  const { requireAuth } = useAuthPrompt();
+  const emailNotVerified = !!me && !me.emailVerifiedAt;
 
   // UI
   const [loading, setLoading] = React.useState(true);
@@ -93,6 +94,18 @@ export default function EditArticlePage() {
   const [autoSaving, setAutoSaving] = React.useState(false);
   useDirtyGuard(dirty);
 
+  // pop-up email non vérifié
+  React.useEffect(() => {
+  if (!meLoading && emailNotVerified) {
+    requireAuth({
+      message:
+        'You need to verify your email address before editing articles. Go to Settings → Account to resend the verification link.',
+      redirectTo: '/settings#account',
+    });
+  }
+}, [meLoading, emailNotVerified, requireAuth]);
+
+
   // 1. charger les catégories
   React.useEffect(() => {
     let alive = true;
@@ -109,7 +122,9 @@ export default function EditArticlePage() {
         if (alive) setCats([]);
       }
     })();
-    return () => { alive = false; };
+    return () => {
+      alive = false;
+    };
   }, []);
 
   // 2. charger l’article (slug -> id)
@@ -119,17 +134,17 @@ export default function EditArticlePage() {
       setLoading(true);
       setError(null);
       try {
-        // 1) essai par slug (inclut check status PUBLISHED côté /slug/:slug pour les publics)
+        // 1) essai par slug
         let res = await fetch(
           `${API_BASE}/api/articles/slug/${encodeURIComponent(idOrSlug)}`,
-          { credentials: 'include' }
+          { credentials: 'include' },
         );
 
-        // 2) si 404 → essai par id (pour brouillons accessibles uniquement à l'auteur)
+        // 2) si 404 → essai par id
         if (res.status === 404) {
           res = await fetch(
             `${API_BASE}/api/articles/${encodeURIComponent(idOrSlug)}`,
-            { credentials: 'include' }
+            { credentials: 'include' },
           );
         }
 
@@ -165,23 +180,30 @@ export default function EditArticlePage() {
         if (alive) setLoading(false);
       }
     })();
-    return () => { alive = false; };
+    return () => {
+      alive = false;
+    };
   }, [idOrSlug]);
 
-  // 3. vérifier droit d’édition
+  // 3. vérifier droit d’édition (uniquement si email vérifié)
   React.useEffect(() => {
     if (meLoading) return;
     if (!me || !authorId) {
       setForbidden(false);
       return;
     }
+    if (emailNotVerified) {
+      // l’écran sera de toute façon bloqué plus bas
+      setForbidden(true);
+      return;
+    }
     setForbidden(me.id !== authorId);
-  }, [meLoading, me, authorId]);
+  }, [meLoading, me, authorId, emailNotVerified]);
 
   // helpers image
   const cat = React.useMemo(
     () => cats.find((c) => c.id === categoryId) || null,
-    [cats, categoryId]
+    [cats, categoryId],
   );
   const catKey = (cat?.slug || cat?.name || 'news').toLowerCase();
   const stockList = STOCK_IMAGES[catKey] || STOCK_IMAGES.news;
@@ -197,11 +219,31 @@ export default function EditArticlePage() {
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
     if (!articleId) return;
-    // 🔒 Anti-XSS
-if (forbidHtml(title) || forbidHtml(summary) || forbidHtml(content)) {
-  setError('HTML tags are not allowed.');
+
+    if (!me) {
+      requireAuth({
+        message: 'You need an account to edit articles.',
+        redirectTo: '/settings#account',
+      });
+      return;
+    }
+
+    if (emailNotVerified) {
+  requireAuth({
+    kind: 'verify_email',
+    message:
+      'You need to verify your email address before editing articles. Go to Settings → Account to resend the verification link.',
+    redirectTo: '/settings#account',
+  });
   return;
 }
+
+
+    // 🔒 Anti-XSS
+    if (forbidHtml(title) || forbidHtml(summary) || forbidHtml(content)) {
+      setError('HTML tags are not allowed.');
+      return;
+    }
 
     if (forbidden) return;
 
@@ -216,21 +258,20 @@ if (forbidHtml(title) || forbidHtml(summary) || forbidHtml(content)) {
       if (imageMode === 'auto') finalImageUrl = null;
 
       const res = await fetch(
-  `${API_BASE}/api/articles/${articleId}`,
-  await withCsrf({
-    method: 'PUT',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({
-      title: title.trim(),
-      summary: summary.trim() || null,
-      content: content.trim() || null,
-      imageUrl: finalImageUrl,
-      categoryId: categoryId || null,
-      status,
-    }),
-  })
-);
-
+        `${API_BASE}/api/articles/${articleId}`,
+        await withCsrf({
+          method: 'PUT',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            title: title.trim(),
+            summary: summary.trim() || null,
+            content: content.trim() || null,
+            imageUrl: finalImageUrl,
+            categoryId: categoryId || null,
+            status,
+          }),
+        }),
+      );
 
       if (!res.ok) throw new Error(`HTTP ${res.status}`);
       const j = await res.json(); // { id, slug }
@@ -251,13 +292,32 @@ if (forbidHtml(title) || forbidHtml(summary) || forbidHtml(content)) {
   async function handleDelete() {
     if (!articleId) return;
     if (forbidden) return;
+
+    if (!me) {
+      requireAuth({
+        message: 'You need an account to edit articles.',
+        redirectTo: '/settings#account',
+      });
+      return;
+    }
+    if (emailNotVerified) {
+  requireAuth({
+    kind: 'verify_email',
+    message:
+      'You need to verify your email address before editing articles. Go to Settings → Account to resend the verification link.',
+    redirectTo: '/settings#account',
+  });
+  return;
+}
+
+
     if (!window.confirm('Delete this article?')) return;
     try {
       setLoading(true);
       const r = await fetch(
-      `${API_BASE}/api/articles/${articleId}`,
-      await withCsrf({ method: 'DELETE' })
-    );
+        `${API_BASE}/api/articles/${articleId}`,
+        await withCsrf({ method: 'DELETE' }),
+      );
 
       if (!r.ok && r.status !== 204) throw new Error(`HTTP ${r.status}`);
       navigate('/account/articles');
@@ -270,7 +330,7 @@ if (forbidHtml(title) || forbidHtml(summary) || forbidHtml(content)) {
 
   // 6. autosave toutes les 10s
   React.useEffect(() => {
-    if (!articleId || forbidden) return;
+    if (!articleId || forbidden || emailNotVerified || !me) return;
     const timer = setInterval(async () => {
       if (!dirty || autoSaving) return;
       try {
@@ -293,9 +353,8 @@ if (forbidHtml(title) || forbidHtml(summary) || forbidHtml(content)) {
               categoryId: categoryId || null,
               status: 'DRAFT',
             }),
-          })
+          }),
         );
-
 
         setDirty(false);
       } catch {
@@ -309,6 +368,8 @@ if (forbidHtml(title) || forbidHtml(summary) || forbidHtml(content)) {
   }, [
     articleId,
     forbidden,
+    emailNotVerified,
+    me,
     dirty,
     autoSaving,
     title,
@@ -322,8 +383,7 @@ if (forbidHtml(title) || forbidHtml(summary) || forbidHtml(content)) {
 
   // 7. Ask Epion (simu)
   async function handleAsk() {
-    if (!articleId) return;
-    if (forbidden) return;
+    if (!articleId || forbidden || emailNotVerified || !me) return;
     const prompt = ask.trim();
     if (!prompt) return;
     setAskLoading(true);
@@ -345,7 +405,43 @@ if (forbidHtml(title) || forbidHtml(summary) || forbidHtml(content)) {
     );
   }
 
-  if (!loading && forbidden) {
+  // pas connecté
+  if (!me && !meLoading) {
+    return (
+      <main className="mx-auto w-full max-w-3xl px-4 py-10 space-y-6">
+        <nav className="text-sm opacity-70">
+          <Link to="/actuality" className="hover:underline">
+            Actuality
+          </Link>
+          <span className="mx-2">/</span>
+          <span>Edit</span>
+        </nav>
+
+        <SectionHeader title="Edit article" />
+
+        <div className="rounded-2xl border border-black/10 bg-white p-4 text-sm shadow-sm dark:border-white/10 dark:bg-neutral-950">
+          <p className="mb-3">You need an account to edit articles.</p>
+          <div className="flex gap-3">
+            <Link
+              to="/settings#account"
+              className="rounded-xl bg-black px-4 py-2 text-white dark:bg-white dark:text-black"
+            >
+              Sign in / Create account
+            </Link>
+            <Link
+              to={articleSlug ? `/article/${articleSlug}` : '/actuality'}
+              className="rounded-xl border px-4 py-2 hover:bg-black/5 dark:border-white/10"
+            >
+              View article
+            </Link>
+          </div>
+        </div>
+      </main>
+    );
+  }
+
+  // email non vérifié
+  if (emailNotVerified) {
     return (
       <main className="mx-auto w-full max-w-3xl px-4 py-10 space-y-6">
         <nav className="text-sm opacity-70">
@@ -360,8 +456,43 @@ if (forbidHtml(title) || forbidHtml(summary) || forbidHtml(content)) {
 
         <div className="rounded-2xl border border-black/10 bg-white p-4 text-sm shadow-sm dark:border-white/10 dark:bg-neutral-950">
           <p className="mb-3">
-            You are not allowed to edit this article.
+            You need to verify your email address before editing articles.  
+            Go to Settings → Account to resend the verification link.
           </p>
+          <div className="flex gap-3">
+            <Link
+              to="/settings#account"
+              className="rounded-xl bg-black px-4 py-2 text-white dark:bg-white dark:text-black"
+            >
+              Go to account
+            </Link>
+            <Link
+              to={articleSlug ? `/article/${articleSlug}` : '/actuality'}
+              className="rounded-xl border px-4 py-2 hover:bg-black/5 dark:border-white/10"
+            >
+              View article
+            </Link>
+          </div>
+        </div>
+      </main>
+    );
+  }
+
+  if (!loading && forbidden) {
+    return (
+      <main className="mx-auto w-full max-w-3xl px-4 py-10 space-y-6">
+        <nav className="text-sm opacity-70">
+          <Link to="/actuality" className="hover:underline">
+            Actuality
+          </Link>
+          <span className="mx-2">/</span>
+          <span>Edit</span>
+        </nav>
+
+        <SectionHeader title="Edit article" />
+
+        <div className="rounded-2xl border border-black/10 bg-white p-4 text-sm shadow-sm dark:border-white/10 dark:bg-neutral-950">
+          <p className="mb-3">You are not allowed to edit this article.</p>
           <div className="flex gap-3">
             <Link
               to={articleSlug ? `/article/${articleSlug}` : '/actuality'}
@@ -419,7 +550,7 @@ if (forbidHtml(title) || forbidHtml(summary) || forbidHtml(content)) {
             onClick={() => {
               setStatus('DRAFT');
               document.getElementById('edit-article-form')?.dispatchEvent(
-                new Event('submit', { cancelable: true, bubbles: true })
+                new Event('submit', { cancelable: true, bubbles: true }),
               );
             }}
             disabled={loading || !title.trim() || forbidden}
@@ -433,11 +564,11 @@ if (forbidHtml(title) || forbidHtml(summary) || forbidHtml(content)) {
             onClick={() => {
               setStatus('PUBLISHED');
               document.getElementById('edit-article-form')?.dispatchEvent(
-                new Event('submit', { cancelable: true, bubbles: true })
+                new Event('submit', { cancelable: true, bubbles: true }),
               );
             }}
             disabled={loading || !title.trim() || forbidden}
-            className="h-9 rounded-full bg-black px-4 text-sm text-white disabled:opacity-60 dark:bg-white dark:text-black"
+            className="h-9 rounded-full bg-black px-4 text-sm text-white disabled:opacity-60 dark:bg:white dark:text-black"
           >
             {status === 'PUBLISHED' ? 'Publish this version' : 'Publish'}
           </button>
@@ -575,7 +706,6 @@ if (forbidHtml(title) || forbidHtml(summary) || forbidHtml(content)) {
                   </option>
                 ))}
               </select>
-              
 
               <label className="mt-4 mb-2 block text-sm font-medium">Cover image</label>
               <div className="flex gap-2">

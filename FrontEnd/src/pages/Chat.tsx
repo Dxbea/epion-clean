@@ -2,6 +2,8 @@
 // DEBUT BLOC
 import React from 'react';
 import { useNavigate } from 'react-router-dom';
+import { API_BASE } from '@/config/api';
+import { withCsrf } from '@/lib/csrf';
 
 export default function Chat() {
   const nav = useNavigate();
@@ -11,11 +13,14 @@ export default function Chat() {
 
     (async () => {
       try {
-        const res = await fetch('/api/chat/sessions', {
-          method: 'POST',
-          credentials: 'include',
-          headers: { 'Content-Type': 'application/json' },
-        });
+        const res = await fetch(
+          `${API_BASE}/api/chat/sessions`,
+          await withCsrf({
+            method: 'POST',
+            credentials: 'include',
+            headers: { 'Content-Type': 'application/json' },
+          }),
+        );
 
         if (cancelled) return;
 

@@ -14,18 +14,54 @@ import { useLocation } from 'react-router-dom';
 
 // -------- Mock/fallback (sert si l’API ne renvoie rien) --------
 const FALLBACK: Article[] = [
-  { id:'1',  title:'Startups raise...',            imageUrl:'/img/a1.jpg',  url:'https://example.com/1',  publishedAt:new Date().toISOString(), category:'Economy',        views:300 },
-  { id:'2',  title:'Energy prices fall',           imageUrl:'/img/a2.jpg',  url:'https://example.com/2',  publishedAt:new Date().toISOString(), category:'Economy',        views:80  },
-  { id:'3',  title:'Eurozone PMI slips',           imageUrl:'/img/a3.jpg',  url:'https://example.com/3',  publishedAt:new Date().toISOString(), category:'Economy',        views:260 },
-  { id:'4',  title:'UK condemns Hong Kong...',     imageUrl:'/img/a4.jpg',  url:'https://example.com/4',  publishedAt:new Date().toISOString(), category:'World Conflict', views:120 },
-  { id:'5',  title:'Thai & Cambodian...',          imageUrl:'/img/a5.jpg',  url:'https://example.com/5',  publishedAt:new Date().toISOString(), category:'World Conflict', views:150 },
-  { id:'6',  title:'School leavers joining...',    imageUrl:'/img/a6.jpg',  url:'https://example.com/6',  publishedAt:new Date().toISOString(), category:'World Conflict', views:90  },
-  { id:'7',  title:'Tonight as Arsenal...',        imageUrl:'/img/a7.jpg',  url:'https://example.com/7',  publishedAt:new Date().toISOString(), category:'Sport',          views:520 },
-  { id:'8',  title:'Popcar set for Tour...',       imageUrl:'/img/a8.jpg',  url:'https://example.com/8',  publishedAt:new Date().toISOString(), category:'Sport',          views:410 },
-  { id:'9',  title:'Unforios Lions...',            imageUrl:'/img/a9.jpg',  url:'https://example.com/9',  publishedAt:new Date().toISOString(), category:'Sport',          views:380 },
-  { id:'10', title:'Insurance giant...',           imageUrl:'/img/a10.jpg', url:'https://example.com/10', publishedAt:new Date().toISOString(), category:'Tech',           views:260 },
-  { id:'11', title:'Opticians split...',           imageUrl:'/img/a11.jpg', url:'https://example.com/11', publishedAt:new Date().toISOString(), category:'Tech',           views:190 },
-  { id:'12', title:'Video game creation...',       imageUrl:'/img/a12.jpg', url:'https://example.com/12', publishedAt:new Date().toISOString(), category:'Tech',           views:130 },
+  {
+    id: '1', title: 'Startups raise...', imageUrl: '/img/a1.jpg', url: 'https://example.com/1', publishedAt: new Date().toISOString(), category: 'Economy', views: 300,
+    excerpt: ''
+  },
+  {
+    id: '2', title: 'Energy prices fall', imageUrl: '/img/a2.jpg', url: 'https://example.com/2', publishedAt: new Date().toISOString(), category: 'Economy', views: 80,
+    excerpt: ''
+  },
+  {
+    id: '3', title: 'Eurozone PMI slips', imageUrl: '/img/a3.jpg', url: 'https://example.com/3', publishedAt: new Date().toISOString(), category: 'Economy', views: 260,
+    excerpt: ''
+  },
+  {
+    id: '4', title: 'UK condemns Hong Kong...', imageUrl: '/img/a4.jpg', url: 'https://example.com/4', publishedAt: new Date().toISOString(), category: 'World Conflict', views: 120,
+    excerpt: ''
+  },
+  {
+    id: '5', title: 'Thai & Cambodian...', imageUrl: '/img/a5.jpg', url: 'https://example.com/5', publishedAt: new Date().toISOString(), category: 'World Conflict', views: 150,
+    excerpt: ''
+  },
+  {
+    id: '6', title: 'School leavers joining...', imageUrl: '/img/a6.jpg', url: 'https://example.com/6', publishedAt: new Date().toISOString(), category: 'World Conflict', views: 90,
+    excerpt: ''
+  },
+  {
+    id: '7', title: 'Tonight as Arsenal...', imageUrl: '/img/a7.jpg', url: 'https://example.com/7', publishedAt: new Date().toISOString(), category: 'Sport', views: 520,
+    excerpt: ''
+  },
+  {
+    id: '8', title: 'Popcar set for Tour...', imageUrl: '/img/a8.jpg', url: 'https://example.com/8', publishedAt: new Date().toISOString(), category: 'Sport', views: 410,
+    excerpt: ''
+  },
+  {
+    id: '9', title: 'Unforios Lions...', imageUrl: '/img/a9.jpg', url: 'https://example.com/9', publishedAt: new Date().toISOString(), category: 'Sport', views: 380,
+    excerpt: ''
+  },
+  {
+    id: '10', title: 'Insurance giant...', imageUrl: '/img/a10.jpg', url: 'https://example.com/10', publishedAt: new Date().toISOString(), category: 'Tech', views: 260,
+    excerpt: ''
+  },
+  {
+    id: '11', title: 'Opticians split...', imageUrl: '/img/a11.jpg', url: 'https://example.com/11', publishedAt: new Date().toISOString(), category: 'Tech', views: 190,
+    excerpt: ''
+  },
+  {
+    id: '12', title: 'Video game creation...', imageUrl: '/img/a12.jpg', url: 'https://example.com/12', publishedAt: new Date().toISOString(), category: 'Tech', views: 130,
+    excerpt: ''
+  },
 ];
 
 // -------- utils --------

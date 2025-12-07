@@ -163,6 +163,9 @@ router.get('/comments/:id/replies', async (req, res, next) => {
 
 
 
+// BackEnd/src/routes/comments.ts
+// … tout le haut du fichier inchangé …
+
 router.post('/articles/:id/comments', async (req, res, next) => {
   try {
     let userId: string;
@@ -172,33 +175,46 @@ router.post('/articles/:id/comments', async (req, res, next) => {
       return res.status(401).json({ error: 'NO_SESSION' });
     }
 
+    // Vérification email vérifié
+    const user = await prisma.user.findUnique({
+      where: { id: userId },
+      select: { emailVerifiedAt: true },
+    });
+
+    if (!user || !user.emailVerifiedAt) {
+      return res.status(403).json({
+        error: 'EMAIL_NOT_VERIFIED',
+        message:
+          'You need to verify your email address before posting comments.',
+      });
+    }
+
     const articleId = String(req.params.id);
     const { content, parentId } = req.body || {};
 
-const raw = String(content ?? '').trim();
-if (!raw) {
-  return res.status(400).json({ error: 'Content required' });
-}
+    const raw = String(content ?? '').trim();
+    if (!raw) {
+      return res.status(400).json({ error: 'Content required' });
+    }
 
-const text = sanitizeCommentHtml(raw);
-if (!text) {
-  return res.status(400).json({ error: 'Content required' });
-}
+    const text = sanitizeCommentHtml(raw);
+    if (!text) {
+      return res.status(400).json({ error: 'Content required' });
+    }
 
-if (text.length > COMMENT_LIMITS.maxLength) {
-  return res.status(400).json({
-    error: 'comment_too_long',
-    message: `Le commentaire est trop long (> ${COMMENT_LIMITS.maxLength} caractères).`,
-  });
-}
-
+    if (text.length > COMMENT_LIMITS.maxLength) {
+      return res.status(400).json({
+        error: 'comment_too_long',
+        message: `Le commentaire est trop long (> ${COMMENT_LIMITS.maxLength} caractères).`,
+      });
+    }
 
     // rate limit par user (débit)
     const rl = checkRateLimit(userId, {
-  bucket: 'comments:post',
-  windowMs: 60_000,
-  max: COMMENT_LIMITS.maxPerMinute,
-});
+      bucket: 'comments:post',
+      windowMs: 60_000,
+      max: COMMENT_LIMITS.maxPerMinute,
+    });
 
     if (!rl.ok) {
       return res.status(429).json({
@@ -272,6 +288,7 @@ if (text.length > COMMENT_LIMITS.maxLength) {
     next(e);
   }
 });
+
 
 
 /** DELETE /api/comments/:id  (auteur, auteur de l’article ou admin) */

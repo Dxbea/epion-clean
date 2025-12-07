@@ -149,14 +149,48 @@ try {
 
 
 
-/** slug basique */
+/** slug basique (sans garantie d'unicité) */
 function slugify(title: string) {
   return title
     .toLowerCase()
-    .normalize('NFD').replace(/[\u0300-\u036f]/g, '')
+    .normalize('NFD')
+    .replace(/[\u0300-\u036f]/g, '')
     .replace(/[^a-z0-9]+/g, '-')
     .replace(/(^-|-$)+/g, '')
     .slice(0, 64);
+}
+
+/**
+ * Génère un slug unique pour un titre donné.
+ * - nettoie le titre
+ * - si collision -> ajoute -2, -3, ... en restant <= 64 caractères
+ */
+async function buildUniqueSlug(title: string): Promise<string> {
+  const MAX_LEN = 64;
+
+  let base = slugify(title);
+  if (!base) {
+    base = 'article';
+  }
+
+  let slug = base;
+  let suffix = 1;
+
+  while (true) {
+    const existing = await prisma.article.findUnique({
+      where: { slug },
+      select: { id: true },
+    });
+
+    if (!existing) {
+      return slug;
+    }
+
+    const suffixStr = `-${suffix++}`;
+    const allowedBaseLen = Math.max(1, MAX_LEN - suffixStr.length);
+    const truncatedBase = base.slice(0, allowedBaseLen);
+    slug = `${truncatedBase}${suffixStr}`;
+  }
 }
 
 /** fallback author */
@@ -169,6 +203,8 @@ async function getDefaultAuthorId(): Promise<string> {
   });
   return created.id;
 }
+
+
 
 // DEBUT BLOC (remplace seulement ce handler GET /top)
 router.get('/top', async (req, res, next) => {
@@ -372,6 +408,25 @@ router.get('/', async (req, res, next) => {
 });
 // FIN BLOC
 
+// Petit endpoint de prévisualisation de slug
+// GET /api/articles/slug-preview?base=... ou ?title=...
+router.get('/slug-preview', async (req, res, next) => {
+  try {
+    const rawBase =
+      (typeof req.query.base === 'string' && req.query.base) ||
+      (typeof req.query.title === 'string' && req.query.title) ||
+      '';
+
+    if (!rawBase.trim()) {
+      return res.status(400).json({ error: 'missing_base', message: 'Missing base for slug.' });
+    }
+
+    const slug = await buildUniqueSlug(rawBase);
+    res.json({ slug });
+  } catch (e) {
+    next(e);
+  }
+});
 
 
 
@@ -764,14 +819,14 @@ router.post('/', async (req, res, next) => {
         ? 'ARCHIVED'
         : 'DRAFT';
 
-    // slug unique identique à avant
-    let base = slugify(title);
-    if (!base) base = `article-${Date.now()}`;
-    let finalSlug = base;
-    let n = 1;
-    while (await prisma.article.findUnique({ where: { slug: finalSlug } })) {
-      finalSlug = `${base}-${n++}`;
-    }
+        // slug unique (peut partir d'un slug proposé ou du titre)
+    const slugBase =
+      typeof (req.body as any)?.slug === 'string' && (req.body as any).slug.trim()
+        ? (req.body as any).slug.trim()
+        : title;
+
+    const finalSlug = await buildUniqueSlug(slugBase);
+
 
     // image auto comme avant
     const connectedCat = categoryId

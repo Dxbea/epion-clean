@@ -19,15 +19,32 @@ export default function CommentsBlock({ articleId }: { articleId?: string }) {
 
   const { me } = useMe();
   const { requireAuth } = useAuthPrompt();
-  const isGuest = !me;
 
   const ensureAuth = React.useCallback(
-    (msg: string): boolean => {
-      if (!isGuest) return true;
-      requireAuth({ message: msg });
-      return false;
+    (msgForGuest: string): boolean => {
+      // 1) pas connecté → on garde le message spécifique passé en paramètre
+      if (!me) {
+        requireAuth({
+          message: msgForGuest,
+          redirectTo: '/settings#account',
+        });
+        return false;
+      }
+
+      // 2) connecté mais email non vérifié → message dédié
+      if (!me.emailVerifiedAt) {
+        requireAuth({
+          message:
+            'You need to verify your email address before using comments. Go to Settings → Account to resend the verification link.',
+          redirectTo: '/settings#account',
+        });
+        return false;
+      }
+
+      // 3) OK
+      return true;
     },
-    [isGuest, requireAuth]
+    [me, requireAuth],
   );
 
   return (
@@ -57,11 +74,17 @@ export default function CommentsBlock({ articleId }: { articleId?: string }) {
             key={c.id}
             c={c}
             onReply={async (pid, text) => {
-              if (!ensureAuth('You need an account to reply to comments.')) return;
+              if (
+                !ensureAuth('You need an account to reply to comments.')
+              )
+                return;
               await postComment(text, pid);
             }}
             onDelete={async (id) => {
-              if (!ensureAuth('You need an account to manage comments.')) return;
+              if (
+                !ensureAuth('You need an account to manage comments.')
+              )
+                return;
               await deleteComment(id);
             }}
             loadReplies={loadReplies}
