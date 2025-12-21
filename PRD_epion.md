@@ -1,20 +1,22 @@
 # EPION - Product Requirements Document (PRD)
-**Version:** 1.1 (Teal Identity Update)
-**Concept:** Média hybride (ChatGPT + Wikipédia + Journalisme) axé sur la neutralité et la transparence.
+**Version:** 2.0 (Augmented Reading & B2B Update)
+**Concept:** Média hybride (ChatGPT + Journalisme) où la lecture est un droit, mais l'intelligence est un service.
 
-## 1. Identité & Design
+## 1. Identité & Design "Teal Trust"
 * **Vision :** Vérifier. Comprendre. Discuter.
-* **Palette :** - Fond : Blanc cassé (#FAFAF5) / Texte : Noir (#000000)
-    - Accent : Teal/Bleu-vert (#2C98A0)
-    - Highlight : Menthe doux (#B0F2BC)
-* **Status IA :** Vert Confiance (#38B2A3), Jaune Incertitude (#E2C45E), Rouge Prudence (#D16D64).
+* **Palette Principale :**
+    * **Fond :** Blanc cassé (`#FAFAF5`) / Texte : Noir (`#000000`)
+    * **Accent (Action) :** Teal Profond (`#2C98A0`)
+    * **Highlight (Soft) :** Menthe Douce (`#B0F2BC`)
+* **Status IA :** Vert Confiance (`#38B2A3`), Jaune Incertitude (`#E2C45E`), Rouge Alerte (`#D16D64`).
 
-## 2. Fonctionnalités Clés
-* **Modularité :** L'utilisateur peut transformer un article (résumé, approfondissement, simplification).
-* **IA Transparente :** Affichage systématique des sources et d'un "Confidence Score".
-* **Chat Dossiers :** Organisation des sessions de chat par dossiers avec renommage et déplacement instantané.
+## 2. Philosophie "Lecture Augmentée"
+Contrairement aux paywalls classiques, nous ne cachons jamais le texte.
+* **Niveau 1 (Lecture) :** Accessible à tous.
+* **Niveau 2 (Contexte) :** L'IA explique, traduit, résume (Offre Reader).
+* **Niveau 3 (Analyse) :** L'IA vérifie, croise les sources et critique (Offre Premium).
 
-## 3. Roadmaps Immédiates
-1. Intégrer le helper `callLLM` pour brancher Gemini Pro.
-2. Développer l'UI "Highlight Sources" (surlignage des phrases liées à une source).
-3. Finaliser le système de commentaires et réactions (Like) sur les articles.
+## 3. Cibles
+* **Grand Public :** Lecteurs d'actu (Free) et "Curieux pressés" (Reader).
+* **Power Users :** Créateurs, Analystes, Chercheurs de vérité (Premium).
+* **Pro (B2B) :** Équipes de veille, Agences, Écoles (Teams/Academic).

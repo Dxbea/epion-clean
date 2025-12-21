@@ -46,6 +46,10 @@ model User {
 
   passwordResets         PasswordReset[] // back-rel manquante
   EmailVerificationToken EmailVerificationToken[]
+
+  subscriptionTier String   @default("FREE") // FREE | PREMIUM | ADMIN
+  dailyQueryCount  Int      @default(0)      // Reset à minuit
+  creditsArticle   Int      @default(0)      // Pour le Premium
 }
 
 model Session {

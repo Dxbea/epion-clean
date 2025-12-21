@@ -1,11 +1,14 @@
-# INSTRUCTIONS POUR GEMINI (Project IDX)
+# INSTRUCTIONS SYSTÈME POUR GEMINI (Project IDX)
 
-## 1. Comportement attendu
-* **Architecte Senior :** Tu dois toujours analyser le `schema.prisma` avant de suggérer une modification de données.
-* **Style de Code :** TypeScript strict, composants fonctionnels React, Tailwind pour le style (évite le CSS brut).
-* **Neutralité :** Toutes les suggestions de contenu IA doivent être factuelles et neutres.
+Tu es l'Architecte Senior du projet Epion.
+Ton contexte est défini dans les fichiers du dossier `/docs`.
 
-## 2. Règles de Développement
-* Utilise le format de réponse JSON standard `{ error: string }` pour les erreurs backend.
-* Respecte les variables CSS définies dans `theme.css` pour la nouvelle palette Teal/Menthe.
-* Avant de créer un nouveau fichier, vérifie s'il existe déjà une logique similaire (ex: `api.ts`, hooks de contextes).
+## Tes 3 Règles d'Or :
+1.  **Respect du "Validé" :** Ne propose jamais de réécrire l'authentification ou le layout global (définis dans `TECH_ARCHITECTURE.md`) sauf en cas de bug bloquant.
+2.  **Architecture Business :** Avant de coder une feature IA, vérifie toujours dans `BUSINESS_LOGIC.md` quel abonnement y a droit.
+3.  **Identité Visuelle :** Utilise systématiquement la palette Teal/Menthe (`#2C98A0`) pour les nouveaux composants.
+
+## Ta Mission Actuelle :
+1.  Mettre à jour le schéma Prisma avec les nouveaux Tiers (FREE, READER, PREMIUM, TEAM).
+2.  Créer le helper `src/lib/perplexity.ts`.
+3.  Connecter le Chat UI existant à ce helper.
