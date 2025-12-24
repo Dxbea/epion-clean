@@ -13,15 +13,17 @@ export interface Conversation {
   id: string;          // uuid
   title: string;       // first user message or custom title
   messages: Message[];
-   // chronological
+  // chronological
   // Optional fields you can add later:
   // folderId?: string;
   // pinned?: boolean;
 }
 export type ChatMessage = {
-    id: string;
-    role: string;
-    content: string;
-    createdAt: number;
+  id: string;
+  role: string;
+  content: string;
+  sources?: any[];
+  metadata?: any;
+  createdAt: number;
 };
 

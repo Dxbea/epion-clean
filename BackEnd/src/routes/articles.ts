@@ -2,7 +2,7 @@
 import { Router } from 'express';
 import { prisma } from '../lib/db';
 import { ArticleStatus, Prisma } from '@prisma/client';
-import { pickDefaultImage } from '../lib/defaultImages';
+// import { pickDefaultImage } from '../lib/defaultImages';
 import { getCurrentUserId, getCurrentUser } from '../lib/currentUser';
 import { getViewerHash } from '../lib/viewer';
 import { ARTICLE_LIMITS } from '../config/articleLimits';
@@ -76,31 +76,29 @@ router.put('/:id', async (req, res, next) => {
     }
 
     const data: Prisma.ArticleUpdateInput = {
-  ...(title !== undefined
-    ? { title: sanitizeArticleHtml(String(title)) }
-    : {}),
-  ...(typeof summary === 'string'
-    ? { summary: sanitizeArticleHtml(summary) }
-    : summary === null
-    ? { summary: null }
-    : {}),
-  ...(typeof content === 'string'
-    ? { content: sanitizeArticleHtml(content) }
-    : content === null
-    ? { content: null }
-    : {}),
-  ...(typeof imageUrl === 'string'
-    ? { imageUrl }
-    : imageUrl === null
-    ? { imageUrl: null }
-    : {}),
-  ...(status ? { status: status as any } : {}),
-  ...(categoryId
-    ? { category: { connect: { id: String(categoryId) } } }
-    : categoryId === null
-    ? { category: { disconnect: true } }
-    : {}),
-};
+      ...(title !== undefined
+        ? { title: sanitizeArticleHtml(String(title)) }
+        : {}),
+      ...(typeof summary === 'string'
+        ? { summary: sanitizeArticleHtml(summary) }
+        : summary === null
+          ? { summary: null }
+          : {}),
+      ...(typeof content === 'string'
+        ? { content: sanitizeArticleHtml(content) }
+        : content === null
+          ? { content: null }
+          : {}),
+      ...(typeof imageUrl === 'string' || imageUrl === null
+        ? { imageUrl: typeof imageUrl === 'string' && imageUrl.trim() ? imageUrl.trim() : null }
+        : {}),
+      ...(status ? { status: status as any } : {}),
+      ...(categoryId
+        ? { category: { connect: { id: String(categoryId) } } }
+        : categoryId === null
+          ? { category: { disconnect: true } }
+          : {}),
+    };
 
 
     const updated = await prisma.article.update({
@@ -125,11 +123,11 @@ router.delete('/:id', async (req, res, next) => {
   try {
     const { id } = req.params;
     let userId: string;
-try {
-  userId = await getCurrentUserId(req, res);
-} catch {
-  return res.status(401).json({ error: 'NO_SESSION' });
-}
+    try {
+      userId = await getCurrentUserId(req, res);
+    } catch {
+      return res.status(401).json({ error: 'NO_SESSION' });
+    }
     const existing = await prisma.article.findUnique({
       where: { id },
       select: { authorId: true },
@@ -391,10 +389,10 @@ router.get('/', async (req, res, next) => {
       publishedAt: a.createdAt.toISOString(),
       category: a.category
         ? {
-            id: a.category.id,
-            slug: a.category.slug,
-            name: a.category.name,
-          }
+          id: a.category.id,
+          slug: a.category.slug,
+          name: a.category.name,
+        }
         : null,
       author: a.author,
     }));
@@ -452,6 +450,11 @@ router.get('/slug/:slug', async (req, res, next) => {
         authorId: true,
         category: { select: { id: true, slug: true, name: true } },
         author: { select: { id: true, email: true, name: true } },
+        // AI Fields
+        aiSummary: true,
+        factCheckScore: true,
+        factCheckData: true,
+        generationPrompt: true,
       },
     });
 
@@ -472,6 +475,11 @@ router.get('/slug/:slug', async (req, res, next) => {
           authorId: true,
           category: { select: { id: true, slug: true, name: true } },
           author: { select: { id: true, email: true, name: true } },
+          // AI Fields
+          aiSummary: true,
+          factCheckScore: true,
+          factCheckData: true,
+          generationPrompt: true,
         },
       });
     }
@@ -493,6 +501,11 @@ router.get('/slug/:slug', async (req, res, next) => {
           authorId: true,
           category: { select: { id: true, slug: true, name: true } },
           author: { select: { id: true, email: true, name: true } },
+          // AI Fields
+          aiSummary: true,
+          factCheckScore: true,
+          factCheckData: true,
+          generationPrompt: true,
         },
       });
     }
@@ -600,22 +613,22 @@ router.get('/search', async (req, res, next) => {
         { status: 'PUBLISHED' },
         q
           ? {
-              OR: [
-                { title: { contains: q, mode: 'insensitive' } },
-                { summary: { contains: q, mode: 'insensitive' } },
-                { content: { contains: q, mode: 'insensitive' } },
-                {
-                  category: {
-                    name: { contains: q, mode: 'insensitive' },
-                  },
+            OR: [
+              { title: { contains: q, mode: 'insensitive' } },
+              { summary: { contains: q, mode: 'insensitive' } },
+              { content: { contains: q, mode: 'insensitive' } },
+              {
+                category: {
+                  name: { contains: q, mode: 'insensitive' },
                 },
-                {
-                  author: {
-                    name: { contains: q, mode: 'insensitive' },
-                  },
+              },
+              {
+                author: {
+                  name: { contains: q, mode: 'insensitive' },
                 },
-              ],
-            }
+              },
+            ],
+          }
           : {},
       ],
     };
@@ -649,10 +662,10 @@ router.get('/search', async (req, res, next) => {
       publishedAt: a.createdAt.toISOString(),
       category: a.category
         ? {
-            id: a.category.id,
-            slug: a.category.slug,
-            name: a.category.name,
-          }
+          id: a.category.id,
+          slug: a.category.slug,
+          name: a.category.name,
+        }
         : null,
     }));
 
@@ -816,10 +829,10 @@ router.post('/', async (req, res, next) => {
       status === 'PUBLISHED'
         ? 'PUBLISHED'
         : status === 'ARCHIVED'
-        ? 'ARCHIVED'
-        : 'DRAFT';
+          ? 'ARCHIVED'
+          : 'DRAFT';
 
-        // slug unique (peut partir d'un slug proposé ou du titre)
+    // slug unique (peut partir d'un slug proposé ou du titre)
     const slugBase =
       typeof (req.body as any)?.slug === 'string' && (req.body as any).slug.trim()
         ? (req.body as any).slug.trim()
@@ -831,45 +844,45 @@ router.post('/', async (req, res, next) => {
     // image auto comme avant
     const connectedCat = categoryId
       ? await prisma.category.findUnique({
-          where: { id: categoryId },
-          select: { slug: true },
-        })
+        where: { id: categoryId },
+        select: { slug: true },
+      })
       : null;
 
     const imageFromLib =
       typeof imageUrl === 'string' && imageUrl.trim()
-        ? imageUrl
-        : pickDefaultImage(connectedCat?.slug);
+        ? imageUrl.trim()
+        : null;
 
     const safeSummary =
-  typeof summary === 'string' ? sanitizeArticleHtml(summary) : null;
-const safeContent =
-  typeof content === 'string' ? sanitizeArticleHtml(content) : null;
+      typeof summary === 'string' ? sanitizeArticleHtml(summary) : null;
+    const safeContent =
+      typeof content === 'string' ? sanitizeArticleHtml(content) : null;
 
-const created = await prisma.article.create({
-  data: {
-    title: sanitizeArticleHtml(title),
-    slug: finalSlug,
-    summary: safeSummary,
-    content: safeContent,
-    imageUrl: imageFromLib,
-    status: statusValue as any,
-    author: { connect: { id: currentUserId } },
-    ...(categoryId
-      ? { category: { connect: { id: categoryId as string } } }
-      : {}),
+    const created = await prisma.article.create({
+      data: {
+        title: sanitizeArticleHtml(title),
+        slug: finalSlug,
+        summary: safeSummary,
+        content: safeContent,
+        imageUrl: imageFromLib,
+        status: statusValue as any,
+        author: { connect: { id: currentUserId } },
+        ...(categoryId
+          ? { category: { connect: { id: categoryId as string } } }
+          : {}),
 
-    generationPrompt:
-      typeof generationPrompt === 'string' ? generationPrompt : null,
-    generationConfig:
-      generationConfig && typeof generationConfig === 'object'
-        ? (generationConfig as any)
-        : null,
-    aiLockedFields:
-      Array.isArray(aiLockedFields) ? (aiLockedFields as any) : null,
-  },
-  select: { id: true, slug: true },
-});
+        generationPrompt:
+          typeof generationPrompt === 'string' ? generationPrompt : null,
+        generationConfig:
+          generationConfig && typeof generationConfig === 'object'
+            ? (generationConfig as any)
+            : null,
+        aiLockedFields:
+          Array.isArray(aiLockedFields) ? (aiLockedFields as any) : null,
+      },
+      select: { id: true, slug: true },
+    });
 
     res.status(201).json(created);
   } catch (err) {
@@ -932,7 +945,7 @@ router.post('/:id/view', async (req, res, next) => {
           create: { articleId, viewsAll: 1, lastViewedAt: new Date() },
           update: { viewsAll: { increment: 1 }, lastViewedAt: new Date() },
         })
-        .catch(() => {});
+        .catch(() => { });
     }
 
     res.status(204).end();
@@ -953,7 +966,7 @@ router.get('/:id/stats', async (req, res, next) => {
     const s = await prisma.articleStats.findUnique({ where: { articleId } });
     res.json({
       viewsAll: s?.viewsAll ?? 0,
-      views7d:  s?.views7d  ?? 0,
+      views7d: s?.views7d ?? 0,
       views30d: s?.views30d ?? 0,
       savesAll: s?.savesAll ?? 0,
       lastViewedAt: s?.lastViewedAt ?? null,

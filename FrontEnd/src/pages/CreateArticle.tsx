@@ -1,4 +1,3 @@
-// DEBUT BLOC (remplace tout le fichier)
 import React from 'react';
 import { useNavigate, Link } from 'react-router-dom';
 import SectionHeader from '@/components/SectionHeader';
@@ -13,31 +12,10 @@ const stripTags = (s: string) => s.replace(/<[^>]*>/g, '');
 // Empêche HTML dans les champs
 const forbidHtml = (s: string): boolean => /<|>/.test(s);
 
-const MAX_PROMPT_CHARS = 2000;
+import { STOCK_IMAGES } from '../lib/stockImages';
+import EpionSelect from '@/components/ui/EpionSelect';
 
-// bibliothèque d’images de secours
-const STOCK_IMAGES: Record<string, string[]> = {
-  tech: [
-    'https://picsum.photos/id/180/1200/675',
-    'https://picsum.photos/id/1015/1200/675',
-    'https://picsum.photos/id/1044/1200/675',
-  ],
-  science: [
-    'https://picsum.photos/id/1039/1200/675',
-    'https://picsum.photos/id/1022/1200/675',
-    'https://picsum.photos/id/1056/1200/675',
-  ],
-  world: [
-    'https://picsum.photos/id/1016/1200/675',
-    'https://picsum.photos/id/1018/1200/675',
-    'https://picsum.photos/id/1031/1200/675',
-  ],
-  news: [
-    'https://picsum.photos/id/1003/1200/675',
-    'https://picsum.photos/id/1005/1200/675',
-    'https://picsum.photos/id/1006/1200/675',
-  ],
-};
+const MAX_PROMPT_CHARS = 2000;
 
 type ImageMode = 'auto' | 'url' | 'stock';
 type Category = { id: string; name: string; slug: string };
@@ -62,7 +40,6 @@ export default function CreateArticlePage() {
   const [pickedStock, setPickedStock] = React.useState<string | null>(null);
 
   // ui
-  const [showAdvanced, setShowAdvanced] = React.useState(false);
   const [submitting, setSubmitting] = React.useState(false);
   const [error, setError] = React.useState<string | null>(null);
 
@@ -91,16 +68,16 @@ export default function CreateArticlePage() {
     };
   }, []);
 
- React.useEffect(() => {
-  if (!meLoading && emailNotVerified) {
-    requireAuth({
-      kind: 'verify_email',
-      message:
-        'You need to verify your email address before creating articles. Go to Settings → Account to resend the verification link.',
-      redirectTo: '/settings#account',
-    });
-  }
-}, [meLoading, emailNotVerified, requireAuth]);
+  React.useEffect(() => {
+    if (!meLoading && emailNotVerified) {
+      requireAuth({
+        kind: 'verify_email',
+        message:
+          'You need to verify your email address before creating articles. Go to Settings → Account to resend the verification link.',
+        redirectTo: '/settings#account',
+      });
+    }
+  }, [meLoading, emailNotVerified, requireAuth]);
 
 
   // image de la catégorie
@@ -115,8 +92,8 @@ export default function CreateArticlePage() {
     imageMode === 'url'
       ? imageUrl.trim()
       : imageMode === 'stock'
-      ? pickedStock || ''
-      : '';
+        ? pickedStock || ''
+        : '';
 
   const promptTooLong = prompt.length > MAX_PROMPT_CHARS;
 
@@ -132,14 +109,14 @@ export default function CreateArticlePage() {
     }
 
     if (emailNotVerified) {
-  requireAuth({
-    kind: 'verify_email',
-    message:
-      'You need to verify your email address before creating articles. Go to Settings → Account to resend the verification link.',
-    redirectTo: '/settings#account',
-  });
-  return;
-}
+      requireAuth({
+        kind: 'verify_email',
+        message:
+          'You need to verify your email address before creating articles. Go to Settings → Account to resend the verification link.',
+        redirectTo: '/settings#account',
+      });
+      return;
+    }
 
 
     if (!prompt.trim()) return;
@@ -179,6 +156,7 @@ export default function CreateArticlePage() {
         imageUrl: finalImageUrl,
         status: 'DRAFT',
         categoryId: categoryId || undefined,
+        generationPrompt: prompt.trim(),
       };
 
       const res = await fetch(
@@ -263,7 +241,7 @@ export default function CreateArticlePage() {
 
         <div className="rounded-2xl border border-black/10 bg-white p-4 text-sm shadow-sm dark:border-white/10 dark:bg-neutral-950">
           <p className="mb-3">
-            You need to verify your email address before creating articles.  
+            You need to verify your email address before creating articles.
             Go to Settings → Account to resend the verification link.
           </p>
           <div className="flex gap-3">
@@ -328,138 +306,107 @@ export default function CreateArticlePage() {
         </div>
 
         {/* 2. réglages IA rapides */}
-        <div className="flex flex-wrap gap-3">
-          <div>
-            <label className="mb-1 block text-sm opacity-70">Language</label>
-            <select
-              value={language}
-              onChange={(e) => setLanguage(e.target.value as any)}
-              className="form-select"
-            >
-              <option value="fr">French</option>
-              <option value="en">English</option>
-            </select>
-          </div>
+        <div className="grid grid-cols-1 gap-4 sm:grid-cols-3">
+          <EpionSelect
+            label="Language"
+            value={language}
+            onChange={(v) => setLanguage(v as any)}
+            options={[
+              { value: 'fr', label: 'French' },
+              { value: 'en', label: 'English' },
+            ]}
+          />
 
-          <div>
-            <label className="mb-1 block text-sm opacity-70">Style</label>
-            <select
-              value={tone}
-              onChange={(e) => setTone(e.target.value as any)}
-              className="form-select"
-            >
-              <option value="neutral">Neutral / reporter</option>
-              <option value="explainer">Explainer / pédagogique</option>
-              <option value="short">Short update</option>
-              <option value="long">In-depth</option>
-            </select>
-          </div>
+          <EpionSelect
+            label="Style"
+            value={tone}
+            onChange={(v) => setTone(v as any)}
+            options={[
+              { value: 'neutral', label: 'Neutral / reporter' },
+              { value: 'explainer', label: 'Explainer / pédagogique' },
+              { value: 'short', label: 'Short update' },
+              { value: 'long', label: 'In-depth' },
+            ]}
+          />
 
-          <div>
-            <label className="mb-1 block text-sm opacity-70">Category</label>
-            <select
-              value={categoryId}
-              onChange={(e) => setCategoryId(e.target.value)}
-              className="form-select"
-            >
-              <option value="">— None —</option>
-              {cats.map((c) => (
-                <option key={c.id} value={c.id}>
-                  {c.name}
-                </option>
-              ))}
-            </select>
-          </div>
+          <EpionSelect
+            label="Category"
+            value={categoryId}
+            onChange={(v) => setCategoryId(v)}
+            placeholder="Select..."
+            options={[
+              { value: '', label: '— None —' },
+              ...cats.map((c) => ({ value: c.id, label: c.name })),
+            ]}
+          />
         </div>
 
         {/* 3. options avancées (image) */}
-        <div>
-          <button
-            type="button"
-            onClick={() => setShowAdvanced((s) => !s)}
-            className="text-sm underline-offset-2 hover:underline"
-          >
-            {showAdvanced ? 'Hide advanced options' : 'Show advanced options'}
-          </button>
-        </div>
-
-        {showAdvanced && (
-          <div className="space-y-3 rounded-2xl border border-black/10 p-4 dark:border-white/10">
-            <label className="block text-sm font-medium">Cover image</label>
-
-            <div className="flex gap-2">
-              <button
-                type="button"
-                onClick={() => setImageMode('auto')}
-                className={`rounded-full border px-3 py-1 text-sm dark:border-white/10 ${
-                  imageMode === 'auto'
-                    ? 'bg-black text-white dark:bg-white dark:text-black'
-                    : ''
-                }`}
-              >
-                Auto
-              </button>
-              <button
-                type="button"
-                onClick={() => setImageMode('url')}
-                className={`rounded-full border px-3 py-1 text-sm dark:border-white/10 ${
-                  imageMode === 'url'
-                    ? 'bg-black text-white dark:bg-white dark:text-black'
-                    : ''
-                }`}
-              >
-                Paste URL
-              </button>
-              <button
-                type="button"
-                onClick={() => setImageMode('stock')}
-                className={`rounded-full border px-3 py-1 text-sm dark:border-white/10 ${
-                  imageMode === 'stock'
-                    ? 'bg-black text-white dark:bg:white dark:text-black'
-                    : ''
-                }`}
-              >
-                Pick from library
-              </button>
-            </div>
-
-            {imageMode === 'url' && (
-              <input
-                value={imageUrl}
-                onChange={(e) => setImageUrl(e.target.value)}
-                placeholder="https://your-cdn.com/cover.jpg"
-                className="form-input"
-              />
-            )}
-
-            {imageMode === 'stock' && (
-              <div className="grid grid-cols-3 gap-3">
-                {stockList.map((src) => (
-                  <button
-                    key={src}
-                    type="button"
-                    onClick={() => setPickedStock(src)}
-                    className={`relative overflow-hidden rounded-xl border dark:border-white/10 ${
-                      pickedStock === src ? 'ring-2 ring-[#4290D3]' : ''
+        <div className="space-y-3 rounded-2xl border border-black/10 p-5 dark:border-white/10">
+          <div className="flex items-center justify-between">
+            <label className="text-sm font-medium">Cover image</label>
+            {/* Segmented Control pour les modes */}
+            <div className="flex rounded-lg bg-neutral-100 p-1 dark:bg-neutral-800">
+              {(['auto', 'url', 'stock'] as const).map((m) => (
+                <button
+                  key={m}
+                  type="button"
+                  onClick={() => setImageMode(m)}
+                  className={`rounded-md px-3 py-1 text-xs font-medium transition-all ${imageMode === m
+                    ? 'bg-white text-black shadow-sm dark:bg-neutral-600 dark:text-white'
+                    : 'text-neutral-500 hover:text-neutral-900 dark:text-neutral-400 dark:hover:text-white'
                     }`}
-                  >
-                    <img
-                      src={src}
-                      alt="Stock"
-                      className="h-24 w-full object-cover"
-                    />
-                  </button>
-                ))}
-              </div>
-            )}
-
-            {previewSrc && (
-              <div className="overflow-hidden rounded-xl border border-black/10 dark:border-white/10">
-                <img src={previewSrc} alt="Preview" className="h-40 w-full object-cover" />
-              </div>
-            )}
+                >
+                  {m === 'auto' ? 'Auto' : m === 'url' ? 'URL' : 'Library'}
+                </button>
+              ))}
+            </div>
           </div>
-        )}
+
+          {imageMode === 'url' && (
+            <input
+              value={imageUrl}
+              onChange={(e) => setImageUrl(e.target.value)}
+              placeholder="https://..."
+              className="form-input w-full rounded-xl bg-transparent"
+            />
+          )}
+
+          {imageMode === 'stock' && (
+            <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
+              {stockList.map((src) => (
+                <button
+                  key={src}
+                  type="button"
+                  onClick={() => setPickedStock(src)}
+                  className={`group relative aspect-video overflow-hidden rounded-xl border-2 transition-all ${pickedStock === src
+                    ? 'border-black ring-2 ring-black/20 dark:border-white dark:ring-white/20'
+                    : 'border-transparent hover:border-black/10 dark:hover:border-white/10'
+                    }`}
+                >
+                  <img
+                    src={src}
+                    alt="Stock"
+                    className="h-full w-full object-cover transition-transform duration-500 group-hover:scale-105"
+                  />
+                  {pickedStock === src && (
+                    <div className="absolute inset-0 flex items-center justify-center bg-black/10">
+                      <div className="rounded-full bg-white p-1 text-black shadow-sm">
+                        <svg className="h-3 w-3" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={3}><path d="M5 13l4 4L19 7" /></svg>
+                      </div>
+                    </div>
+                  )}
+                </button>
+              ))}
+            </div>
+          )}
+
+          {previewSrc && (
+            <div className="overflow-hidden rounded-xl border border-black/10 dark:border-white/10">
+              <img src={previewSrc} alt="Preview" className="h-40 w-full object-cover" />
+            </div>
+          )}
+        </div>
 
         {/* actions */}
         <div className="flex items-center gap-3">
@@ -481,4 +428,3 @@ export default function CreateArticlePage() {
     </main>
   );
 }
-// FIN BLOC

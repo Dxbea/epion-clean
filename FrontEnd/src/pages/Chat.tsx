@@ -1,12 +1,13 @@
 // src/pages/Chat.tsx
 // DEBUT BLOC
 import React from 'react';
-import { useNavigate } from 'react-router-dom';
+import { useNavigate, useLocation } from 'react-router-dom';
 import { API_BASE } from '@/config/api';
 import { withCsrf } from '@/lib/csrf';
 
 export default function Chat() {
   const nav = useNavigate();
+  const location = useLocation();
 
   React.useEffect(() => {
     let cancelled = false;
@@ -37,7 +38,7 @@ export default function Chat() {
         const s = await res.json();
 
         if (s?.id) {
-          nav(`/chat/${s.id}`, { replace: true });
+          nav(`/chat/${s.id}`, { replace: true, state: location.state });
         } else {
           // fallback très improbable
           nav('/chat/guest', { replace: true });

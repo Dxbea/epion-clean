@@ -12,28 +12,10 @@ import { useAuthPrompt } from '@/contexts/AuthPromptContext';
 const stripTags = (s: string) => s.replace(/<[^>]*>/g, '');
 const forbidHtml = (s: string): boolean => /<|>/.test(s);
 
-const STOCK_IMAGES: Record<string, string[]> = {
-  tech: [
-    'https://picsum.photos/id/180/1200/675',
-    'https://picsum.photos/id/1015/1200/675',
-    'https://picsum.photos/id/1044/1200/675',
-  ],
-  science: [
-    'https://picsum.photos/id/1039/1200/675',
-    'https://picsum.photos/id/1022/1200/675',
-    'https://picsum.photos/id/1056/1200/675',
-  ],
-  world: [
-    'https://picsum.photos/id/1016/1200/675',
-    'https://picsum.photos/id/1018/1200/675',
-    'https://picsum.photos/id/1031/1200/675',
-  ],
-  news: [
-    'https://picsum.photos/id/1003/1200/675',
-    'https://picsum.photos/id/1005/1200/675',
-    'https://picsum.photos/id/1006/1200/675',
-  ],
-};
+import { STOCK_IMAGES } from '../lib/stockImages';
+import EpionSelect from '@/components/ui/EpionSelect';
+
+// Local STOCK_IMAGES removed
 
 type ImageMode = 'url' | 'stock' | 'auto';
 
@@ -96,14 +78,14 @@ export default function EditArticlePage() {
 
   // pop-up email non vérifié
   React.useEffect(() => {
-  if (!meLoading && emailNotVerified) {
-    requireAuth({
-      message:
-        'You need to verify your email address before editing articles. Go to Settings → Account to resend the verification link.',
-      redirectTo: '/settings#account',
-    });
-  }
-}, [meLoading, emailNotVerified, requireAuth]);
+    if (!meLoading && emailNotVerified) {
+      requireAuth({
+        message:
+          'You need to verify your email address before editing articles. Go to Settings → Account to resend the verification link.',
+        redirectTo: '/settings#account',
+      });
+    }
+  }, [meLoading, emailNotVerified, requireAuth]);
 
 
   // 1. charger les catégories
@@ -212,12 +194,12 @@ export default function EditArticlePage() {
     imageMode === 'url'
       ? imageUrl.trim() || ''
       : imageMode === 'stock'
-      ? pickedStock || ''
-      : '';
+        ? pickedStock || ''
+        : '';
 
   // 4. submit principal
-  async function handleSubmit(e: React.FormEvent) {
-    e.preventDefault();
+  async function handleSubmit(e: React.FormEvent | null, forceStatus?: 'DRAFT' | 'PUBLISHED' | 'ARCHIVED') {
+    if (e) e.preventDefault();
     if (!articleId) return;
 
     if (!me) {
@@ -229,14 +211,14 @@ export default function EditArticlePage() {
     }
 
     if (emailNotVerified) {
-  requireAuth({
-    kind: 'verify_email',
-    message:
-      'You need to verify your email address before editing articles. Go to Settings → Account to resend the verification link.',
-    redirectTo: '/settings#account',
-  });
-  return;
-}
+      requireAuth({
+        kind: 'verify_email',
+        message:
+          'You need to verify your email address before editing articles. Go to Settings → Account to resend the verification link.',
+        redirectTo: '/settings#account',
+      });
+      return;
+    }
 
 
     // 🔒 Anti-XSS
@@ -246,6 +228,9 @@ export default function EditArticlePage() {
     }
 
     if (forbidden) return;
+
+    // Détermine le statut final IMMÉDIATEMENT
+    const finalStatus = forceStatus || status;
 
     try {
       setLoading(true);
@@ -268,7 +253,7 @@ export default function EditArticlePage() {
             content: content.trim() || null,
             imageUrl: finalImageUrl,
             categoryId: categoryId || null,
-            status,
+            status: finalStatus,
           }),
         }),
       );
@@ -276,10 +261,11 @@ export default function EditArticlePage() {
       if (!res.ok) throw new Error(`HTTP ${res.status}`);
       const j = await res.json(); // { id, slug }
 
-      if (status === 'PUBLISHED') {
+      if (finalStatus === 'PUBLISHED') {
         navigate(`/article/${j.slug || j.id}`);
       } else {
         setArticleSlug(j.slug ?? null);
+        setStatus(finalStatus);
       }
     } catch (err: any) {
       setError(err?.message || 'Failed to save');
@@ -301,14 +287,14 @@ export default function EditArticlePage() {
       return;
     }
     if (emailNotVerified) {
-  requireAuth({
-    kind: 'verify_email',
-    message:
-      'You need to verify your email address before editing articles. Go to Settings → Account to resend the verification link.',
-    redirectTo: '/settings#account',
-  });
-  return;
-}
+      requireAuth({
+        kind: 'verify_email',
+        message:
+          'You need to verify your email address before editing articles. Go to Settings → Account to resend the verification link.',
+        redirectTo: '/settings#account',
+      });
+      return;
+    }
 
 
     if (!window.confirm('Delete this article?')) return;
@@ -456,7 +442,7 @@ export default function EditArticlePage() {
 
         <div className="rounded-2xl border border-black/10 bg-white p-4 text-sm shadow-sm dark:border-white/10 dark:bg-neutral-950">
           <p className="mb-3">
-            You need to verify your email address before editing articles.  
+            You need to verify your email address before editing articles.
             Go to Settings → Account to resend the verification link.
           </p>
           <div className="flex gap-3">
@@ -531,8 +517,8 @@ export default function EditArticlePage() {
           {dirty
             ? 'Unsaved changes'
             : autoSaving
-            ? 'Saving draft…'
-            : 'Up to date'}
+              ? 'Saving draft…'
+              : 'Up to date'}
         </div>
 
         <div className="ml-auto flex items-center gap-2">
@@ -547,12 +533,7 @@ export default function EditArticlePage() {
 
           <button
             type="button"
-            onClick={() => {
-              setStatus('DRAFT');
-              document.getElementById('edit-article-form')?.dispatchEvent(
-                new Event('submit', { cancelable: true, bubbles: true }),
-              );
-            }}
+            onClick={() => handleSubmit(null, 'DRAFT')}
             disabled={loading || !title.trim() || forbidden}
             className="h-9 rounded-full border px-4 text-sm hover:bg-black/5 disabled:opacity-60 dark:border-white/10"
           >
@@ -561,23 +542,21 @@ export default function EditArticlePage() {
 
           <button
             type="button"
-            onClick={() => {
-              setStatus('PUBLISHED');
-              document.getElementById('edit-article-form')?.dispatchEvent(
-                new Event('submit', { cancelable: true, bubbles: true }),
-              );
-            }}
+            onClick={() => handleSubmit(null, 'PUBLISHED')}
             disabled={loading || !title.trim() || forbidden}
-            className="h-9 rounded-full bg-black px-4 text-sm text-white disabled:opacity-60 dark:bg:white dark:text-black"
+            className={`h-9 rounded-full px-4 text-sm font-medium transition-colors disabled:opacity-60 ${status === 'PUBLISHED'
+              ? 'bg-green-600 text-white hover:bg-green-700 dark:bg-green-500 dark:text-black' // Déjà publié -> Vert
+              : 'bg-black text-white hover:bg-neutral-800 dark:bg-white dark:text-black' // À publier -> N&B inversé
+              }`}
           >
-            {status === 'PUBLISHED' ? 'Publish this version' : 'Publish'}
+            {status === 'PUBLISHED' ? 'Update / Republish' : 'Publish'}
           </button>
 
           <button
             type="button"
             onClick={handleDelete}
             disabled={loading || forbidden}
-            className="h-9 rounded-full border border-red-400 px-4 text-sm text-red-600 hover:bg-red-50 dark:border-red-500/50 dark:text-red-300 dark:hover:bg-red-900/10"
+            className="h-9 rounded-full border border-red-200 px-4 text-sm text-red-600 hover:bg-red-50 dark:border-red-900/50 dark:text-red-400 dark:hover:bg-red-950/50"
           >
             Delete
           </button>
@@ -627,11 +606,10 @@ export default function EditArticlePage() {
                 <button
                   type="button"
                   onClick={() => setPreview(false)}
-                  className={`rounded-full px-3 py-1 text-xs transition-colors ${
-                    !preview
-                      ? 'bg-neutral-200 text-black dark:bg-neutral-800 dark:text-white'
-                      : 'bg-neutral-100 text-black dark:bg-neutral-900'
-                  }`}
+                  className={`rounded-full px-3 py-1 text-xs transition-colors ${!preview
+                    ? 'bg-neutral-200 text-black dark:bg-neutral-800 dark:text-white'
+                    : 'bg-neutral-100 text-black dark:bg-neutral-900'
+                    }`}
                   title="This content can only be changed via “Ask Epion to edit”."
                 >
                   Edit
@@ -640,11 +618,10 @@ export default function EditArticlePage() {
                 <button
                   type="button"
                   onClick={() => setPreview(true)}
-                  className={`rounded-full px-3 py-1 text-xs transition-colors ${
-                    preview
-                      ? 'bg-black text-white dark:bg-white dark:text-black'
-                      : 'bg-black/5 dark:bg-white/10'
-                  }`}
+                  className={`rounded-full px-3 py-1 text-xs transition-colors ${preview
+                    ? 'bg-black text-white dark:bg-white dark:text-black'
+                    : 'bg-black/5 dark:bg-white/10'
+                    }`}
                 >
                   Preview
                 </button>
@@ -674,118 +651,114 @@ export default function EditArticlePage() {
             <div className="rounded-2xl border border-black/10 bg-white p-4 dark:border-white/10 dark:bg-neutral-950/40">
               <h2 className="text-sm font-semibold tracking-tight">Metadata</h2>
 
-              <label className="mt-4 mb-1 block text-sm opacity-70">Status</label>
-              <select
-                value={status}
-                onChange={(e) => {
-                  setStatus(e.target.value as any);
-                  setDirty(true);
-                }}
-                className="form-select"
-                disabled={forbidden}
-              >
-                <option value="DRAFT">Draft</option>
-                <option value="PUBLISHED">Published</option>
-                <option value="ARCHIVED">Archived</option>
-              </select>
-
-              <label className="mt-4 mb-1 block text-sm opacity-70">Category</label>
-              <select
-                value={categoryId}
-                onChange={(e) => {
-                  setCategoryId(e.target.value);
-                  setDirty(true);
-                }}
-                className="form-select"
-                disabled={forbidden}
-              >
-                <option value="">— None —</option>
-                {cats.map((c) => (
-                  <option key={c.id} value={c.id}>
-                    {c.name}
-                  </option>
-                ))}
-              </select>
-
-              <label className="mt-4 mb-2 block text-sm font-medium">Cover image</label>
-              <div className="flex gap-2">
-                <button
-                  type="button"
-                  onClick={() => setImageMode('url')}
-                  disabled={forbidden}
-                  className={`rounded-full border px-3 py-1 text-sm dark:border-white/10 ${
-                    imageMode === 'url'
-                      ? 'bg-black text-white dark:bg-white dark:text-black'
-                      : ''
-                  } ${forbidden ? 'opacity-60 cursor-not-allowed' : ''}`}
-                >
-                  Paste URL
-                </button>
-                <button
-                  type="button"
-                  onClick={() => setImageMode('stock')}
-                  disabled={forbidden}
-                  className={`rounded-full border px-3 py-1 text-sm dark:border-white/10 ${
-                    imageMode === 'stock'
-                      ? 'bg-black text-white dark:bg-white dark:text-black'
-                      : ''
-                  } ${forbidden ? 'opacity-60 cursor-not-allowed' : ''}`}
-                >
-                  Pick from library
-                </button>
-                <button
-                  type="button"
-                  onClick={() => setImageMode('auto')}
-                  disabled={forbidden}
-                  className={`rounded-full border px-3 py-1 text-sm dark:border-white/10 ${
-                    imageMode === 'auto'
-                      ? 'bg-black text-white dark:bg-white dark:text-black'
-                      : ''
-                  } ${forbidden ? 'opacity-60 cursor-not-allowed' : ''}`}
-                >
-                  Auto
-                </button>
-              </div>
-
-              {imageMode === 'url' && (
-                <input
-                  value={imageUrl}
-                  onChange={(e) => {
-                    setImageUrl(e.target.value);
+              <div className="mt-4">
+                <EpionSelect
+                  label="Status"
+                  value={status}
+                  onChange={(v) => {
+                    setStatus(v as any);
                     setDirty(true);
                   }}
-                  placeholder="https://your-cdn.com/cover.jpg"
-                  className="mt-2 form-input"
                   disabled={forbidden}
+                  options={[
+                    { value: 'DRAFT', label: 'Draft' },
+                    { value: 'PUBLISHED', label: 'Published' },
+                    { value: 'ARCHIVED', label: 'Archived' },
+                  ]}
                 />
-              )}
+              </div>
 
-              {imageMode === 'stock' && (
-                <div className="mt-3 grid grid-cols-3 gap-3">
-                  {stockList.map((src) => (
-                    <button
-                      key={src}
-                      type="button"
-                      onClick={() => {
-                        setPickedStock(src);
-                        setDirty(true);
-                      }}
-                      disabled={forbidden}
-                      className={`relative overflow-hidden rounded-xl border dark:border-white/10 ${
-                        pickedStock === src ? 'ring-2 ring-[#4290D3]' : ''
-                      } ${forbidden ? 'opacity-60 cursor-not-allowed' : ''}`}
-                    >
-                      <img src={src} alt="Stock" className="h-24 w-full object-cover" />
-                    </button>
-                  ))}
-                </div>
-              )}
+              <div className="mt-4">
+                <EpionSelect
+                  label="Category"
+                  value={categoryId}
+                  onChange={(v) => {
+                    setCategoryId(v);
+                    setDirty(true);
+                  }}
+                  disabled={forbidden}
+                  placeholder="Select..."
+                  options={[
+                    { value: '', label: '— None —' },
+                    ...cats.map((c) => ({ value: c.id, label: c.name })),
+                  ]}
+                />
+              </div>
 
-              {previewSrc && (
-                <div className="mt-3 overflow-hidden rounded-xl border border-black/10 dark:border-white/10">
-                  <img src={previewSrc} alt="Preview" className="h-40 w-full object-cover" />
+              <label className="mt-4 mb-2 block text-sm font-medium">Cover image</label>
+              <div className="space-y-3 rounded-2xl border border-black/10 p-5 dark:border-white/10">
+                <div className="flex items-center justify-between">
+                  {/* Segmented Control */}
+                  <div className="flex rounded-lg bg-neutral-100 p-1 dark:bg-neutral-800">
+                    {(['auto', 'url', 'stock'] as const).map((m) => (
+                      <button
+                        key={m}
+                        type="button"
+                        onClick={() => setImageMode(m)}
+                        disabled={forbidden}
+                        className={`rounded-md px-3 py-1 text-xs font-medium transition-all ${imageMode === m
+                          ? 'bg-white text-black shadow-sm dark:bg-neutral-600 dark:text-white'
+                          : 'text-neutral-500 hover:text-neutral-900 dark:text-neutral-400 dark:hover:text-white'
+                          } ${forbidden ? 'opacity-50 cursor-not-allowed' : ''}`}
+                      >
+                        {m === 'auto' ? 'Auto' : m === 'url' ? 'URL' : 'Library'}
+                      </button>
+                    ))}
+                  </div>
                 </div>
-              )}
+
+                {imageMode === 'url' && (
+                  <input
+                    value={imageUrl}
+                    onChange={(e) => {
+                      setImageUrl(e.target.value);
+                      setDirty(true);
+                    }}
+                    placeholder="https://..."
+                    className="form-input w-full rounded-xl bg-transparent"
+                    disabled={forbidden}
+                  />
+                )}
+
+                {imageMode === 'stock' && (
+                  <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
+                    {stockList.map((src) => (
+                      <button
+                        key={src}
+                        type="button"
+                        onClick={() => {
+                          setPickedStock(src);
+                          setDirty(true);
+                        }}
+                        disabled={forbidden}
+                        className={`group relative aspect-video overflow-hidden rounded-xl border-2 transition-all ${pickedStock === src
+                          ? 'border-black ring-2 ring-black/20 dark:border-white dark:ring-white/20'
+                          : 'border-transparent hover:border-black/10 dark:hover:border-white/10'
+                          } ${forbidden ? 'opacity-50 cursor-not-allowed' : ''}`}
+                      >
+                        <img
+                          src={src}
+                          alt="Stock"
+                          className="h-full w-full object-cover transition-transform duration-500 group-hover:scale-105"
+                        />
+                        {pickedStock === src && (
+                          <div className="absolute inset-0 flex items-center justify-center bg-black/10">
+                            <div className="rounded-full bg-white p-1 text-black shadow-sm">
+                              <svg className="h-3 w-3" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={3}><path d="M5 13l4 4L19 7" /></svg>
+                            </div>
+                          </div>
+                        )}
+                      </button>
+                    ))}
+                  </div>
+                )}
+
+                {previewSrc && (
+                  <div className="overflow-hidden rounded-xl border border-black/10 dark:border-white/10">
+                    <img src={previewSrc} alt="Preview" className="h-40 w-full object-cover" />
+                  </div>
+                )}
+              </div>
 
               <div className="mt-4">
                 <button

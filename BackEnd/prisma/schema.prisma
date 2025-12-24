@@ -14,6 +14,17 @@ enum Role {
   ADMIN
 }
 
+enum SubscriptionTier {
+  FREE
+  READER
+  PREMIUM
+}
+
+enum OrganizationRole {
+  MEMBER
+  ADMIN
+}
+
 enum ArticleStatus {
   DRAFT
   PUBLISHED
@@ -47,9 +58,22 @@ model User {
   passwordResets         PasswordReset[] // back-rel manquante
   EmailVerificationToken EmailVerificationToken[]
 
-  subscriptionTier String   @default("FREE") // FREE | PREMIUM | ADMIN
-  dailyQueryCount  Int      @default(0)      // Reset à minuit
-  creditsArticle   Int      @default(0)      // Pour le Premium
+  subscriptionTier SubscriptionTier @default(FREE)
+  dailyQueryCount  Int              @default(0) // Reset à minuit
+  creditsArticle   Int              @default(0) // Pour le Premium
+
+  organizationId   String?
+  organization     Organization?    @relation(fields: [organizationId], references: [id])
+  organizationRole OrganizationRole?
+}
+
+model Organization {
+  id        String   @id @default(cuid())
+  name      String
+  domain    String? // pour auto-join
+  createdAt DateTime @default(now())
+
+  members User[]
 }
 
 model Session {
@@ -100,6 +124,11 @@ model Article {
   generatedAt       DateTime?
   generationVersion Int       @default(0)
   aiLockedFields    Json? // ex: ["title", "summary", "content"]
+
+  // IA Results Persistence
+  aiSummary       String?   @db.Text
+  factCheckScore  Int?
+  factCheckData   Json?     // Stores full JSON analysis (sources, segments, breakdown)
 
   // 🔥 Add these two back-relations:
   comments  Comment[]         @relation("ArticleComments")
@@ -259,6 +288,7 @@ model ChatMessage {
 
   role     ChatRole
   content  String
+  sources  Json?
   metadata Json?
 
   createdAt DateTime @default(now())
@@ -289,4 +319,71 @@ model EmailVerificationToken {
   user User @relation(fields: [userId], references: [id], onDelete: Cascade)
 
   @@index([userId])
+}
+
+model Source {
+  id          String   @id @default(uuid())
+  domain      String   @unique  // ex: "lemonde.fr"
+  name        String            // ex: "Le Monde"
+  
+  // --- SCORE FINAL ---
+  trustScore  Int      @default(50) // Le résultat calculé (0-100)
+  
+  // --- PILIER 1 : TRANSPARENCE (Structurel) ---
+  transparencyScore Int @default(0)
+  isAdsTxtValid     Boolean @default(false) // ads.txt présent et valide
+  isOwnerPublic     Boolean @default(false) // Propriétaire identifié (JTI)
+  
+  // --- PILIER 2 : PROCESSUS (Éditorial) ---
+  editorialScore    Int @default(0)
+  hasFactCheckFailures Boolean @default(false) // "Kill Switch" potentiel
+  factCheckFailCount   Int     @default(0)     // Nombre d'erreurs répertoriées
+  hasCorrectionPolicy  Boolean @default(false) // Politique de correction visible
+  
+  // --- PILIER 3 : SÉMANTIQUE (Contenu) ---
+  semanticScore     Int @default(0)
+  biasLevel         String  @default("NEUTRAL") // LEFT, RIGHT, CENTER...
+  isClickbait       Boolean @default(false)     // Titre trompeur vs contenu
+  
+  // --- PILIER 4 : UX & RÉPUTATION ---
+  uxScore           Int @default(0)
+  adDensity         String  @default("LOW") // LOW, MEDIUM, HIGH (>30%)
+  hasDarkPatterns   Boolean @default(false) // Pièges UX détectés
+  
+  // --- INFOS GÉNÉRALES ---
+  type            String   @default("GENERAL")
+  justification   String?  // Explication humaine ("Pourquoi ce score ?")
+  lastAuditDate   DateTime?
+  
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+}
+
+enum ConfidenceLevel {
+  LOW     // IA ou Import auto (Incertain)
+  MEDIUM  // Vérifié historiquement
+  HIGH    // Audité et Certifié par Epion
+}
+
+enum SourceType {
+  AGENCY
+  MEDIA
+  ACADEMIC
+  GOVERNMENT
+  BLOG
+  SOCIAL
+  COMMERCIAL
+  GENERAL
+}
+
+enum SourceBias {
+  FAR_LEFT
+  LEFT
+  CENTER_LEFT
+  CENTER
+  CENTER_RIGHT
+  RIGHT
+  FAR_RIGHT
+  SATIRE
+  UNKNOWN
 }

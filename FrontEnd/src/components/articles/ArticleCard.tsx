@@ -5,7 +5,7 @@ import { isInternalUrl } from '@/utils/url';
 import type { Article } from '@/types/article'; // <- utiliser le type partagé
 import { useAuthRequired } from '@/hooks/useAuthRequired';
 
-const ERROR_IMG = '/img/placeholder.svg';
+import ArticleThumbnail from './ArticleThumbnail';
 
 export default function ArticleCard({ article }: { article: Article }) {
   const { isSaved, toggle } = useSavedArticles();
@@ -28,19 +28,12 @@ export default function ArticleCard({ article }: { article: Article }) {
   }
 
   const Image = (
-    <div className="relative aspect-[16/9] overflow-hidden rounded-b-none">
-      <img
-        src={article.imageUrl || ERROR_IMG}
-        alt={article.title}
-        onError={(e) => {
-          (e.currentTarget as HTMLImageElement).src = ERROR_IMG;
-        }}
-        className="absolute inset-0 h-full w-full object-cover"
-        loading="lazy"
-        decoding="async"
-        width={960}
-        height={540}
-        sizes="(min-width: 1024px) 33vw, (min-width: 640px) 50vw, 100vw"
+    <div className="group relative aspect-[16/9] overflow-hidden rounded-b-none">
+      <ArticleThumbnail
+        imageUrl={article.imageUrl}
+        title={article.title}
+        category={categoryLabel}
+        className="h-full w-full"
       />
     </div>
   );

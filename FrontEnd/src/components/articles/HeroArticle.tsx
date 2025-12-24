@@ -4,27 +4,33 @@ import { useSavedArticles } from '@/hooks/useSavedArticles';
 import type { Article } from '@/types/article';
 import SaveButton from '@/components/ui/SaveButton';
 import { Link } from 'react-router-dom';
-
+import ArticleThumbnail from './ArticleThumbnail';
 
 
 export default function HeroArticle({ article }: { article: Article | null }) {
-  if (!article) return null;
+  // Normalize category
+  let categoryLabel: string | null = null;
+  if (typeof article.category === 'string') {
+    categoryLabel = article.category;
+  } else if (
+    article.category &&
+    typeof article.category === 'object' &&
+    'name' in article.category
+  ) {
+    // @ts-ignore - runtime check covers it
+    categoryLabel = article.category.name ?? null;
+  }
 
   return (
     <div className="flex flex-col gap-6 rounded-2xl border border-black/10 p-4 shadow-sm dark:border-white/10 sm:flex-row sm:p-6">
       {/* Image à gauche */}
       <div className="sm:w-1/2">
-        {article.imageUrl ? (
-          <img
-            src={article.imageUrl}
-            alt={article.title}
-            className="h-56 w-full rounded-xl object-cover sm:h-full"
-          />
-        ) : (
-          <div className="flex h-56 w-full items-center justify-center rounded-xl bg-black/5 text-sm text-black/50 dark:bg-white/5 dark:text-white/50 sm:h-full">
-            No image
-          </div>
-        )}
+        <ArticleThumbnail
+          imageUrl={article.imageUrl}
+          title={article.title}
+          category={categoryLabel}
+          className="h-56 w-full rounded-xl sm:h-full"
+        />
       </div>
 
       {/* Contenu à droite */}

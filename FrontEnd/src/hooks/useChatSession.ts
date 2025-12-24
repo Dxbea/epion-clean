@@ -17,6 +17,8 @@ export type ChatMessageItem = {
   role: 'user' | 'assistant';
   content: string;
   createdAt: string;
+  sources?: any[];
+  metadata?: any;
 };
 
 type ChatSessionDetail = ChatSessionItem & {
@@ -142,7 +144,7 @@ export function useChatSession(sessionId?: string) {
 
       await fetch(`${API_BASE}/api/chat/sessions/${id}`, init).then(json);
       // petit refresh pour refléter updatedAt etc.
-      listSessions().catch(() => {});
+      listSessions().catch(() => { });
     },
     [listSessions],
   );
@@ -223,7 +225,7 @@ export function useChatSession(sessionId?: string) {
   }, []);
 
   const sendMessage = React.useCallback(
-    async (id: string, content: string) => {
+    async (id: string, content: string, model?: string) => {
       setThinking(true);
 
       // auto-titre optimiste si la session est encore "New chat"
@@ -239,7 +241,7 @@ export function useChatSession(sessionId?: string) {
         const init = await withCsrf({
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ content }),
+          body: JSON.stringify({ content, model }),
         });
 
         const res = await fetch(
@@ -248,13 +250,13 @@ export function useChatSession(sessionId?: string) {
         );
         const data = await json<{
           user: ChatMessageItem;
-          answer: ChatMessageItem;
+          assistant: ChatMessageItem;
         }>(res);
 
-        setMessages((prev) => [...prev, data.user, data.answer]);
+        setMessages((prev) => [...prev, data.user, data.assistant]);
 
         // resynchronise la liste (titre final + updatedAt)
-        listSessions().catch(() => {});
+        listSessions().catch(() => { });
         return data;
       } finally {
         setThinking(false);
@@ -264,12 +266,12 @@ export function useChatSession(sessionId?: string) {
   );
 
   React.useEffect(() => {
-    listSessions().catch(() => {});
+    listSessions().catch(() => { });
   }, [listSessions]);
 
   React.useEffect(() => {
     if (!sessionId) return;
-    loadMessages(sessionId).catch(() => {});
+    loadMessages(sessionId).catch(() => { });
   }, [sessionId, loadMessages]);
 
   return {

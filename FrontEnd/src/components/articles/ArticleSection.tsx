@@ -1,5 +1,6 @@
 import React from 'react';
-import ArticleCard, { type Article } from './ArticleCard';
+import ArticleCard from './ArticleCard';
+import type { Article } from '@/types/article';
 import SectionHeader from '../SectionHeader';
 
 function slugify(s: string) {

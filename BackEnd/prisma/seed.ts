@@ -162,10 +162,11 @@ async function main() {
     const who = pick([demo.id, paul.id], 2);
     for (const uid of who) {
       // une réaction
+      const rtype = reactTypes[Math.floor(Math.random() * reactTypes.length)];
       await prisma.articleReaction.upsert({
-        where: { userId_articleId_type: { userId: uid, articleId: art.id, type: reactTypes[Math.floor(Math.random() * reactTypes.length)] } },
+        where: { userId_articleId_type: { userId: uid, articleId: art.id, type: rtype } },
         update: {},
-        create: { userId: uid, articleId: art.id, type: reactTypes[Math.floor(Math.random() * reactTypes.length)] },
+        create: { userId: uid, articleId: art.id, type: rtype },
       });
       // un commentaire
       await prisma.comment.create({
@@ -230,7 +231,71 @@ async function main() {
     ],
   });
 
-  console.log('✅ Seed done.');
+  // Sources Seed (Reference Tables)
+  console.log('🌱 Seeding Sources (V4)...');
+
+  // Importer les Enums (s'assurer qu'ils sont exportés par @prisma/client)
+  // Note: Dans ce script, on utilise les objets importés en haut.
+  // Il faut rajouter ConfidenceLevel, SourceType, SourceBias dans l'import du haut.
+  // Pour l'instant, on utilise les strings qui matchent les enums si TS est d'accord, sinon on caste.
+
+  const sourcesData = [
+    // 1. Le Monde (Haute Transparence, Processus Sévère)
+    {
+      domain: 'lemonde.fr', name: 'Le Monde', trustScore: 90, type: 'MEDIA',
+      transparencyScore: 95, isAdsTxtValid: true, isOwnerPublic: true,
+      editorialScore: 95, hasFactCheckFailures: false, hasCorrectionPolicy: true,
+      semanticScore: 85, biasLevel: 'CENTER_LEFT', isClickbait: false,
+      uxScore: 80, adDensity: 'MEDIUM', hasDarkPatterns: false,
+      justification: "Média de référence. Transparence actionnariale totale et charte déontologique stricte."
+    },
+    // 2. YouTube (Plateforme : Score basé sur UX/Tech mais Editorial faible par défaut)
+    {
+      domain: 'youtube.com', name: 'YouTube', trustScore: 50, type: 'SOCIAL',
+      transparencyScore: 80, isAdsTxtValid: true, isOwnerPublic: true, // Google est connu
+      editorialScore: 20, hasFactCheckFailures: true, hasCorrectionPolicy: false, // UGC
+      semanticScore: 50, biasLevel: 'NEUTRAL', isClickbait: true, // Clickbait fréquent
+      uxScore: 60, adDensity: 'HIGH', hasDarkPatterns: true,
+      justification: "Plateforme hébergeant du contenu tiers. Score éditorial bas par défaut."
+    },
+    // 3. Le Gorafi (Satire reconnue)
+    {
+      domain: 'legorafi.fr', name: 'Le Gorafi', trustScore: 0, type: 'MEDIA',
+      transparencyScore: 90, isAdsTxtValid: false, isOwnerPublic: true,
+      editorialScore: 0, hasFactCheckFailures: false, hasCorrectionPolicy: false,
+      semanticScore: 10, biasLevel: 'SATIRE', isClickbait: false,
+      uxScore: 70, adDensity: 'MEDIUM', hasDarkPatterns: false,
+      justification: "Site parodique assumé."
+    },
+    // 4. Reuters (Reference Absolue)
+    {
+      domain: 'reuters.com', name: 'Reuters', trustScore: 98, type: 'AGENCY',
+      transparencyScore: 100, isAdsTxtValid: true, isOwnerPublic: true,
+      editorialScore: 100, hasFactCheckFailures: false, hasCorrectionPolicy: true,
+      semanticScore: 100, biasLevel: 'CENTER', isClickbait: false,
+      uxScore: 90, adDensity: 'LOW', hasDarkPatterns: false,
+      justification: "Agence source. Standards d'exigence maximaux sur les 4 piliers."
+    },
+    // 5. BuzzFeed (Mixte)
+    {
+      domain: 'buzzfeed.com', name: 'BuzzFeed', trustScore: 65, type: 'MEDIA',
+      transparencyScore: 80, isAdsTxtValid: true, isOwnerPublic: true,
+      editorialScore: 60, hasFactCheckFailures: false, hasCorrectionPolicy: true,
+      semanticScore: 50, biasLevel: 'LEFT', isClickbait: true,
+      uxScore: 50, adDensity: 'HIGH', hasDarkPatterns: true, // Pubs intrusives
+      justification: "Contenu hybride: investigations sérieuses noyées dans du clickbait publicitaire."
+    }
+  ];
+
+  for (const s of sourcesData) {
+    await prisma.source.upsert({
+      where: { domain: s.domain },
+      update: { ...s },
+      create: { ...s },
+    });
+  }
+
+  console.log('✅ Seed (V4) done.');
 }
 
 main()

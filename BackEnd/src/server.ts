@@ -18,6 +18,11 @@ import { router as adminRouter } from './routes/admin';
 import { router as meRouter } from './routes/me';
 import { router as statsRouter } from './routes/stats';
 import { router as commentsRouter } from './routes/comments';
+import { router as aiRouter } from './routes/ai';
+import { initializeCron } from './cron/dailyReset';
+
+// ... (existing code)
+
 
 const app = express();
 
@@ -52,7 +57,7 @@ app.use(
   cors({
     origin(origin, callback) {
       if (!origin) return callback(null, true);
-      if(allowedOrigin.includes(origin)) {
+      if (allowedOrigin.includes(origin)) {
         return callback(null, true);
       }
       return callback(new Error('Not allowed by CORS'));
@@ -108,6 +113,7 @@ app.use('/api', adminRouter);
 app.use('/api', apiRouter);
 app.use('/api/me', meRouter);
 app.use('/api', commentsRouter);
+app.use('/api/ai', aiRouter);
 
 // ----------------------------
 //  ❌ 404 pour tout le reste
@@ -133,6 +139,35 @@ app.use(
 //  🚀 Launch
 // ----------------------------
 const PORT = Number(process.env.PORT) || 5175;
-app.listen(PORT, '0.0.0.0', () => {
-  console.log(`API listening on http://localhost:${PORT}`);
-});
+
+// Initialize Cron Jobs
+initializeCron();
+
+// Auto-seed categories
+import { prisma } from './lib/db';
+
+(async () => {
+  const categoriesToEnsure = [
+    { name: 'News', slug: 'news' },
+    { name: 'Other', slug: 'other' },
+    { name: 'Tech', slug: 'tech' },
+    { name: 'Science', slug: 'science' },
+    { name: 'Business', slug: 'business' },
+    { name: 'Politics', slug: 'politics' },
+    { name: 'Sport', slug: 'sport' },
+    { name: 'World', slug: 'world' },
+  ];
+
+  for (const cat of categoriesToEnsure) {
+    await prisma.category.upsert({
+      where: { slug: cat.slug },
+      update: {},
+      create: { name: cat.name, slug: cat.slug },
+    });
+  }
+  console.log('✅ Categories seeded/verified');
+
+  app.listen(PORT, '0.0.0.0', () => {
+    console.log(`API listening on http://localhost:${PORT}`);
+  });
+})();

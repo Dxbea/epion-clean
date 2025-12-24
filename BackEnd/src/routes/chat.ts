@@ -8,7 +8,11 @@ import {
   type PlanId,
   type ChatLimits,
 } from '../config/chatLimits';
-import { checkRateLimit } from '../lib/rateLimiter';   // ⬅️ AJOUT
+import { checkRateLimit } from '../lib/rateLimiter';
+import { callPerplexity, type PerplexityMessage } from '../lib/perplexity';
+import { getRichTrustScore } from '../lib/trust-score';
+import { analyzeRawText } from '../lib/semantic-scanner'; // AJOUT
+import { AI_MODELS } from '../config/ai-models';
 
 
 // ————————————————————————————————————————————————————————————————
@@ -299,15 +303,18 @@ router.get('/sessions/:id/messages', async (req, res, next) => {
       take: take + 1,
       ...(cursor ? { cursor: { id: cursor }, skip: 1 } : {}),
       orderBy: { createdAt: 'asc' },
-      select: { id: true, role: true, content: true, createdAt: true },
+
+      select: { id: true, role: true, content: true, sources: true, metadata: true, createdAt: true } as any, // Cast temporaire (Prisma stale)
     });
 
     const hasMore = rows.length > take;
     res.json({
-      items: rows.slice(0, take).map((m) => ({
+      items: rows.slice(0, take).map((m: any) => ({
         id: m.id,
         role: m.role,
         content: m.content,
+        sources: m.sources,
+        metadata: m.metadata,
         createdAt: m.createdAt.toISOString(),
       })),
       nextCursor: hasMore ? rows[take - 1].id : null,
@@ -329,7 +336,12 @@ router.post('/sessions/:id/messages', async (req, res, next) => {
     // 🔒 0) vérifier que l'email est vérifié
     const user = await prisma.user.findUnique({
       where: { id: userId },
-      select: { emailVerifiedAt: true },
+      select: {
+        emailVerifiedAt: true,
+        subscriptionTier: true,
+        dailyQueryCount: true,
+        role: true,
+      },
     });
 
     if (!user || !user.emailVerifiedAt) {
@@ -337,6 +349,22 @@ router.post('/sessions/:id/messages', async (req, res, next) => {
         error: 'EMAIL_NOT_VERIFIED',
         message: 'You must verify your email to use the chat.',
       });
+    }
+
+    // 🔒 0ter) VÉRIFICATION DU QUOTA (FREE/READER)
+    // Si Tier = FREE ou READER (pas PREMIUM, pas ADMIN)
+    // et dailyQueryCount >= 3 => 403
+    const tier = user.subscriptionTier || 'FREE';
+    // On considère ADMIN comme illimité aussi
+    if (tier !== 'PREMIUM' && user.role !== 'ADMIN') {
+      if (user.dailyQueryCount >= 3) {
+        return res.status(403).json({
+          error: 'QUOTA_EXCEEDED',
+          message:
+            'Quota journalier atteint (3/3). Passez Premium pour des requêtes illimitées.',
+          tier,
+        });
+      }
     }
 
     // 0bis) petit rate-limit : envoi de messages
@@ -398,15 +426,102 @@ router.post('/sessions/:id/messages', async (req, res, next) => {
       select: { id: true, createdAt: true },
     });
 
-    // 5) generate assistant reply (MVP: echo/placeholder)
-    const assistantText = `You said: ${content}`;
-
-    const aiMsg = await prisma.chatMessage.create({
-      data: { sessionId, role: 'assistant', content: assistantText },
-      select: { id: true, content: true, createdAt: true },
+    // 5) Fetch history context (last 10 messages)
+    const historyData = await prisma.chatMessage.findMany({
+      where: { sessionId },
+      orderBy: { createdAt: 'desc' },
+      take: 11, // inclut le message qu'on vient de créer
+      select: { role: true, content: true },
     });
 
-    // 6) auto-title si vide
+    // Remettre dans l'ordre chronologique
+    const history: PerplexityMessage[] = historyData
+      .reverse()
+      .map((m) => ({
+        role: m.role as 'user' | 'assistant',
+        content: m.content,
+      }));
+
+    const model = String(req.body?.model ?? AI_MODELS.STANDARD);
+
+    // 6) Call Perplexity
+    // 6) Call Perplexity
+    const perplexityResponse = await callPerplexity(history, model);
+
+    // DEBUG: Check what API returns
+    console.log('[CHAT_DEBUG] Perplexity Response keys:', Object.keys(perplexityResponse));
+    console.log('[CHAT_DEBUG] Citations:', (perplexityResponse as any).citations);
+
+    const rawAnswer = perplexityResponse.choices[0].message.content;
+    const citations = (perplexityResponse as any).citations || [];
+
+    // Map citations to Source objects with DB Lookup (V5 Engine)
+    const sources = await Promise.all(citations.map(async (url: string, idx: number) => {
+      let domain = '';
+      try { domain = new URL(url).hostname.replace('www.', ''); } catch { }
+
+      console.log(`[TrustScore] Fetching score for: ${domain}`);
+
+      // 1. Calcul du TrustScore V2 (Moteur Centralisé)
+      const richScore = await getRichTrustScore(domain);
+
+      return {
+        id: idx + 1,
+        // Identify
+        name: richScore.metadata.name,
+        url: url,
+        domain: domain,
+        logo: `https://logo.clearbit.com/${domain}`,
+
+        // Reliability (V5 - Matrix Risk)
+        score: richScore.globalScore,
+        type: richScore.metadata.type,
+
+        // New V5 Data for UI
+        confidence: richScore.confidenceLevel,
+        justification: richScore.metadata.justification,
+
+        // Flags & Metrics
+        metrics: richScore.details, // { transparency, editorial... }
+        flags: richScore.flags      // { isClickbait, ... }
+      };
+    }));
+
+    // Calcul du Score Global (Moyenne pondérée par la confiance)
+    const validScores = sources.filter(s => s.score > 0).map(s => s.score);
+    const averageScore = validScores.length > 0
+      ? Math.round(validScores.reduce((a, b) => a + b, 0) / validScores.length)
+      : (sources.length > 0 ? 50 : 0);
+
+    // 6.5 Analyse de la réponse (Output Check)
+    const outputAnalysis = analyzeRawText(rawAnswer);
+
+    // Create structured content
+    // NOUVEAU: On sauvegarde le texte brut dans `content`
+    // et les métadonnées dans `sources` et `metadata`.
+    const aiMsg = await prisma.chatMessage.create({
+      data: {
+        sessionId,
+        role: 'assistant',
+        content: rawAnswer,
+        sources: sources,
+        metadata: {
+          factScore: averageScore,
+          outputAnalysis: outputAnalysis // { score, isClickbait, biasLevel } - Ajout
+        }
+      } as any,
+      select: { id: true, content: true, sources: true, metadata: true, createdAt: true } as any,
+    }) as any;
+
+    // 7) UPDATE QUOTA (Incrémenter dailyQueryCount)
+    // On incrémente pour tout le monde sans distinction pour le tracking,
+    // mais le blocage ne se fait que pour les FREE/READER au début.
+    await prisma.user.update({
+      where: { id: userId },
+      data: { dailyQueryCount: { increment: 1 } },
+    });
+
+    // 8) auto-title si vide
     if (!session.topic || session.topic === 'New chat') {
       await prisma.chatSession.update({
         where: { id: sessionId },
@@ -419,6 +534,8 @@ router.post('/sessions/:id/messages', async (req, res, next) => {
       });
     }
 
+
+
     res.status(201).json({
       user: {
         id: userMsg.id,
@@ -426,11 +543,17 @@ router.post('/sessions/:id/messages', async (req, res, next) => {
         content,
         createdAt: userMsg.createdAt.toISOString(),
       },
-      answer: {
+      assistant: {
         id: aiMsg.id,
         role: 'assistant',
-        content: aiMsg.content,
-        createdAt: aiMsg.createdAt.toISOString(),
+        content: aiMsg.content, // raw text
+        createdAt: aiMsg.createdAt,
+        // FORCE USE OF LOCAL VARIABLES to avoid Prisma return issues
+        sources: sources,
+        metadata: {
+          factScore: averageScore,
+          outputAnalysis: outputAnalysis
+        }
       },
     });
   } catch (e) {

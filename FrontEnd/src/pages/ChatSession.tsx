@@ -1,10 +1,12 @@
 // src/pages/ChatSession.tsx
 // DEBUT BLOC
 import React from 'react';
-import { useNavigate, useParams } from 'react-router-dom';
+import { useNavigate, useParams, useLocation } from 'react-router-dom';
 import ChatSidebar from '@/components/chat/ChatSidebar';
 import ChatInput from '@/components/chat/ChatInput';
 import ChatMessage from '@/components/chat/ChatMessage';
+import ReasoningLoader from '@/components/ui/ReasoningLoader';
+import SystemCardModal from '@/components/chat/SystemCardModal';
 import { type Rigor } from '@/utils/rigorLevels';
 import { useChatSession } from '@/hooks/useChatSession';
 import FolderPanel from '@/components/chat/FolderPanel';
@@ -24,12 +26,14 @@ export type UploadedFile = {
 export default function ChatSession() {
   const nav = useNavigate();
   const { id } = useParams<{ id: string }>();
+  const location = useLocation();
+  const attachedContext = location.state?.attachedSource || location.state?.attachedContext; // Support both naming conventions temporary
 
   const isGuestSession = id === 'guest';         // <-- AJOUT
 
   const { me } = useMe();
   const { requireAuth } = useAuthPrompt();
-  
+
 
   // Hook connecté à l'API
   const {
@@ -50,7 +54,7 @@ export default function ChatSession() {
   const [hideAppFooter, setHideAppFooter] = React.useState<boolean>(false);
   const [activeFolderId, setActiveFolderId] = React.useState<string | null>(null);
   const [rigorLoaded, setRigorLoaded] = React.useState(false);
-    // Cacher le footer automatiquement à l'arrivée sur la page chat
+  // Cacher le footer automatiquement à l'arrivée sur la page chat
   React.useEffect(() => {
     setHideAppFooter(true);
   }, []);
@@ -80,6 +84,7 @@ export default function ChatSession() {
   const [searchOpen, setSearchOpen] = React.useState(false);
   const [folderOpen, setFolderOpen] = React.useState(false);
   const [settingsOpen, setSettingsOpen] = React.useState(false);
+  const [transparencyOpen, setTransparencyOpen] = React.useState(false);
   const [searchQuery, setSearchQuery] = React.useState('');
   const [folders, setFolders] = React.useState<string[]>([]);
   const [renamedMap, setRenamedMap] = React.useState<Record<string, string>>({});
@@ -92,7 +97,18 @@ export default function ChatSession() {
     [sessions, searchQuery],
   );
 
+  const initialContext = location.state?.initialContext;
+
   // IMPORTANT : plus de création auto ici, c'est géré par /chat.
+
+  // Auto-send initial context if present and chat is empty
+  React.useEffect(() => {
+    if (initialContext && id && !messages.length && !thinking && !loading) {
+      // Clear state to avoid double sending on refresh (not perfect but helpful)
+      nav(location.pathname, { replace: true, state: { ...location.state, initialContext: undefined } });
+      sendMessage(id, initialContext);
+    }
+  }, [id, initialContext, messages.length, thinking, loading, sendMessage, nav, location]);
 
   // appliquer classes <body> pour le layout local
   React.useEffect(() => {
@@ -111,8 +127,8 @@ export default function ChatSession() {
         err?.code === 'UNAUTHENTICATED'
           ? 'Tu dois te reconnecter pour utiliser le chat.'
           : err?.message === 'Failed to fetch'
-          ? 'Serveur Epion indisponible. Vérifie que le back-end tourne bien puis réessaie.'
-          : 'Impossible de créer un nouveau chat pour le moment.';
+            ? 'Serveur Epion indisponible. Vérifie que le back-end tourne bien puis réessaie.'
+            : 'Impossible de créer un nouveau chat pour le moment.';
       pushToast(msg);
     }
   };
@@ -168,7 +184,7 @@ export default function ChatSession() {
   }, [messages.length, thinking]);
 
   // ENVOI DU MESSAGE : garde d’auth + cas guest
-      const handleSend = async (text: string) => {
+  const handleSend = async (text: string, attachments?: UploadedFile[], model?: string) => {
     if (!id) return;
 
     const isGuestSession = id === 'guest';
@@ -214,7 +230,7 @@ export default function ChatSession() {
 
     // 4) cas normal : session existante + user vérifié
     try {
-      await sendMessage(id, text);
+      await sendMessage(id, text, model);
     } catch (err: any) {
       console.error('sendMessage error', err);
 
@@ -270,7 +286,7 @@ export default function ChatSession() {
   // Sync du mode vers le backend (sauf "guest")
   React.useEffect(() => {
     if (!id || isGuestSession || !rigorLoaded) return;
-    setSessionMode(id, rigor).catch(() => {});
+    setSessionMode(id, rigor).catch(() => { });
   }, [id, isGuestSession, rigor, rigorLoaded, setSessionMode]);
 
   const empty = !messages.length;
@@ -281,9 +297,8 @@ export default function ChatSession() {
       style={{ minHeight: 'calc(100dvh - var(--app-header-h,64px))' }}
     >
       <div
-        className={`grid isolate h-full min-h-0 bg-[#FAFAF5] text-neutral-900 dark:bg-neutral-950 dark:text-white ${
-          collapsed ? 'grid-cols-[3.5rem_1fr]' : 'grid-cols-[15rem_1fr]'
-        }`}
+        className={`grid isolate h-full min-h-0 bg-[#FAFAF5] text-neutral-900 dark:bg-neutral-950 dark:text-white ${collapsed ? 'grid-cols-[3.5rem_1fr]' : 'grid-cols-[15rem_1fr]'
+          }`}
       >
         {/* Sidebar */}
         <ChatSidebar
@@ -320,9 +335,8 @@ export default function ChatSession() {
             style={{ paddingBottom: '160px' }}
           >
             <div
-              className={`mx-auto w-full max-w-3xl px-4 py-8 ${
-                empty && !activeFolderId ? 'flex h-full items-center justify-center' : ''
-              }`}
+              className={`mx-auto w-full max-w-3xl px-4 py-8 ${empty && !activeFolderId ? 'flex h-full items-center justify-center' : ''
+                }`}
             >
               {activeFolderId ? (
                 <FolderPanel
@@ -345,20 +359,17 @@ export default function ChatSession() {
               ) : (
                 <div className="space-y-3">
                   {messages.map((m) => (
-                    <ChatMessage
-                      key={m.id}
-                      message={{
-                        id: m.id,
-                        role: m.role,
-                        content: m.content,
-                        createdAt: new Date(m.createdAt).getTime(),
-                      }}
-                    />
+                    <React.Fragment key={m.id}>
+                      <ChatMessage message={{
+                        ...m,
+                        createdAt: new Date(m.createdAt).getTime()
+                      }} />
+                    </React.Fragment>
                   ))}
 
                   {(thinking || loading) && (
-                    <div className="mt-2 text-center text-sm text-black/60 dark:text-white/60">
-                      L&apos;IA réfléchit…
+                    <div className="mt-4">
+                      <ReasoningLoader />
                     </div>
                   )}
                 </div>
@@ -371,11 +382,20 @@ export default function ChatSession() {
             className="sticky bottom-0 z-10 border-black/10 bg-[#FAFAF5]/90 backdrop-blur dark:border-white/10 dark:bg-neutral-950/90"
             style={{ ['--chat-input-h' as any]: '120px' }}
           >
+            {attachedContext && attachedContext.type === 'article' && (
+              <div className="mx-auto max-w-3xl px-4 pt-2">
+                <div className="flex items-center gap-2 rounded-lg border border-teal-500/20 bg-teal-500/10 px-3 py-2 text-sm text-teal-700 dark:text-teal-400">
+                  <span className="font-semibold">Context Attached:</span>
+                  <span className="truncate max-w-[200px]">{attachedContext.title || attachedContext.content?.title}</span>
+                </div>
+              </div>
+            )}
             <div className="mx-auto w-full max-w-3xl px-4 py-3">
               <ChatInput
                 rigor={rigor}
                 setRigor={setRigor}
-                onSend={(t) => handleSend(t)}
+                onSend={(t, att, m) => handleSend(t, att, m)}
+                onOpenTransparency={() => setTransparencyOpen(true)}
               />
             </div>
           </div>
@@ -383,6 +403,10 @@ export default function ChatSession() {
       </div>
 
       {/* Overlays search / folder / settings */}
+      <SystemCardModal
+        isOpen={transparencyOpen}
+        onClose={() => setTransparencyOpen(false)}
+      />
       {searchOpen && (
         <div
           className="fixed inset-0 z-50 bg-black/50 backdrop-blur-sm"
