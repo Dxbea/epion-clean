@@ -515,22 +515,36 @@ router.get('/slug/:slug', async (req, res, next) => {
       return res.status(404).json({ error: 'Not Found' });
     }
 
+    // --- DEBUG CRITIQUE ---
+    console.log(`--- DEBUG GET ARTICLE (${a.slug}) ---`);
+    console.log("FactCheckData field:", a.factCheckData ? "Present" : "Missing");
+    if (a.factCheckData) console.log("FactCheckData sample:", JSON.stringify(a.factCheckData).slice(0, 100));
+
+    // Mapping de sécurité pour le frontend (garantit que .sources existe)
+    const responseData = {
+      id: a.id,
+      slug: a.slug,
+      title: a.title,
+      excerpt: a.summary ?? null,
+      content: a.content ?? null,
+      imageUrl: a.imageUrl ?? null,
+      status: a.status,
+      publishedAt: a.createdAt.toISOString(),
+      category: a.category
+        ? { id: a.category.id, slug: a.category.slug, name: a.category.name }
+        : null,
+      author: a.author,
+      // AI Fields
+      aiSummary: a.aiSummary,
+      factCheckScore: a.factCheckScore,
+      factCheckData: a.factCheckData,
+      sources: (a as any).sources || a.factCheckData || [],
+      generationPrompt: a.generationPrompt
+    };
+
     // --- cas 1 : article publié → accessible à tous, pas besoin d'userId
     if (a.status === 'PUBLISHED') {
-      return res.json({
-        id: a.id,
-        slug: a.slug,
-        title: a.title,
-        excerpt: a.summary ?? null,
-        content: a.content ?? null,
-        imageUrl: a.imageUrl ?? null,
-        status: a.status,
-        publishedAt: a.createdAt.toISOString(),
-        category: a.category
-          ? { id: a.category.id, slug: a.category.slug, name: a.category.name }
-          : null,
-        author: a.author,
-      });
+      return res.json(responseData);
     }
 
     // --- cas 2 : brouillon / archivé → réservé à l'auteur (ou admin si tu veux plus tard)
@@ -547,20 +561,7 @@ router.get('/slug/:slug', async (req, res, next) => {
     }
 
     // réponse normalisée pour l'auteur
-    res.json({
-      id: a.id,
-      slug: a.slug,
-      title: a.title,
-      excerpt: a.summary ?? null,
-      content: a.content ?? null,
-      imageUrl: a.imageUrl ?? null,
-      status: a.status,
-      publishedAt: a.createdAt.toISOString(),
-      category: a.category
-        ? { id: a.category.id, slug: a.category.slug, name: a.category.name }
-        : null,
-      author: a.author,
-    });
+    res.json(responseData);
   } catch (e) {
     next(e);
   }
@@ -741,6 +742,12 @@ router.get('/:id', async (req, res, next) => {
 
 
 /** POST /api/articles  */
+import { createAIArticle, editAIArticle } from '../controllers/articleController';
+
+// --- POST /api/articles/generate -----------------------------------------
+router.post('/generate', createAIArticle);
+router.post('/:id/edit-ai', editAIArticle);
+
 // --- POST /api/articles ---------------------------------------------------
 router.post('/', async (req, res, next) => {
   try {

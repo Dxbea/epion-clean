@@ -8,6 +8,7 @@ import { useMe } from '@/contexts/MeContext';
 import { useDirtyGuard } from '@/hooks/useDirtyGuard';
 import { withCsrf } from '@/lib/csrf';
 import { useAuthPrompt } from '@/contexts/AuthPromptContext';
+import { editArticleWithAI } from '@/api/articles';
 
 const stripTags = (s: string) => s.replace(/<[^>]*>/g, '');
 const forbidHtml = (s: string): boolean => /<|>/.test(s);
@@ -221,11 +222,11 @@ export default function EditArticlePage() {
     }
 
 
-    // 🔒 Anti-XSS
-    if (forbidHtml(title) || forbidHtml(summary) || forbidHtml(content)) {
-      setError('HTML tags are not allowed.');
-      return;
-    }
+    // 🔒 Anti-XSS : On laisse le backend nettoyer, on autorise le Markdown
+    // if (forbidHtml(title) || forbidHtml(summary) || forbidHtml(content)) {
+    //   setError('HTML tags are not allowed.');
+    //   return;
+    // }
 
     if (forbidden) return;
 
@@ -368,15 +369,40 @@ export default function EditArticlePage() {
   ]);
 
   // 7. Ask Epion (simu)
+  // 7. Ask Epion (connected)
+  const [askTarget, setAskTarget] = React.useState<'content' | 'items' | 'summary' | 'title'>('content');
+
+
   async function handleAsk() {
     if (!articleId || forbidden || emailNotVerified || !me) return;
     const prompt = ask.trim();
     if (!prompt) return;
+
     setAskLoading(true);
     try {
-      setContent((c) => `> AI instruction: ${prompt}\n\n${c || ''}`);
+      let currentContent = '';
+      if (askTarget === 'title') currentContent = title;
+      else if (askTarget === 'summary') currentContent = summary;
+      else currentContent = content;
+
+      // Optimistic ? Non, on attend la réponse
+      const response = await editArticleWithAI(articleId, {
+        instruction: prompt,
+        currentContent: currentContent,
+        field: askTarget
+      });
+
+      // Apply result
+      if (askTarget === 'title') setTitle(response.result);
+      else if (askTarget === 'summary') setSummary(response.result);
+      else setContent(response.result); // default content
+
       setDirty(true);
       setAsk('');
+      // Optional: Toast "Changes applied"
+    } catch (err) {
+      console.error(err);
+      alert("Failed to edit with AI: " + (err as any).message);
     } finally {
       setAskLoading(false);
     }
@@ -778,25 +804,46 @@ export default function EditArticlePage() {
           <div className="rounded-2xl border border-black/10 bg-white p-4 dark:border-white/10 dark:bg-neutral-950/40">
             <h3 className="text-sm font-semibold">Ask Epion to edit</h3>
             <p className="mt-1 text-xs opacity-70">
-              Exemples : “raccourcis le titre”, “passe le ton en explicatif”, “ajoute un paragraphe à la fin”.
+              Select a field and tell Epion what to change.
             </p>
+
+            <div className="mt-3">
+              <EpionSelect
+                label="Target Field"
+                value={askTarget}
+                onChange={(v) => setAskTarget(v as any)}
+                options={[
+                  { value: 'content', label: 'Content' },
+                  { value: 'summary', label: 'Summary' },
+                  { value: 'title', label: 'Title' },
+                ]}
+              />
+            </div>
+
             <textarea
               value={ask}
               onChange={(e) => setAsk(e.target.value)}
               rows={4}
               className="mt-3 w-full rounded-xl border border-black/10 bg-white/0 p-2 text-sm focus:outline-none focus:ring-2 focus:ring-[#4290D3] dark:border-white/10 dark:bg-neutral-950"
-              placeholder="Tell Epion what to change…"
+              placeholder="Ex: Raccourcis le texte, change le ton..."
               disabled={forbidden}
             />
             <button
               type="button"
               onClick={handleAsk}
               disabled={askLoading || !ask.trim() || forbidden}
-              className="mt-3 h-9 rounded-full bg-neutral-900 px-4 text-sm text-white disabled:opacity-60 dark:bg-white dark:text-black"
+              className="mt-3 flex w-full items-center justify-center gap-2 rounded-full bg-neutral-900 px-4 py-2 text-sm text-white disabled:opacity-60 dark:bg-white dark:text-black"
             >
-              {askLoading ? 'Applying…' : 'Apply change'}
+              {askLoading && (
+                <svg className="animate-spin h-4 w-4" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
+                  <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle>
+                  <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
+                </svg>
+              )}
+              {askLoading ? 'Epion is working...' : 'Apply change'}
             </button>
           </div>
+
 
           {articleSlug && (
             <div className="rounded-2xl border border-black/10 bg-white p-4 text-sm dark:border-white/10 dark:bg-neutral-950/40">

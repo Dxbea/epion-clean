@@ -5,6 +5,7 @@ import { API_BASE } from '@/config/api';
 import { useMe } from '@/contexts/MeContext';
 import { withCsrf } from '@/lib/csrf';
 import { useAuthPrompt } from '@/contexts/AuthPromptContext';
+import { generateArticleWithAI } from '@/api/articles';
 
 // Anti-XSS rapide
 const stripTags = (s: string) => s.replace(/<[^>]*>/g, '');
@@ -27,7 +28,7 @@ export default function CreateArticlePage() {
 
   // 1) ce que l’utilisateur veut que l’IA écrive
   const [prompt, setPrompt] = React.useState('');
-  const [tone, setTone] = React.useState<'neutral' | 'explainer' | 'short' | 'long'>('neutral');
+  const [tone, setTone] = React.useState<'neutral' | 'explainer' | 'short' | 'indepth'>('neutral');
   const [language, setLanguage] = React.useState<'fr' | 'en'>('fr');
 
   // 2) métadonnées
@@ -40,7 +41,7 @@ export default function CreateArticlePage() {
   const [pickedStock, setPickedStock] = React.useState<string | null>(null);
 
   // ui
-  const [submitting, setSubmitting] = React.useState(false);
+  const [isGenerating, setIsGenerating] = React.useState(false);
   const [error, setError] = React.useState<string | null>(null);
 
   const emailNotVerified = !!me && !me.emailVerifiedAt;
@@ -132,54 +133,31 @@ export default function CreateArticlePage() {
       return;
     }
 
-    setSubmitting(true);
+    setIsGenerating(true);
     setError(null);
 
     try {
-      // on ne publie PAS → on crée un DRAFT
-      let finalImageUrl: string | null = null;
-      if (imageMode === 'url' && imageUrl.trim()) finalImageUrl = imageUrl.trim();
-      if (imageMode === 'stock' && pickedStock) finalImageUrl = pickedStock;
-      // auto → null
+      // Appel IA
+      const result = await generateArticleWithAI({
+        topic: prompt.trim(),
+        language,
+        style: tone,
+        category: cat ? cat.name : '', // On passe le nom pour le contexte IA
+        generateImage: imageMode === 'auto'
+      });
 
-      // on stocke le prompt + les préférences dans le contenu
-      const payload = {
-        title: 'Draft (to generate)',
-        summary: `Prompt: ${prompt.trim()}`,
-        content: [
-          `## Generation request`,
-          `language: ${language}`,
-          `tone: ${tone}`,
-          '',
-          prompt.trim(),
-        ].join('\n'),
-        imageUrl: finalImageUrl,
-        status: 'DRAFT',
-        categoryId: categoryId || undefined,
-        generationPrompt: prompt.trim(),
-      };
-
-      const res = await fetch(
-        `${API_BASE}/api/articles`,
-        await withCsrf({
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify(payload),
-        }),
-      );
-
-      if (!res.ok) {
-        const msg = await res.text().catch(() => '');
-        throw new Error(msg || `HTTP ${res.status}`);
+      // Redirection vers l'édition
+      // L'API renvoie { article: { id: ... }, message: ... }
+      if (result.article && result.article.id) {
+        navigate(`/account/articles/${result.article.id}/edit`);
+      } else {
+        throw new Error("Invalid response from server");
       }
 
-      const json = await res.json(); // { id, slug }
-      const id = json.id as string;
-      navigate(`/account/articles/${id}/edit`);
     } catch (err: any) {
-      setError(err?.message || 'Unable to create draft');
+      setError(err?.message || 'Unable to generate article');
     } finally {
-      setSubmitting(false);
+      setIsGenerating(false);
     }
   }
 
@@ -324,8 +302,8 @@ export default function CreateArticlePage() {
             options={[
               { value: 'neutral', label: 'Neutral / reporter' },
               { value: 'explainer', label: 'Explainer / pédagogique' },
-              { value: 'short', label: 'Short update' },
-              { value: 'long', label: 'In-depth' },
+              { value: 'short', label: 'Short / Brève' },
+              { value: 'indepth', label: 'In-depth' },
             ]}
           />
 
@@ -412,10 +390,20 @@ export default function CreateArticlePage() {
         <div className="flex items-center gap-3">
           <button
             type="submit"
-            disabled={submitting || !prompt.trim() || promptTooLong}
-            className="rounded-xl bg-black px-4 py-2 text-white disabled:opacity-60 dark:bg-white dark:text-black"
+            disabled={isGenerating || !prompt.trim() || promptTooLong}
+            className="flex items-center gap-2 rounded-xl bg-black px-4 py-2 text-white disabled:opacity-60 dark:bg-white dark:text-black"
           >
-            {submitting ? 'Creating draft…' : 'Generate with AI'}
+            {isGenerating ? (
+              <>
+                <svg className="animate-spin -ml-1 mr-2 h-4 w-4 text-white dark:text-black" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
+                  <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle>
+                  <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
+                </svg>
+                Generating...
+              </>
+            ) : (
+              'Generate with AI'
+            )}
           </button>
           <Link
             to="/actuality"

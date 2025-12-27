@@ -6,6 +6,8 @@ import ChatSidebar from '@/components/chat/ChatSidebar';
 import ChatInput from '@/components/chat/ChatInput';
 import ChatMessage from '@/components/chat/ChatMessage';
 import ReasoningLoader from '@/components/ui/ReasoningLoader';
+import { ThinkingProcess } from '@/components/chat/ThinkingProcess';
+import { LiveAuditLog } from '@/components/chat/LiveAuditLog';
 import SystemCardModal from '@/components/chat/SystemCardModal';
 import { type Rigor } from '@/utils/rigorLevels';
 import { useChatSession } from '@/hooks/useChatSession';
@@ -183,6 +185,11 @@ export default function ChatSession() {
     return () => window.cancelAnimationFrame(idRaf);
   }, [messages.length, thinking]);
 
+  // State pour la transparence (Cahier des charges)
+  const [sourceRestricted, setSourceRestricted] = React.useState(true);
+  const [neutralityForced, setNeutralityForced] = React.useState(true);
+  const [timeRecent, setTimeRecent] = React.useState(false); // Default false = Archives + Temps Réel
+
   // ENVOI DU MESSAGE : garde d’auth + cas guest
   const handleSend = async (text: string, attachments?: UploadedFile[], model?: string) => {
     if (!id) return;
@@ -230,7 +237,11 @@ export default function ChatSession() {
 
     // 4) cas normal : session existante + user vérifié
     try {
-      await sendMessage(id, text, model);
+      await sendMessage(id, text, model, rigor, {
+        sourceRestricted,
+        neutralityForced,
+        timeRecent
+      });
     } catch (err: any) {
       console.error('sendMessage error', err);
 
@@ -347,7 +358,7 @@ export default function ChatSession() {
                   }}
                   onClose={() => setActiveFolderId(null)}
                 />
-              ) : empty ? (
+              ) : (empty && !thinking && !loading) ? (
                 <div className="select-none text-center">
                   <h1 className="font-[thermal-variable] text-3xl md:text-4xl [font-variation-settings:'opsz'_100,'wght'_600]">
                     Learn with epion
@@ -368,8 +379,9 @@ export default function ChatSession() {
                   ))}
 
                   {(thinking || loading) && (
-                    <div className="mt-4">
-                      <ReasoningLoader />
+                    <div className="max-w-2xl mx-auto mt-8 w-full">
+                      <ThinkingProcess />
+                      <LiveAuditLog />
                     </div>
                   )}
                 </div>
@@ -406,6 +418,12 @@ export default function ChatSession() {
       <SystemCardModal
         isOpen={transparencyOpen}
         onClose={() => setTransparencyOpen(false)}
+        sourceRestricted={sourceRestricted}
+        setSourceRestricted={setSourceRestricted}
+        neutralityForced={neutralityForced}
+        setNeutralityForced={setNeutralityForced}
+        timeRecent={timeRecent}
+        setTimeRecent={setTimeRecent}
       />
       {searchOpen && (
         <div

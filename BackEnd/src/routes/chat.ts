@@ -9,10 +9,17 @@ import {
   type ChatLimits,
 } from '../config/chatLimits';
 import { checkRateLimit } from '../lib/rateLimiter';
-import { callPerplexity, type PerplexityMessage } from '../lib/perplexity';
+import { callPerplexity, type PerplexityMessage, generateSystemPrompt } from '../lib/perplexity';
 import { getRichTrustScore } from '../lib/trust-score';
-import { analyzeRawText } from '../lib/semantic-scanner'; // AJOUT
+import { analyzeOutputQuality } from '../lib/semantic-scanner'; // AJOUT
 import { AI_MODELS } from '../config/ai-models';
+import { ChatOptions } from '../types/chat';
+
+
+// ————————————————————————————————————————————————————————————————
+// PROMPTS SYSTEME DYNAMIQUES
+// ————————————————————————————————————————————————————————————————
+// (Fonction getSystemPrompt déplacée dans ../lib/perplexity.ts)
 
 
 // ————————————————————————————————————————————————————————————————
@@ -442,10 +449,40 @@ router.post('/sessions/:id/messages', async (req, res, next) => {
         content: m.content,
       }));
 
+    console.log(`[CHAT_DEBUG] User Content received: "${content}"`);
+    console.log(`[CHAT_DEBUG] History length (before system): ${history.length}`);
+    if (history.length > 0) {
+      console.log(`[CHAT_DEBUG] History last item:`, JSON.stringify(history[history.length - 1], null, 2));
+    }
+
+    // 0) Récupération du mode (Priorité : Body > Session)
+    const sessionData = await prisma.chatSession.findUnique({
+      where: { id: sessionId },
+      select: { mode: true }
+    });
+
+    // Le mode peut être envoyé 'on-the-fly' dans le body pour éviter les race conditions
+    const effectiveMode = (req.body.mode && ['fast', 'balanced', 'precise'].includes(req.body.mode))
+      ? req.body.mode
+      : (sessionData?.mode || 'balanced');
+
+    // 6) Injection du System Prompt Dynamique
+    const chatOptions: ChatOptions = {
+      filterSources: req.body.sourceRestricted || false,
+      forceNeutrality: req.body.neutralityForced || false,
+      recentEvents: req.body.timeRecent || false
+    };
+
+    console.log('[CHAT_DEBUG] Options:', JSON.stringify(chatOptions));
+
+    const systemInstruction = generateSystemPrompt(effectiveMode, chatOptions);
+
+    // CRUCIAL FIX: Inject System Prompt at the beginning of history
+    history.unshift({ role: 'system', content: systemInstruction });
+
     const model = String(req.body?.model ?? AI_MODELS.STANDARD);
 
-    // 6) Call Perplexity
-    // 6) Call Perplexity
+    // 7) Call Perplexity
     const perplexityResponse = await callPerplexity(history, model);
 
     // DEBUG: Check what API returns
@@ -480,6 +517,7 @@ router.post('/sessions/:id/messages', async (req, res, next) => {
         // New V5 Data for UI
         confidence: richScore.confidenceLevel,
         justification: richScore.metadata.justification,
+        description: richScore.metadata.description, // AJOUT CORRECTIF
 
         // Flags & Metrics
         metrics: richScore.details, // { transparency, editorial... }
@@ -487,14 +525,45 @@ router.post('/sessions/:id/messages', async (req, res, next) => {
       };
     }));
 
-    // Calcul du Score Global (Moyenne pondérée par la confiance)
+    // --- ZERO TRUST VERIFICATION ENGINE ---
+
+    // 1. Source Reliability (Source Mean)
     const validScores = sources.filter(s => s.score > 0).map(s => s.score);
-    const averageScore = validScores.length > 0
+    const sourcesMean = validScores.length > 0
       ? Math.round(validScores.reduce((a, b) => a + b, 0) / validScores.length)
       : (sources.length > 0 ? 50 : 0);
 
-    // 6.5 Analyse de la réponse (Output Check)
-    const outputAnalysis = analyzeRawText(rawAnswer);
+    // 2. Output Quality Check (The 'Tone Analyzer')
+    const outputAnalysis = analyzeOutputQuality(rawAnswer);
+    const outputScore = outputAnalysis.score;
+    // { score, isClickbait, biasLevel, details: { capsRatio... } }
+
+    // 3. Diversity Penalty
+    // Ex: 3 sources from 'bfmtv.com' out of 4 total -> Penalty.
+    const domains = sources.map(s => s.domain).filter(d => !!d);
+    let diversityPenalty = 0;
+
+    // Calculate diversity only if we have at least 3 sources
+    if (domains.length >= 3) {
+      const counts: Record<string, number> = {};
+      domains.forEach(d => { counts[d] = (counts[d] || 0) + 1; });
+
+      const maxCount = Math.max(...Object.values(counts));
+      const dominanceRatio = maxCount / domains.length;
+
+      if (dominanceRatio > 0.5) {
+        // Flat 5 point penalty for > 50%, 10 points for > 75%
+        diversityPenalty = dominanceRatio > 0.75 ? 10 : 5;
+      }
+    }
+
+    // 4. Final Global Score Calculation
+    // Formula: (Sources * 0.75) + (Output * 0.25) - DiversityPenalty
+    let calculatedScore = (sourcesMean * 0.75) + (outputScore * 0.25);
+    calculatedScore = calculatedScore - diversityPenalty;
+
+    // Bounds check [0, 100]
+    const finalGlobalScore = Math.min(100, Math.max(0, Math.round(calculatedScore)));
 
     // Create structured content
     // NOUVEAU: On sauvegarde le texte brut dans `content`
@@ -506,8 +575,16 @@ router.post('/sessions/:id/messages', async (req, res, next) => {
         content: rawAnswer,
         sources: sources,
         metadata: {
-          factScore: averageScore,
-          outputAnalysis: outputAnalysis // { score, isClickbait, biasLevel } - Ajout
+          factScore: finalGlobalScore,
+
+          // Debug / Transparency Data
+          calculation: {
+            sourcesMean,
+            outputScore,
+            diversityPenalty,
+            formula: "(sources * 0.75) + (output * 0.25) - diversity"
+          },
+          outputAnalysis: outputAnalysis
         }
       } as any,
       select: { id: true, content: true, sources: true, metadata: true, createdAt: true } as any,
@@ -551,7 +628,14 @@ router.post('/sessions/:id/messages', async (req, res, next) => {
         // FORCE USE OF LOCAL VARIABLES to avoid Prisma return issues
         sources: sources,
         metadata: {
-          factScore: averageScore,
+          factScore: finalGlobalScore,
+
+          // Provide full transparency for the Frontend Modal
+          calculation: {
+            sourcesMean,
+            outputScore,
+            diversityPenalty
+          },
           outputAnalysis: outputAnalysis
         }
       },

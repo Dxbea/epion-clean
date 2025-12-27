@@ -206,9 +206,9 @@ export default function ChatInput({
                     }`}
                 >
                   <span className="text-base">
-                    {detail.label.includes('Pro') ? <FiCpu className="text-purple-500" /> :
-                      detail.label.includes('Reasoning') ? <FiLayers className="text-blue-500" /> :
-                        detail.label.includes('Deep') ? <FiDatabase className="text-pink-500" /> :
+                    {detail.label.includes('Pro') ? <FiCpu className="text-purple-600" /> :
+                      detail.label.includes('Reasoning') ? <FiLayers className="text-emerald-500" /> :
+                        detail.label.includes('Deep') ? <FiDatabase className="text-red-500" /> :
                           <FiZap className="text-amber-500" />}
                   </span>
                   <div className="flex flex-col items-start">
@@ -249,7 +249,7 @@ export default function ChatInput({
                 onClick={() => handleImportClick('doc')}
                 className="flex w-full items-center gap-3 px-4 py-3 text-left text-sm text-gray-600 hover:bg-black/5 dark:text-gray-300 dark:hover:bg-white/5 transition-colors"
               >
-                <div className="flex h-9 w-9 items-center justify-center rounded-full bg-blue-50 text-blue-600 dark:bg-blue-500/10 dark:text-blue-400">
+                <div className="flex h-9 w-9 items-center justify-center rounded-full bg-amber-50 text-amber-600 dark:bg-amber-500/10 dark:text-amber-400">
                   <FiFileText className="text-lg" />
                 </div>
                 <div>
@@ -261,7 +261,7 @@ export default function ChatInput({
                 onClick={() => handleImportClick('image')}
                 className="flex w-full items-center gap-3 px-4 py-3 text-left text-sm text-gray-600 hover:bg-black/5 dark:text-gray-300 dark:hover:bg-white/5 transition-colors"
               >
-                <div className="flex h-9 w-9 items-center justify-center rounded-full bg-purple-50 text-purple-600 dark:bg-purple-500/10 dark:text-purple-400">
+                <div className="flex h-9 w-9 items-center justify-center rounded-full bg-red-50 text-red-600 dark:bg-red-500/10 dark:text-red-400">
                   <FiImage className="text-lg" />
                 </div>
                 <div>

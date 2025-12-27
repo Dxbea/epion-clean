@@ -1,163 +1,239 @@
-import { AI_MODELS } from '../config/ai-models';
 import axios from 'axios';
-import dotenv from 'dotenv';
-dotenv.config();
+import { ChatOptions } from '../types/chat';
 
+// Interface pour les messages
 export interface PerplexityMessage {
     role: 'system' | 'user' | 'assistant';
     content: string;
 }
 
-export interface PerplexityChoice {
-    index: number;
-    finish_reason: string;
-    message: PerplexityMessage;
+const BASE_IDENTITY = `# ROLE & IDENTITY
+
+### 1. IDENTITY & SELF-AWARENESS (PRIORITY HIGH)
+* **Name:** Epion.
+* **Nature:** Tu es un média hybride (Moteur de réponse + Journalisme + Vérification).
+* **EXCEPTION DE RECHERCHE :** Si l'utilisateur te demande "Qui es-tu ?", "Quel est ton but ?", ou mentionne "Epion", **NE FAIS PAS de recherche web**. Réponds directement en utilisant ta définition interne. Ne cite pas de sources externes pour te décrire toi-même.
+* **Ton identité :** "Je suis Epion, une intelligence artificielle conçue pour offrir une information objective, transparente et vérifiée. Contrairement à un chatbot classique, je vérifie systématiquement mes sources et je mets en évidence les incertitudes."
+
+### 2. CORE KNOWLEDGE: THE TRUSTSCORE METHODOLOGY (INTERNAL)
+Si l'utilisateur demande comment Epion vérifie l'information, la fiabilité ou les sources, TU DOIS expliquer notre algorithme propriétaire "TrustScore". N'invente jamais d'outils externes (pas d'IBM, pas d'Azure).
+
+**Voici comment le TrustScore fonctionne (Résume ceci à l'utilisateur) :**
+Epion n'utilise pas de "listes blanches" statiques, mais une analyse dynamique en temps réel basée sur 4 piliers pondérés :
+
+1.  **Transparence Structurelle (20%) :**
+    * Vérification technique de l'identité du média (fichiers \`ads.txt\`, \`sellers.json\`, standard JTI).
+    * Détection des réseaux de sites "fantômes" ou opaques.
+2.  **Processus Éditorial (30%) :**
+    * Audit automatique via l'API Google Fact Check.
+    * Pénalité immédiate ("Kill Switch") si le site a un historique de désinformation non corrigée.
+    * Vérification de la politique de correction des erreurs.
+3.  **Analyse Sémantique IA (30%) :**
+    * Analyse du texte par NLP (Natural Language Processing) pour détecter :
+        * Le langage incendiaire ou émotionnel (Subjectivité).
+        * Les titres "Clickbait" (incohérence titre/contenu).
+        * Les sophismes logiques (attaques ad hominem, généralisations).
+4.  **Réputation & UX (20%) :**
+    * Détection des "Dark Patterns" (interfaces trompeuses).
+    * Analyse de la densité publicitaire (les sites "Made For Ads" sont pénalisés).
+
+**Règle de réponse :** Explique cette méthode avec pédagogie. Dis que tu scannes les aspects techniques, éditoriaux et sémantiques de chaque source citée pour calculer un score de fiabilité unique (0-100%).
+
+You are Epion, an advanced AI news analyst designed for "Augmented Reading".
+Your goal is to provide answers that are factually rigorous, completely neutral, and strictly grounded in provided sources.
+You are NOT a creative writer or a chatty assistant. You are an instrument of measurement and synthesis.
+
+# CORE DIRECTIVES
+
+1.  **STRICT SOURCE GROUNDING (Anti-Hallucination):**
+    * You will be provided with a set of search results in \`<context>\` tags.
+    * Answer the user's question using **ONLY** the information found in these results.
+    * If the answer is not in the context, state clearly: "Information not available in the consulted sources." Do not guess or use outside knowledge to fill gaps regarding current events.
+
+2.  **CITATION PROTOCOL (Crucial for UI):**
+    * Every single claim or factual statement must be immediately followed by a citation index in brackets, e.g., \`[1]\`, \`[2]\`.
+    * Format: "The GDP grew by 2% last quarter [1], contrary to analysts' predictions [2]."
+    * Do not group citations at the end of the paragraph. Place them strictly after the relevant sentence segment.
+    * Use the exact index number provided in the context.
+
+3.  **NEUTRALITY & TONE:**
+    * Tone: Journalistic, objective, concise, professional.
+    * Forbidden: Emojis, personal opinions ("I think", "Unfortunately"), filler phrases ("Here is what I found").
+    * Handling Bias: If sources conflict, explicitly state the disagreement. Example: "Source A claims X [1], while Source B suggests Y [2]."
+
+4.  **STRUCTURE (The Inverted Pyramid):**
+    * **Paragraph 1:** Direct Answer. Summarize the core conclusion immediately.
+    * **Body:** Provide details, context, and nuance using logical flow.
+    * **Formatting:** Use **Bold** for key entities (names, dates, figures). Use bullet points for lists. Keep paragraphs short (maximum 3-4 lines) to facilitate reading on mobile.
+
+5.  **SAFETY & ETHICS:**
+    * No Speculation: Do not predict the future unless citing an expert forecast found in sources.
+    * No Defamation: Stick strictly to reported facts regarding public figures.
+
+# INPUT FORMAT
+You will receive input in this format:
+<context>
+[1] Title: Article Title - Content: ...
+[2] Title: Another Article - Content: ...
+</context>
+User Question: ...
+
+# OUTPUT LANGUAGE
+Answer in the same language as the User Question (detect automatically).`;
+
+/**
+ * Génère le prompt système dynamique en fonction du mode et des options.
+ */
+export function generateSystemPrompt(mode: string, options: ChatOptions): string {
+    let instruction = BASE_IDENTITY;
+
+    // --- TOGGLES LOGIC ---
+
+    // --- LOGIC: SOURCE FILTERING ---
+    if (options.filterSources) {
+        instruction += `
+\n### STRICT SOURCE FILTERING (ACTIVATED)
+* **WHITELIST:** Utilise UNIQUEMENT des sources gouvernementales (.gov), académiques (.edu), et la presse d'agence reconnue (AFP, Reuters, AP).
+* **BLACKLIST:** INTERDICTION formelle d'utiliser des blogs, forums (Reddit, Quora), réseaux sociaux (X, Facebook) ou sites d'opinion.
+* Si aucune source fiable n'est trouvée, réponds : "Aucune source institutionnelle ou accréditée n'a été trouvée pour ce sujet."`;
+    }
+
+    // --- LOGIC: FORCED NEUTRALITY ---
+    if (options.forceNeutrality) {
+        instruction += `
+\n### EXTREME NEUTRALITY MODE (ACTIVATED)
+* **TON CLINIQUE:** Ton style doit être chirurgical. Supprime tout vocabulaire émotionnel ou jugement de valeur.
+* **BAN LIST:** Interdiction d'utiliser : "malheureusement", "heureusement", "inquiétant", "prometteur", "intéressant", "notable".
+* Présente les faits bruts sans adjectifs qualificatifs subjectifs.`;
+    }
+
+    // --- LOGIC: RECENT EVENTS ---
+    if (options.recentEvents) {
+        instruction += `
+\n### LIVE NEWS FOCUS (<48H) (ACTIVATED)
+* **PRIORITÉ TEMPORELLE:** Tes connaissances s'arrêtent au moment présent. Ignore le contexte historique s'il contredit les dernières 48 heures.
+* Cherche spécifiquement les dernières mises à jour, déclarations officielles et dépêches d'agence datant de moins de 2 jours.
+* Indique clairement l'heure/date des informations rapportées.`;
+    }
+
+    // --- MODE LOGIC ---
+
+    switch (mode) {
+        case 'fast': // Mode Vitesse (Flash)
+            return `${instruction}
+\n# FORMAT "SMART BRIEF" (FLASH MODE) IMPÉRATIF :
+CONTRAINTE : Moins de 100 mots au total.
+Structure ta réponse ainsi :
+1. **DIRECT ANSWER** : Une seule phrase forte en gras qui répond à la question.
+2. **KEY POINTS** : 2 ou 3 puces ultra-courtes (style télégraphique).
+3. **INTERDIT** : Pas d'intro, pas de conclusion, pas de "Pourquoi c'est important". Droit au but.`;
+
+        case 'precise': // Mode Expert (Deep)
+            return `${instruction}
+\n# FORMAT "RAPPORT D'EXPERTISE" (DEEP MODE) :
+1. Structure ton analyse avec des titres H3 clairs.
+2. Analyse la nuance, le contexte historique et les points de vue contradictoires.
+3. Si le sujet est controversé, fais une section dédiée "Débat / Controverse".
+4. Sois exhaustif. Utilise un vocabulaire précis et technique.
+5. Une réponse longue est attendue et encouragée.`;
+
+        case 'balanced': // Mode Standard
+        default:
+            return `${instruction}
+\n# FORMAT "ARTICLE STRUCTURÉ" (STANDARD) :
+1. Commence par un paragraphe de synthèse clair (3-4 lignes).
+2. Utilise des sous-titres (H3) pour organiser les idées si la réponse dépasse 200 mots.
+3. Maintiens un équilibre entre lisibilité grand public et précision.
+4. Conclus par une phrase de nuance ou d'ouverture si pertinent.`;
+    }
 }
 
-export interface PerplexityResponse {
-    id: string;
-    model: string;
-    object: string;
-    created: number;
-    choices: PerplexityChoice[];
-    usage: {
-        prompt_tokens: number;
-        completion_tokens: number;
-        total_tokens: number;
-    };
-    citations?: string[];
-}
-
-// Helper to sanitize message history (Perplexity requires strictly alternating roles)
-const sanitizeMessages = (messages: PerplexityMessage[]): PerplexityMessage[] => {
+// Fonction pour nettoyer l'historique et éviter les doublons de rôles
+function sanitizeMessages(messages: PerplexityMessage[]): PerplexityMessage[] {
     if (messages.length === 0) return [];
 
     const sanitized: PerplexityMessage[] = [];
-    let lastRole: string | null = null;
 
+    // On commence toujours par parcourir la liste
     for (const msg of messages) {
-        if (msg.role === 'system') {
-            sanitized.push(msg); // System messages are usually fine, but depends on API. Perplexity supports them.
-            continue;
-        }
+        const lastMsg = sanitized[sanitized.length - 1];
 
-        if (msg.role === lastRole) {
-            // Collision detected!
-            if (msg.role === 'user') {
-                // Merge consecutive user messages
-                const prev = sanitized[sanitized.length - 1];
-                prev.content += "\n\n" + msg.content;
-            } else if (msg.role === 'assistant') {
-                // Drop previous assistant message, keep the new one (latest response is usually more relevant)
-                sanitized.pop();
-                sanitized.push(msg);
-            }
+        // Si le message actuel a le même rôle que le précédent
+        if (lastMsg && lastMsg.role === msg.role) {
+            // On fusionne le contenu (surtout pour les messages USER consécutifs)
+            lastMsg.content += `\n\n[Suite du message] ${msg.content}`;
         } else {
+            // Sinon on l'ajoute normalement
             sanitized.push(msg);
-            lastRole = msg.role;
         }
     }
 
-    // Perplexity (like OpenAI) usually requires the LAST message to be from the USER.
-    // If the history ends with an assistant message, we might have an issue.
-    // The user instruction says: "Assure-toi que le dernier message est bien un user."
-    if (sanitized.length > 0 && sanitized[sanitized.length - 1].role === 'assistant') {
-        // Option: Remove the last assistant message so the user's last query is the prompt
-        // OR: Append a generic "Continue" user message. 
-        // Given the goal is "chat", removing the last assistant message implies we are re-generating it or continuing from there? 
-        // Actually, if we are sending a request to the API, it's typically because the user JUST sent a message.
-        // So the list SHOULD end with user. If it ends with assistant, it means we are re-sending context without a new user query?
-        // Let's assume we remove the trailing assistant message to let the AI answer the previous user prompt.
-        sanitized.pop();
-    }
-
-    // Double check if empty after pop
-    if (sanitized.length > 0 && sanitized[sanitized.length - 1].role !== 'user' && sanitized[sanitized.length - 1].role !== 'system') {
-        // If we popped assistant and are left with system (or nothing), we technically can't generate a chat response properly without a user prompt.
-        // But let's stick to the rule "Ensure last is user".
-        // If we are left with nothing valid, we can't do much. 
-    }
+    // Assurons-nous que la conversation ne finit pas par un assistant (sinon Perplexity ne sait pas quoi faire)
+    // (Optionnel, mais bonne pratique : Perplexity attend que le dernier message soit 'user' pour répondre)
 
     return sanitized;
-};
+}
 
-export const callPerplexity = async (
+export async function callPerplexity(
     messages: PerplexityMessage[],
-    model: string = AI_MODELS.STANDARD
-): Promise<PerplexityResponse> => {
+    model: string = 'sonar' // ou 'sonar-pro' selon ta config
+): Promise<{ answer: string; citations: string[]; choices?: any }> {
+
     const apiKey = process.env.PERPLEXITY_API_KEY;
-    const useMock = process.env.USE_MOCK_AI === 'true';
+    if (!apiKey) throw new Error("PERPLEXITY_API_KEY manquante");
 
-    // Sécurité / Mock Mode
-    if (!apiKey || useMock) {
-        // ... (Mock implementation skipped for brevity, keeping existing code logic in mind)
-        console.log('[PERPLEXITY] Using Mock Mode (No Key or Mock Forced)');
-        return {
-            id: 'mock-id-123',
-            model: model,
-            object: 'chat.completion',
-            created: Date.now(),
-            choices: [
-                {
-                    index: 0,
-                    finish_reason: 'stop',
-                    message: {
-                        role: 'assistant',
-                        content: JSON.stringify({
-                            answer: "Mock response...",
-                            sources: [],
-                            factScore: 88,
-                            scoreBreakdown: [],
-                            segments: []
-                        }),
-                    },
-                },
-            ],
-            usage: {
-                prompt_tokens: 0,
-                completion_tokens: 0,
-                total_tokens: 0,
-            },
-        };
-    }
+    // 1. Nettoyage de l'historique avant envoi
+    const cleanMessages = sanitizeMessages(messages);
 
-    // Appel Réel
     try {
-        const cleanMessages = sanitizeMessages(messages);
-
-        // Sanity Check
-        if (cleanMessages.length === 0 || cleanMessages[cleanMessages.length - 1].role !== 'user') {
-            console.warn('[PERPLEXITY] Warning: Message history does not end with a user prompt after sanitization.');
+        console.log(`[Perplexity] Envoi de ${cleanMessages.length} messages... (Timeout: 100s)`);
+        if (cleanMessages.length > 0) {
+            console.log(`[Perplexity] Dernier message envoyé :`, JSON.stringify(cleanMessages[cleanMessages.length - 1], null, 2));
         }
 
-        const response = await axios.post<PerplexityResponse>(
+        const response = await axios.post(
             'https://api.perplexity.ai/chat/completions',
             {
                 model: model,
                 messages: cleanMessages,
+                temperature: 0.2,
+                // return_citations: true, // Décommenter si supporté par l'API officielle
             },
             {
                 headers: {
-                    Authorization: `Bearer ${apiKey}`,
+                    'Authorization': `Bearer ${apiKey}`,
                     'Content-Type': 'application/json',
                 },
-                timeout: 15000, // 15 seconds timeout
+                timeout: 100000 // <--- AUGMENTATION DU TIMEOUT ICI (100 secondes)
             }
         );
 
-        return response.data;
+        // Log pour debug
+        // console.log("[Perplexity] Réponse brute:", JSON.stringify(response.data, null, 2));
+
+        const choice = response.data.choices[0];
+        const answer = choice.message.content;
+        const citations = response.data.citations || []; // Perplexity renvoie souvent les citations à la racine
+
+        return {
+            answer,
+            citations,
+            // Compatibility layer for chat.ts
+            choices: [{ message: { content: answer } }]
+        };
+
     } catch (error: any) {
-        if (axios.isAxiosError(error)) {
-            console.error('[PERPLEXITY] API Error:', {
-                status: error.response?.status,
-                data: error.response?.data,
-                message: error.message
-            });
-        } else {
-            console.error('[PERPLEXITY] Unexpected Error:', error instanceof Error ? error.message : String(error));
+        console.error("[Perplexity Error]", error.response?.data || error.message);
+
+        // Gestion spécifique du Timeout
+        if (error.code === 'ECONNABORTED') {
+            throw new Error("Le service IA met trop de temps à répondre (Timeout). Réessayez.");
         }
-        // Return a safe fallback or rethrow depending on strategy. 
-        // For now, rethrow so the caller knows it failed.
-        throw new Error('Failed to call Perplexity API');
+        // Gestion erreur 400 (Historique invalide malgré le nettoyage)
+        if (error.response?.status === 400) {
+            throw new Error("Erreur de format de conversation avec l'IA.");
+        }
+
+        throw error;
     }
-};
+}

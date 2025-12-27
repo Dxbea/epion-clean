@@ -5,6 +5,8 @@ import { useReactions } from '@/hooks/useReactions';
 import { useMe } from '@/contexts/MeContext';
 import { useAuthPrompt } from '@/contexts/AuthPromptContext';
 
+import { getEpionBrandGradient } from '@/lib/color-utils';
+
 export default function LikeButton({ articleId }: { articleId: string }) {
   const { summary, loading, toggleLike } = useReactions(articleId);
   const { me } = useMe();
@@ -29,11 +31,15 @@ export default function LikeButton({ articleId }: { articleId: string }) {
     <button
       onClick={handleClick}
       disabled={loading}
+      style={{
+        background: liked ? getEpionBrandGradient() : undefined,
+        borderColor: liked ? 'transparent' : undefined
+      }}
       className={[
-        'inline-flex h-9 shrink-0 items-center justify-center rounded-full border px-3 text-sm shadow-sm transition-colors',
+        'inline-flex h-9 shrink-0 items-center justify-center rounded-full border px-3 text-sm shadow-sm transition-all',
         liked
-          ? 'bg-gradient-to-r from-blue-400 to-blue-600 text-white border-blue-500 hover:opacity-95'
-          : 'bg-transparent text-black dark:text-white border-black/10 dark:border-white/10 hover:bg-black/5',
+          ? 'text-white border-transparent hover:opacity-95'
+          : 'bg-gray-100 text-gray-900 border-none hover:bg-gray-200 dark:bg-white/10 dark:text-gray-200',
         loading ? 'opacity-70 cursor-not-allowed' : '',
       ].join(' ')}
       aria-pressed={liked}

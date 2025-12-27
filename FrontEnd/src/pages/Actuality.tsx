@@ -65,16 +65,16 @@ const FALLBACK: Article[] = [
 ];
 
 // -------- utils --------
-function groupBy<T, K extends string | number>(arr: T[], key: (x:T)=>K){
+function groupBy<T, K extends string | number>(arr: T[], key: (x: T) => K) {
   return arr.reduce((acc, it) => {
     const k = key(it);
     (acc[k] ||= []).push(it);
     return acc;
   }, {} as Record<K, T[]>);
 }
-const since24h = (iso: string) => Date.now() - new Date(iso).getTime() <= 24*3600*1000;
+const since24h = (iso: string) => Date.now() - new Date(iso).getTime() <= 24 * 3600 * 1000;
 
-export default function Actuality(){
+export default function Actuality() {
   // 🔗 Récupère les articles paginés depuis l’API
   const { items, hasMore, loadMore } = usePaginatedArticles({ take: 24 });
 
@@ -86,8 +86,8 @@ export default function Actuality(){
   React.useMemo(() => {
     const last24 = [...articles]
       .filter(a => since24h(a.publishedAt))
-      .sort((a,b)=>(b.views||0)-(a.views||0))[0];
-    setHero(last24 || [...articles].sort((a,b)=>(b.views||0)-(a.views||0))[0]);
+      .sort((a, b) => (b.views || 0) - (a.views || 0))[0];
+    setHero(last24 || [...articles].sort((a, b) => (b.views || 0) - (a.views || 0))[0]);
   }, [articles]);
 
   // -------- sections par catégorie (top 4 + tie-breaker aléatoire) --------
@@ -130,12 +130,12 @@ export default function Actuality(){
   const discoveryRows = React.useMemo(() => {
     if (!articles.length) return [[], []] as [Article[], Article[]];
 
-    const sortedByViewsAsc = [...articles].sort((a,b)=>(a.views||0)-(b.views||0));
+    const sortedByViewsAsc = [...articles].sort((a, b) => (a.views || 0) - (b.views || 0));
     const poolSize = Math.max(6, Math.ceil(sortedByViewsAsc.length * 0.10));
     const pool = sortedByViewsAsc.slice(0, poolSize);
     const shuffled = [...pool].sort(() => Math.random() - 0.5);
 
-    const need = (n:number, taken:Article[]) => {
+    const need = (n: number, taken: Article[]) => {
       const rest = sortedByViewsAsc.filter(a => !taken.includes(a));
       return taken.concat(rest.slice(0, Math.max(0, n - taken.length)));
     };
@@ -144,7 +144,7 @@ export default function Actuality(){
     const row2Start = shuffled.slice(3, 6);
     const row2 = need(3, row2Start);
 
-    return [row1.slice(0,3), row2.slice(0,3)] as [Article[], Article[]];
+    return [row1.slice(0, 3), row2.slice(0, 3)] as [Article[], Article[]];
   }, [articles]);
 
 
@@ -155,7 +155,7 @@ export default function Actuality(){
         const r = await fetch(`${API_BASE}/api/articles/top?period=all&take=1`);
         const j = await r.json();
         if (alive) setHero((j.items?.[0] as Article) || null);
-      } catch {}
+      } catch { }
     })();
     return () => { alive = false; };
   }, []);
@@ -163,10 +163,10 @@ export default function Actuality(){
 
 
 
-  
 
 
-  
+
+
 
   return (
     <main className="mx-auto w-full max-w-7xl px-4 py-10 space-y-10">
@@ -189,7 +189,7 @@ export default function Actuality(){
       {/* Hero */}
       <SectionHeader title="Today’s highlight" />
       <HeroArticle article={hero} />
-      
+
       {/* TOTW */}
       <TopOfWeekRow />
 
@@ -231,7 +231,7 @@ export default function Actuality(){
           <input
             type="search"
             placeholder="Search for an article…"
-            className="w-full max-w-2xl rounded-xl border border-black/10 px-4 py-2 focus:outline-none focus:ring-2 focus:ring-[#4290D3]
+            className="w-full max-w-2xl rounded-xl border border-black/10 px-4 py-2 focus:outline-none focus:ring-2 focus:ring-black
                        dark:border-white/10 dark:bg-neutral-950"
             onKeyDown={(e) => {
               if (e.key === 'Enter') {

@@ -1,5 +1,6 @@
 import React from 'react';
 import { ShieldCheck, Info, Highlighter } from 'lucide-react';
+import { getBadgeStyle } from '@/lib/color-utils';
 
 export interface Source {
     id: string | number;
@@ -36,10 +37,8 @@ export default function VerificationBlock({
             {score !== null ? (
                 <button
                     onClick={onShowScoreDetails}
-                    className={`
-          flex items-center gap-1.5 rounded-full px-2.5 py-1 text-[11px] font-medium text-white transition hover:opacity-90 shadow-sm
-          ${score >= 80 ? 'bg-emerald-500' : 'bg-amber-500'}
-        `}
+                    className="flex items-center gap-1.5 rounded-full px-2.5 py-1 text-[11px] font-medium transition hover:opacity-90 shadow-sm"
+                    style={getBadgeStyle(score)}
                 >
                     <ShieldCheck className="h-3 w-3" />
                     <span>Fiabilité : {score}%</span>

@@ -19,6 +19,7 @@ import { router as meRouter } from './routes/me';
 import { router as statsRouter } from './routes/stats';
 import { router as commentsRouter } from './routes/comments';
 import { router as aiRouter } from './routes/ai';
+import { router as debugRouter } from './routes/debug-checks';
 import { initializeCron } from './cron/dailyReset';
 
 // ... (existing code)
@@ -114,6 +115,7 @@ app.use('/api', apiRouter);
 app.use('/api/me', meRouter);
 app.use('/api', commentsRouter);
 app.use('/api/ai', aiRouter);
+app.use('/api/debug', debugRouter);
 
 // ----------------------------
 //  ❌ 404 pour tout le reste

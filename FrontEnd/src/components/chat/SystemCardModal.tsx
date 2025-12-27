@@ -1,80 +1,106 @@
 import React from 'react';
 import Modal from '@/components/ui/Modal';
-import { Cpu, Globe, Thermometer, CheckCircle2 } from 'lucide-react';
+import { Switch } from '@/components/ui/Switch';
 
 interface SystemCardModalProps {
     isOpen: boolean;
     onClose: () => void;
+
+    // Toggles
+    sourceRestricted: boolean;
+    setSourceRestricted: (val: boolean) => void;
+    neutralityForced: boolean;
+    setNeutralityForced: (val: boolean) => void;
+    timeRecent: boolean;
+    setTimeRecent: (val: boolean) => void;
 }
 
-export default function SystemCardModal({ isOpen, onClose }: SystemCardModalProps) {
+export default function SystemCardModal({
+    isOpen,
+    onClose,
+    sourceRestricted,
+    setSourceRestricted,
+    neutralityForced,
+    setNeutralityForced,
+    timeRecent,
+    setTimeRecent
+}: SystemCardModalProps) {
     return (
         <Modal
             isOpen={isOpen}
             onClose={onClose}
-            title="Transparence du Système"
+            title="Cahier des Charges de la Réponse"
             size="normal"
         >
-            <div className="space-y-6 text-gray-900 dark:text-gray-100 p-2">
+            <div className="space-y-6 text-neutral-900 dark:text-neutral-100 p-2 font-sans">
 
-                {/* Section 1: Fiche Technique */}
-                <div className="rounded-xl border border-black/5 bg-gray-50 p-4 dark:border-white/5 dark:bg-white/5">
-                    <h4 className="mb-3 text-sm font-bold uppercase tracking-wider text-gray-500">Fiche Technique</h4>
-                    <div className="space-y-3">
-                        <div className="flex items-center justify-between">
-                            <div className="flex items-center gap-2">
-                                <Cpu className="h-4 w-4 text-[#2C98A0]" />
-                                <span className="text-sm font-medium">Modèle IA</span>
-                            </div>
-                            <span className="text-sm font-semibold">Perplexity Sonar-Medium</span>
-                        </div>
-
-                        <div className="flex items-center justify-between">
-                            <div className="flex items-center gap-2">
-                                <Globe className="h-4 w-4 text-[#2C98A0]" />
-                                <span className="text-sm font-medium">Accès Web</span>
-                            </div>
-                            <span className="flex items-center gap-1.5 text-sm font-semibold text-emerald-600 dark:text-emerald-400">
-                                <span className="relative flex h-2 w-2">
-                                    <span className="absolute inline-flex h-full w-full animate-ping rounded-full bg-emerald-400 opacity-75"></span>
-                                    <span className="relative inline-flex h-2 w-2 rounded-full bg-emerald-500"></span>
-                                </span>
-                                Actif (Temps Réel)
-                            </span>
-                        </div>
-
-                        <div className="flex items-center justify-between">
-                            <div className="flex items-center gap-2">
-                                <Thermometer className="h-4 w-4 text-[#2C98A0]" />
-                                <span className="text-sm font-medium">Rigueur</span>
-                            </div>
-                            <span className="text-sm font-semibold">Maximale (Mode Factuel)</span>
-                        </div>
+                {/* Section 1: Filtre de Sources */}
+                <div className="flex items-center justify-between gap-4">
+                    <div className="flex-1">
+                        <h4 className="mb-1 text-base font-bold text-neutral-800 dark:text-neutral-200">
+                            Filtre de Sources
+                            {sourceRestricted && <span className="ml-2 text-[#00dc82]">Restrictif</span>}
+                        </h4>
+                        <p className="text-sm text-neutral-500 leading-snug">
+                            {sourceRestricted
+                                ? "Priorité aux domaines .gov, .edu et presse accréditée."
+                                : "Recherche ouverte sur tout le web (blogs inclus)."}
+                        </p>
                     </div>
+                    <Switch
+                        checked={sourceRestricted}
+                        onCheckedChange={setSourceRestricted}
+                    />
                 </div>
 
-                {/* Section 2: Directives */}
-                <div>
-                    <h4 className="mb-3 text-sm font-bold uppercase tracking-wider text-gray-500">Nos Directives</h4>
-                    <p className="mb-4 text-sm text-gray-600 dark:text-gray-400 italic">
-                        "Pour garantir l'objectivité, Epion impose les règles suivantes à chaque réponse :"
-                    </p>
-                    <ul className="space-y-3">
-                        {[
-                            "Citer systématiquement les sources.",
-                            "Croiser les informations contradictoires.",
-                            "Signaler clairement l'incertitude.",
-                            "Refuser la spéculation non fondée."
-                        ].map((rule, idx) => (
-                            <li key={idx} className="flex items-start gap-2.5">
-                                <CheckCircle2 className="mt-0.5 h-4 w-4 shrink-0 text-[#2C98A0]" />
-                                <span className="text-sm font-medium">{rule}</span>
-                            </li>
-                        ))}
-                    </ul>
+                <div className="w-full h-px bg-black/5 dark:bg-white/5" />
+
+                {/* Section 2: Neutralité */}
+                <div className="flex items-center justify-between gap-4">
+                    <div className="flex-1">
+                        <h4 className="mb-1 text-base font-bold text-neutral-800 dark:text-neutral-200">
+                            Neutralité
+                            {neutralityForced && <span className="ml-2 text-[#00dc82]">Forcée</span>}
+                        </h4>
+                        <p className="text-sm text-neutral-500 leading-snug">
+                            {neutralityForced
+                                ? "Interdiction formelle de donner un avis."
+                                : "Analyse nuancée autorisée."}
+                        </p>
+                    </div>
+                    <Switch
+                        checked={neutralityForced}
+                        onCheckedChange={setNeutralityForced}
+                    />
+                </div>
+
+                <div className="w-full h-px bg-black/5 dark:bg-white/5" />
+
+                {/* Section 3: Fenêtre Temporelle */}
+                <div className="flex items-center justify-between gap-4">
+                    <div className="flex-1">
+                        <h4 className="mb-1 text-base font-bold text-neutral-800 dark:text-neutral-200">
+                            Actualité Récente
+                            {timeRecent && <span className="ml-2 text-xs uppercase tracking-wider text-[#00dc82] font-bold">&lt; 48H</span>}
+                        </h4>
+                        <p className="text-sm text-neutral-500 leading-snug">
+                            {timeRecent
+                                ? "Se concentrer sur les événements des dernières 48h."
+                                : "Recherche historique + temps réel."}
+                        </p>
+                    </div>
+                    <Switch
+                        checked={timeRecent}
+                        onCheckedChange={setTimeRecent}
+                    />
+                </div>
+
+                {/* Note sur la spéculation (Native) */}
+                <div className="mt-6 rounded-lg bg-neutral-100 p-3 text-xs text-neutral-500 dark:bg-neutral-900">
+                    <span className="font-bold">Note :</span> L'anti-hallucination est active en permanence. Si l'IA ne trouve pas l'info, elle ne l'inventera pas.
                 </div>
 
             </div>
-        </Modal >
+        </Modal>
     );
 }

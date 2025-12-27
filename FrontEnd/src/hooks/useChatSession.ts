@@ -225,7 +225,17 @@ export function useChatSession(sessionId?: string) {
   }, []);
 
   const sendMessage = React.useCallback(
-    async (id: string, content: string, model?: string) => {
+    async (
+      id: string,
+      content: string,
+      model?: string,
+      mode?: Rigor,
+      options?: {
+        sourceRestricted?: boolean;
+        neutralityForced?: boolean;
+        timeRecent?: boolean;
+      }
+    ) => {
       setThinking(true);
 
       // auto-titre optimiste si la session est encore "New chat"
@@ -241,7 +251,7 @@ export function useChatSession(sessionId?: string) {
         const init = await withCsrf({
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ content, model }),
+          body: JSON.stringify({ content, model, mode, ...options }),
         });
 
         const res = await fetch(

@@ -2,32 +2,17 @@
 import sanitize from 'sanitize-html';
 
 const BASE_CONFIG: sanitize.IOptions = {
-  allowedTags: [
-    'p',
-    'br',
-    'ul',
-    'ol',
-    'li',
-    'strong',
-    'b',
-    'em',
-    'i',
-    'u',
-    'blockquote',
-    'code',
-    'pre',
-    'h1',
-    'h2',
-    'h3',
-    'h4',
-    'a',
-  ],
+  // Allow standard markdown tags including images
+  allowedTags: sanitize.defaults.allowedTags.concat(['img', 'h1', 'h2', 'h3', 'h4', 'span']),
   allowedAttributes: {
     a: ['href', 'title', 'target', 'rel'],
+    img: ['src', 'alt', 'title', 'width', 'height'],
+    span: ['class', 'className'], // for styling if needed
   },
   allowedSchemes: ['http', 'https', 'mailto'],
   allowProtocolRelative: false,
-  // évite <script>, on supprime tout ce qui est dangereux
+  // Avoid script, iframe, object
+  disallowedTagsMode: 'discard',
 };
 
 export function sanitizeArticleHtml(input: string): string {

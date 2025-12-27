@@ -10,12 +10,18 @@ import LikeButton from '@/components/ui/LikeButton';
 import CommentsDrawer from '@/components/articles/CommentsDrawer';
 import ArticleToolbar from '@/components/articles/ArticleToolbar';
 // import FactCheckCard from '@/components/articles/FactCheckCard'; // Deprecated
-import VerificationBlock from '../components/chat/VerificationBlock';
+// import VerificationBlock from '../components/chat/VerificationBlock';
+import TrustHeader from '@/components/shared/TrustHeader';
+// import MarkdownRenderer from '@/components/shared/MarkdownRenderer'; // On inline la logique pour garantir la feature
+import ReactMarkdown from 'react-markdown';
+import remarkGfm from 'remark-gfm';
+import { TrustScoreModal } from '@/components/chat/TrustScoreModal';
 import SummaryModal from '@/components/articles/SummaryModal';
 import PromptTransparencyModal from '@/components/articles/PromptTransparencyModal';
 import { useComments } from '@/hooks/useComments';
 import Modal from '@/components/ui/Modal';
 import SourceCard from '../components/chat/SourceCard';
+import MarkdownRenderer from '@/components/shared/MarkdownRenderer';
 import type { Article as CardArticle } from '@/types/article';
 
 type LoadedArticle = {
@@ -31,6 +37,7 @@ type LoadedArticle = {
   aiSummary: string | null;
   factCheckScore: number | null;
   factCheckData: any | null;
+  sources?: any; // Added for compatibility check
   generationPrompt: string | null;
 };
 
@@ -59,6 +66,66 @@ export default function Article() {
   const [focusedSourceId, setFocusedSourceId] = React.useState<number | null>(null);
   const [factCheckResult, setFactCheckResult] = React.useState<any | null>(null);
   const [factCheckLoading, setFactCheckLoading] = React.useState(false);
+  const [isHighlightActive, setIsHighlightActive] = React.useState(false);
+
+  // --- TOP LEVEL LOGIC: Source Parsing & Scoring ---
+  // Must be here to avoid "Rendered more hooks" errors (cannot be after early returns)
+  const topLevelTransparencyData = React.useMemo(() => {
+    if (!article) return null;
+
+    // 1. STRATÉGIE DE RÉCUPÉRATION
+    let potentialSources = article.sources || article.factCheckData || [];
+    if (potentialSources && !Array.isArray(potentialSources) && typeof potentialSources === 'object') {
+      if (potentialSources.sources) potentialSources = potentialSources.sources;
+    }
+
+    // 2. PARSING
+    let parsedData: any[] = [];
+    try {
+      if (Array.isArray(potentialSources)) {
+        parsedData = potentialSources;
+      } else if (typeof potentialSources === 'string') {
+        if (potentialSources.trim() === "[]") parsedData = [];
+        else parsedData = JSON.parse(potentialSources);
+      }
+    } catch { parsedData = []; }
+
+    // 3. NORMALISATION
+    const normalized = parsedData.map((s: any) => {
+      const domainVal = s.domain || s.name || (s.url ? new URL(s.url).hostname : "Source inconnue");
+      const scoreVal = (typeof s.trustScore === 'number') ? s.trustScore : (s.score || 0);
+      return {
+        ...s,
+        domain: domainVal,
+        score: scoreVal,
+        url: s.url || s.link || "#",
+        description: s.description || "Source analysée par Epion.",
+        name: domainVal,
+        trustScore: scoreVal,
+        type: s.type || s.category || "GENERAL",
+        category: s.category || s.type || "GENERAL",
+        logo: s.logo || `https://www.google.com/s2/favicons?domain=${domainVal !== "Source inconnue" ? domainVal : 'example.com'}`,
+        flags: s.flags || { isAdsTxtValid: true, isClickbait: false, isPlatform: false }
+      };
+    });
+
+    // 4. SCORING (Chat Logic)
+    const scores = normalized.map(s => (typeof s.score === 'number' ? s.score : 0));
+    const avgSourceScore = scores.length > 0 ? Math.round(scores.reduce((a, b) => a + b, 0) / scores.length) : 0;
+    const outputScore = 90;
+
+    let finalFactScore = article.factCheckScore || 0;
+    if (scores.length > 0) {
+      finalFactScore = Math.round((avgSourceScore * 0.75) + (outputScore * 0.25));
+    }
+
+    return {
+      factScore: finalFactScore, // 80% (Weighted)
+      rawSourceScore: avgSourceScore, // 77% (Raw)
+      outputScore: outputScore,
+      sources: normalized
+    };
+  }, [article]); // Safe dependency (article is state)
 
   // Initialize state from article when loaded
   React.useEffect(() => {
@@ -325,11 +392,15 @@ export default function Article() {
 
   const factData = factCheckResult;
 
-  // Derive sources from AI data or empty
-  const sources = factData?.sources || [];
+  // --- DEBUG CRITIQUE ---
+  console.log("📢 ARTICLE DATA RECEIVED:", article);
+  console.log("Sources field:", article.sources);
+  console.log("FactCheckData field:", article.factCheckData);
 
-
-
+  // LOGIC MOVED TO TOP LEVEL USEMEMO TO AVOID HOOK ERRORS
+  const transparencyData = topLevelTransparencyData; // Will be defined above
+  const displayScore = transparencyData?.factScore || 0;
+  const normalizedSources = transparencyData?.sources || [];
 
   return (
     <>
@@ -445,39 +516,46 @@ export default function Article() {
           className="mt-2 w-full rounded-2xl border border-black/10 object-cover dark:border-white/10 aspect-video"
         />
 
-        {/* Content – rendu en texte, sans innerHTML pour éviter tout XSS */}
+        {/* Trust Header (Always Visible) */}
+        <div className="mt-4 rounded-2xl border border-black/10 bg-white px-5 py-3 dark:border-white/10 dark:bg-neutral-900 shadow-sm">
+          {/* CALCUL INLINE POUR FORCER LE 75/25 */}
+          <TrustHeader
+            score={displayScore}
+            sources={normalizedSources}
+            isHighlightActive={isHighlightActive}
+            onHighlightClick={() => {
+              console.log("🔦 TOGGLE HIGHLIGHT CLICKED! New State:", !isHighlightActive);
+              setIsHighlightActive(!isHighlightActive);
+            }}
+            onShowSources={() => setActiveModal('sources')}
+            onShowScoreDetails={() => setActiveModal('reliability')}
+          />
+        </div>
+
         {/* Content – rendu en texte, sans innerHTML pour éviter tout XSS */}
         {showFactCheck && (
           <div className="animate-in slide-in-from-top-4 duration-500 fade-in">
             {factCheckLoading ? (
-              <div className="p-4 rounded-2xl border border-black/10 bg-black/5 dark:border-white/10 dark:bg-white/5 mb-6 animate-pulse">
+              <div className="p-4 rounded-2xl border border-black/10 bg-black/5 dark:border-white/5 mb-6 animate-pulse">
                 Analyzing article reliability...
               </div>
-            ) : factData ? (
-              <div className="rounded-2xl border border-black/10 bg-white px-5 py-4 dark:border-white/10 dark:bg-neutral-900 shadow-sm">
-                <VerificationBlock
-                  score={factData.factScore || 0}
-                  sources={factData.sources || []}
-                  isHighlighting={isHighlighting}
-                  onToggleHighlight={() => setIsHighlighting(!isHighlighting)}
-                  onShowSources={() => setActiveModal('sources')}
-                  onShowScoreDetails={() => setActiveModal('reliability')}
-                />
-                <div className="mt-4 whitespace-pre-wrap break-words text-gray-800 dark:text-gray-100 leading-7 text-[15px]">
-                  {factData.analysis || "No analysis available."}
+            ) : factData && factData.analysis ? (
+              <div className="rounded-2xl border border-black/10 bg-white px-5 py-4 dark:border-white/10 dark:bg-neutral-900 shadow-sm mt-4">
+                <div className="whitespace-pre-wrap break-words text-gray-800 dark:text-gray-100 leading-7 text-[15px]">
+                  {factData.analysis}
                 </div>
               </div>
             ) : null}
           </div>
         )}
 
-        <article className="prose max-w-none dark:prose-invert whitespace-pre-line">
+        <article className="mt-8">
           {content ? (
-            content
+            <MarkdownRenderer content={content} />
           ) : excerpt ? (
-            excerpt
+            <MarkdownRenderer content={excerpt} className="text-lg opacity-80" />
           ) : (
-            '—'
+            <p className="opacity-50 italic">No content available.</p>
           )}
         </article>
 
@@ -525,86 +603,47 @@ export default function Article() {
       />
 
       {/* Modal Transparence (Copied from ChatMessage) */}
+      {/* Modal Transparence (Copied from ChatMessage) */}
       <Modal
-        isOpen={!!activeModal}
+        isOpen={activeModal === 'sources'}
         onClose={() => {
           setActiveModal(null);
           setFocusedSourceId(null);
         }}
-        title={activeModal === 'sources' ? "Sources utilisées" : "Détail du Score de Fiabilité"}
+        title="Sources utilisées"
         size="large"
       >
         <div className="text-sm text-black/70 dark:text-white/70 h-full">
-          {activeModal === 'sources' ? (
-            <div className="flex flex-col space-y-3 h-full overflow-y-auto pr-2 pb-4">
-              {(factData?.sources || []).map((s: any, index: number) => (
-                <div key={s.id || index}>
-                  <SourceCard source={s} isFocused={s.id === focusedSourceId} />
-                </div>
-              ))}
-            </div>
-          ) : (
-            <div className="space-y-6 max-w-2xl mx-auto py-4">
-              {/* Score Global */}
-              <div className="flex flex-col items-center justify-center p-8 border-b border-gray-100 dark:border-neutral-800 mb-8">
-                <div className="font-serif text-2xl font-normal text-gray-900 dark:text-white mb-2">Score de Fiabilité Global</div>
-                <div className="font-serif text-6xl text-[#0D9488] dark:text-teal-400">
-                  {factData?.factScore || 0}
-                  <span className="text-2xl text-gray-400 dark:text-gray-500 align-top ml-1">%</span>
-                </div>
+          <div className="flex flex-col space-y-3 h-full overflow-y-auto pr-2 pb-4">
+            {normalizedSources.map((s: any, index: number) => (
+              <div key={s.id || index}>
+                <SourceCard source={s} isFocused={s.id === focusedSourceId} />
               </div>
-
-              {/* Liste des Jauges de Confiance (Design Épuré) */}
-              <div className="space-y-6 mt-8">
-                {(() => {
-                  const safeBreakdown = factData?.scoreBreakdown || [];
-
-                  const getGradientStyle = (score: number) => {
-                    let gradient = '';
-                    let textColor = '';
-                    if (score < 40) { // Zone Rouge (Alerte -> Orange)
-                      gradient = 'linear-gradient(90deg, #D16D64 0%, #EF8E38 100%)';
-                      textColor = '#D16D64'; // Rouge Alerte
-                    } else if (score < 70) { // Zone Jaune (Orange -> Jaune Incertitude)
-                      gradient = 'linear-gradient(90deg, #EF8E38 0%, #E2C45E 100%)';
-                      textColor = '#E2C45E'; // Jaune Incertitude
-                    } else { // Zone Teal (Menthe Douce -> Teal Profond)
-                      gradient = 'linear-gradient(90deg, #B0F2BC 0%, #2C98A0 100%)';
-                      textColor = '#2C98A0'; // Teal Profond
-                    }
-                    return { gradient, textColor };
-                  };
-
-                  return safeBreakdown.map((item) => {
-                    const { gradient, textColor } = getGradientStyle(item.score);
-                    return (
-                      <div key={item.id} className="border-b border-gray-100 pb-4 last:border-0 dark:border-white/5">
-                        {/* Ligne 1 : Label + Score */}
-                        <div className="flex justify-between items-end mb-2">
-                          <span className="font-serif text-lg text-gray-900 dark:text-white">{item.label}</span>
-                          <span className="font-medium" style={{ color: textColor }}>{item.score}/100</span>
-                        </div>
-                        {/* Ligne 2 : Barre de progression */}
-                        <div className="w-full h-2 bg-gray-100 rounded-full mb-2 overflow-hidden dark:bg-white/10">
-                          <div
-                            className="h-full rounded-full transition-all duration-700 ease-in-out"
-                            style={{
-                              width: `${item.score}%`,
-                              backgroundImage: gradient
-                            }}
-                          />
-                        </div>
-                        {/* Ligne 3 : Description */}
-                        <p className="text-sm text-gray-400 font-light italic dark:text-gray-500">{item.description}</p>
-                      </div>
-                    );
-                  });
-                })()}
-              </div>
-            </div>
-          )}
+            ))}
+          </div>
         </div>
       </Modal>
+
+      {activeModal === 'reliability' && (
+        <TrustScoreModal
+          isOpen={true}
+          onClose={() => setActiveModal(null)}
+          trustData={{
+            globalScore: displayScore,
+            confidenceLevel: normalizedSources[0]?.confidence || 'LOW',
+            details: normalizedSources[0]?.metrics || { transparency: 0, editorial: 0, semantic: 0, ux: 0 },
+            flags: normalizedSources[0]?.flags || { isPlatform: false, hasFactCheckFailures: false, isAdsTxtValid: false },
+            metadata: {
+              name: "Analyse Article",
+              justification: normalizedSources.map((s: any) => s.justification).filter(Boolean).join(' ') || "Analyse basée sur les sources.",
+              biasLevel: normalizedSources[0]?.biasLevel || 'UNKNOWN'
+            },
+            sourceCount: normalizedSources.length,
+            outputScore: 90
+          }}
+        />
+      )}
+
     </>
   );
 }
