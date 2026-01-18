@@ -2,6 +2,7 @@ import * as React from 'react';
 import { Link, useNavigate } from 'react-router-dom';
 import { useMe } from '@/contexts/MeContext';
 import { useSavedArticles } from '@/hooks/useSavedArticles';
+import { PiChartPie } from "react-icons/pi";
 
 export default function HeaderUserMenu() {
   const [open, setOpen] = React.useState(false);
@@ -63,15 +64,18 @@ export default function HeaderUserMenu() {
         "
       >
         {/* Mini avatar */}
-        <span
-          className="
-            flex h-6 w-6 items-center justify-center rounded-full bg-black/90
-            text-[11px] font-semibold text-white
-            dark:bg-white dark:text-neutral-900
-          "
-        >
-          {initials}
-        </span>
+        {/* Mini avatar */}
+        <div className="relative h-6 w-6 overflow-hidden rounded-full bg-black/90 dark:bg-white text-[11px] font-semibold text-white dark:text-neutral-900 flex items-center justify-center">
+          {me?.avatarUrl ? (
+            <img
+              src={me.avatarUrl}
+              alt={displayName}
+              className="h-full w-full object-cover"
+            />
+          ) : (
+            <span>{initials}</span>
+          )}
+        </div>
 
         {/* Name + status inline */}
         <span className="flex flex-col leading-tight">
@@ -103,14 +107,12 @@ export default function HeaderUserMenu() {
           "
         >
           <div className="flex items-start gap-3 pb-3 border-b border-black/5 dark:border-white/10">
-            <div
-              className="
-                flex h-9 w-9 items-center justify-center rounded-full bg-black/90
-                text-xs font-semibold text-white
-                dark:bg-white dark:text-neutral-900
-              "
-            >
-              {initials}
+            <div className="relative h-9 w-9 overflow-hidden rounded-full bg-black/90 dark:bg-white text-xs font-semibold text-white dark:text-neutral-900 flex items-center justify-center">
+              {me?.avatarUrl ? (
+                <img src={me.avatarUrl} alt={displayName} className="h-full w-full object-cover" />
+              ) : (
+                initials
+              )}
             </div>
             <div className="flex flex-col text-xs">
               <span className="font-semibold">{displayName}</span>
@@ -136,16 +138,11 @@ export default function HeaderUserMenu() {
             </button>
 
             <Link
-              to="/actuality/saved"            // <- au lieu de "/saved"
+              to="/activity"
               onClick={() => setOpen(false)}
               className="flex items-center justify-between rounded-lg px-2 py-1.5 hover:bg-black/5 dark:hover:bg-white/5"
             >
-              <span>Saved</span>
-              {savedCount > 0 && (              // optionnel : ne rien afficher si 0
-                <span className="ml-2 rounded-full bg-black/5 px-2 py-0.5 text-[11px] dark:bg-white/10">
-                  {savedCount}
-                </span>
-              )}
+              <span>Your activity</span>
             </Link>
 
 

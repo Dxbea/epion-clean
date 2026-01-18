@@ -45,6 +45,7 @@ export async function requireSession(
   res: Response,
 ): Promise<{ userId: string; sessionId: string } | null> {
   const raw = req.cookies?.[COOKIE_NAME];
+  console.log(`[Session] Checking cookie ${COOKIE_NAME}:`, raw ? 'FOUND' : 'MISSING', raw ? `(Len: ${raw.length})` : '');
 
   if (!raw) {
     // si pas de cookie → on s’assure qu’il n’en reste pas

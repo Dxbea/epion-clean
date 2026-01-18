@@ -10,6 +10,7 @@ import ToggleRow from '@/components/settings/ToggleRow';
 import { ThemeToggle } from '@/components/ThemeToggle';
 import SelectLang from '@/components/settings/SelectLang';
 import AccountAuthBox from '@/components/settings/AccountAuthBox';
+import AccountProfileForm from '@/components/account/AccountProfileForm';
 
 // sous-blocs sécurité existants
 import ChangePasswordForm from '@/components/settings/ChangePasswordForm';
@@ -57,7 +58,7 @@ function EmailAndVerificationBlock(): React.JSX.Element {
       const j = await res.json().catch(() => ({}));
       if (j?.verifyUrl) {
         // dev helper: copie le lien dans le presse‐papier pour test
-        await navigator.clipboard.writeText(j.verifyUrl).catch(() => {});
+        await navigator.clipboard.writeText(j.verifyUrl).catch(() => { });
       }
 
       push('If this address is valid, we sent a verification link.', 'success');
@@ -137,29 +138,29 @@ function EmailAndVerificationBlock(): React.JSX.Element {
         <label className="text-sm font-medium">Change email</label>
 
         <div className="flex flex-col gap-2 sm:flex-row sm:items-center">
-  <input
-    type="email"
-    value={newEmail}
-    onChange={(e) => setNewEmail(e.target.value)}
-    placeholder="new@email.com"
-    className="w-full rounded-xl border border-black/10 bg-white px-3 py-2 text-sm outline-none
+          <input
+            type="email"
+            value={newEmail}
+            onChange={(e) => setNewEmail(e.target.value)}
+            placeholder="new@email.com"
+            className="w-full rounded-xl border border-black/10 bg-white px-3 py-2 text-sm outline-none
                focus:ring-2 focus:ring-brand-blue
                dark:border-white/10 dark:bg-neutral-950"
-  />
+          />
 
-  <button
-    onClick={requestEmailChange}
-    disabled={!newEmail || busyChangeEmail}
-    className="
+          <button
+            onClick={requestEmailChange}
+            disabled={!newEmail || busyChangeEmail}
+            className="
       shrink-0 whitespace-nowrap
       rounded-xl bg-neutral-700 px-4 py-2 text-sm font-medium text-white
       dark:bg-neutral-300 dark:text-black
       disabled:opacity-50
     "
-  >
-    {busyChangeEmail ? 'Sending…' : 'Send link'}
-  </button>
-</div>
+          >
+            {busyChangeEmail ? 'Sending…' : 'Send link'}
+          </button>
+        </div>
 
         <p className="text-[11px] opacity-70">
           We’ll email a confirmation link to the new address.
@@ -697,8 +698,12 @@ export default function Settings(): React.JSX.Element {
           {/* GENERAL */}
           <GeneralSection id="general" />
 
+
+
           {/* ACCOUNT (connexion / signup / logout / go to my account) */}
           <section id="account" className="space-y-4">
+            <H3 as="div" className="text-base font-semibold">Profile & Auth</H3>
+            <AccountProfileForm />
             <AccountAuthBox />
           </section>
 

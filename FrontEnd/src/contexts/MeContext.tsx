@@ -13,7 +13,11 @@ export type Me = {
   username: string
   phone: string | null
   avatarUrl: string | null
+  bannerUrl: string | null
   role: string
+  bio: string | null
+  followersCount: number
+  followingCount: number
 }
 
 type MeCtxShape = {
@@ -34,9 +38,10 @@ const MeCtx = React.createContext<MeCtxShape | null>(null)
 /**
  * Récupère le profil complet depuis /api/me
  */
+
 async function fetchFullMe(): Promise<Me | null> {
   try {
-    const res = await fetch(`${API_BASE}/api/me?t=${Date.now()}`, {
+    const res = await fetch(`${API_BASE}/api/auth/me?t=${Date.now()}`, {
       credentials: 'include',
       cache: 'no-store',
     })
@@ -53,7 +58,11 @@ async function fetchFullMe(): Promise<Me | null> {
       username: raw.username ?? '',
       phone: raw.phone ?? null,
       avatarUrl: raw.avatarUrl ?? null,
+      bannerUrl: raw.bannerUrl ?? null,
       role: raw.role ?? 'USER',
+      bio: raw.bio ?? null,
+      followersCount: raw.followersCount ?? 0,
+      followingCount: raw.followingCount ?? 0,
     }
 
     return data
@@ -70,13 +79,13 @@ export function MeProvider({ children }: { children: React.ReactNode }) {
   React.useEffect(() => {
     let alive = true
 
-    ;(async () => {
-      setLoading(true)
-      const data = await fetchFullMe()
-      if (!alive) return
-      setMe(data)
-      setLoading(false)
-    })()
+      ; (async () => {
+        setLoading(true)
+        const data = await fetchFullMe()
+        if (!alive) return
+        setMe(data)
+        setLoading(false)
+      })()
 
     return () => {
       alive = false

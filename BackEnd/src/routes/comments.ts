@@ -5,6 +5,7 @@ import { getCurrentUserId } from '../lib/currentUser';
 import { ReactionType } from '@prisma/client';
 import { checkRateLimit } from '../lib/rateLimiter';
 import { sanitizeCommentHtml } from '../lib/sanitizeHtml';
+import { moderationService } from '../services/moderationService';
 
 
 export const router = Router();
@@ -209,6 +210,15 @@ router.post('/articles/:id/comments', async (req, res, next) => {
       });
     }
 
+    // 🛡️ MODÉRATION IA
+    const isSafe = await moderationService.moderateContent(text);
+    if (!isSafe) {
+      return res.status(400).json({
+        error: 'content_moderated',
+        message: 'Votre commentaire ne respecte pas nos règles de communauté (détecté par IA).',
+      });
+    }
+
     // rate limit par user (débit)
     const rl = checkRateLimit(userId, {
       bucket: 'comments:post',
@@ -324,8 +334,8 @@ router.delete('/comments/:id', async (req, res, next) => {
   }
 });
 
-/** POST /api/articles/:id/like  -> toggle like */
-router.post('/articles/:id/like', async (req, res, next) => {
+/** POST /api/articles/:id/react  -> toggle reaction (LIKE/DISLIKE) */
+router.post('/articles/:id/react', async (req, res, next) => {
   try {
     let userId: string;
     try {
@@ -334,63 +344,85 @@ router.post('/articles/:id/like', async (req, res, next) => {
       return res.status(401).json({ error: 'NO_SESSION' });
     }
     const articleId = String(req.params.id);
+    const { type } = req.body; // 'LIKE' | 'DISLIKE'
 
-    // petit rate-limit sur le toggle like
-    const rl = checkRateLimit(`like:${userId}`, {
-      bucket: 'articles:like',
+    if (!['LIKE', 'DISLIKE'].includes(type)) {
+      return res.status(400).json({ error: 'Invalid reaction type' });
+    }
+
+    // Rate-limit
+    const rl = checkRateLimit(`react:${userId}`, {
+      bucket: 'articles:react',
       windowMs: 60_000,
       max: 120,
     });
     if (!rl.ok) {
       return res.status(429).json({
-        error: 'rate_limit_articles_like',
-        message:
-          'Tu changes de réaction trop vite. Attends quelques instants avant de réessayer.',
+        error: 'rate_limit_articles_react',
+        message: 'Tu changes de réaction trop vite.',
         retryInMs: rl.resetMs,
       });
     }
 
-    // 🔐 uniquement sur des articles publiés existants
+    // 🔐 Check article exists and is published
     const article = await ensurePublishedArticle(articleId);
-    if (!article) {
-      return res.status(404).json({ error: 'Article not found' });
-    }
+    if (!article) return res.status(404).json({ error: 'Article not found' });
 
-    const exists = await prisma.articleReaction.findUnique({
-      where: {
-        userId_articleId_type: {
-          userId,
-          articleId,
-          type: ReactionType.LIKE,
-        },
-      },
-      select: { userId: true },
+    // Check existing reaction (any type)
+    const existing = await prisma.articleReaction.findFirst({
+      where: { userId, articleId },
     });
 
-    if (exists) {
-      await prisma.articleReaction.delete({
-        where: {
-          userId_articleId_type: {
-            userId,
-            articleId,
-            type: ReactionType.LIKE,
-          },
-        },
+    // Strategy
+    // 1. If exists AND same type -> Delete (Toggle OFF)
+    // 2. If exists AND diff type -> Update (Flip)
+    // 3. If none -> Create (Toggle ON)
+
+    if (existing) {
+      if (existing.type === type) {
+        // Case 1: Delete
+        await prisma.articleReaction.delete({
+          where: { userId_articleId: { userId, articleId } }
+        });
+      } else {
+        // Case 2: Flip
+        await prisma.$transaction([
+          prisma.articleReaction.delete({ where: { userId_articleId: { userId, articleId } } }),
+          prisma.articleReaction.create({ data: { userId, articleId, type } })
+        ]);
+      }
+    } else {
+      // Case 3: Create
+      await prisma.articleReaction.create({
+        data: { userId, articleId, type },
       });
-      return res.json({ liked: false });
     }
 
-    await prisma.articleReaction.create({
-      data: { userId, articleId, type: ReactionType.LIKE },
+    // Return new counts
+    const [likes, dislikes] = await Promise.all([
+      prisma.articleReaction.count({ where: { articleId, type: ReactionType.LIKE } }),
+      prisma.articleReaction.count({ where: { articleId, type: ReactionType.DISLIKE } }),
+    ]);
+
+    // Check what user has now
+    const current = await prisma.articleReaction.findFirst({
+      where: { userId, articleId },
+      select: { type: true }
     });
-    res.json({ liked: true });
+
+    res.json({
+      success: true,
+      likes,
+      dislikes,
+      userReaction: current?.type || null
+    });
   } catch (e) {
     next(e);
   }
 });
 
 
-/** GET /api/articles/:id/reactions -> { likes: number, likedByMe: boolean } */
+/** GET /api/articles/:id/reactions -> { likes: number, dislikes: number, userReaction: 'LIKE'|'DISLIKE'|null } */
 router.get('/articles/:id/reactions', async (req, res, next) => {
   try {
     const articleId = String(req.params.id);
@@ -399,22 +431,27 @@ router.get('/articles/:id/reactions', async (req, res, next) => {
     const a = await ensurePublishedArticle(articleId);
     if (!a) return res.status(404).json({ error: 'Article not found' });
 
-    const [likes, me] = await Promise.all([
-      prisma.articleReaction.count({
-        where: { articleId, type: ReactionType.LIKE },
-      }),
+    const [likes, dislikes, reposts, userReaction, userReposted] = await Promise.all([
+      prisma.articleReaction.count({ where: { articleId, type: ReactionType.LIKE } }),
+      prisma.articleReaction.count({ where: { articleId, type: ReactionType.DISLIKE } }),
+      prisma.repost.count({ where: { articleId } }),
       (async () => {
         try {
           const userId = await getCurrentUserId(req, res);
-          const r = await prisma.articleReaction.findUnique({
-            where: {
-              userId_articleId_type: {
-                userId,
-                articleId,
-                type: ReactionType.LIKE,
-              },
-            },
-            select: { userId: true },
+          const r = await prisma.articleReaction.findFirst({
+            where: { userId, articleId },
+            select: { type: true },
+          });
+          return r?.type || null;
+        } catch {
+          return null;
+        }
+      })(),
+      (async () => {
+        try {
+          const userId = await getCurrentUserId(req, res);
+          const r = await prisma.repost.findUnique({
+            where: { userId_articleId: { userId, articleId } }
           });
           return !!r;
         } catch {
@@ -423,7 +460,7 @@ router.get('/articles/:id/reactions', async (req, res, next) => {
       })(),
     ]);
 
-    res.json({ likes, likedByMe: me });
+    res.json({ likes, dislikes, reposts, userReaction, userReposted });
   } catch (e) {
     next(e);
   }

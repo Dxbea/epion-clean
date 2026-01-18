@@ -324,6 +324,7 @@ router.get('/top', async (req, res, next) => {
 // DEBUT BLOC (remplace tout ce qui est entre ce commentaire et "FIN BLOC")
 /** GET /api/articles — liste paginée (publique: uniquement PUBLISHED) */
 // DEBUT BLOC (remplace seulement ce handler GET /)
+// DEBUT BLOC (remplace seulement ce handler GET /)
 router.get('/', async (req, res, next) => {
   try {
     const rawTake = Number(req.query.take ?? 20);
@@ -337,6 +338,7 @@ router.get('/', async (req, res, next) => {
       typeof req.query.status === 'string'
         ? req.query.status.toUpperCase()
         : 'PUBLISHED';
+    const authorId = typeof req.query.authorId === 'string' ? req.query.authorId.trim() : undefined;
 
     // 🔐 Par défaut, on ne renvoie que les PUBLISHED
     let where: Prisma.ArticleWhereInput = { status: 'PUBLISHED' };
@@ -359,6 +361,11 @@ router.get('/', async (req, res, next) => {
       }
     }
 
+    // Filtre par auteur si demandé
+    if (authorId) {
+      where.authorId = authorId;
+    }
+
     const raw = await prisma.article.findMany({
       take,
       ...(cursor ? { skip: 1, cursor: { id: cursor } } : {}),
@@ -374,7 +381,7 @@ router.get('/', async (req, res, next) => {
         status: true,
         createdAt: true,
         category: { select: { id: true, slug: true, name: true } },
-        author: { select: { id: true, email: true, name: true } },
+        author: { select: { id: true, email: true, name: true, username: true, avatarUrl: true } },
       },
     });
 
@@ -449,7 +456,7 @@ router.get('/slug/:slug', async (req, res, next) => {
         updatedAt: true,
         authorId: true,
         category: { select: { id: true, slug: true, name: true } },
-        author: { select: { id: true, email: true, name: true } },
+        author: { select: { id: true, email: true, name: true, username: true, avatarUrl: true } },
         // AI Fields
         aiSummary: true,
         factCheckScore: true,
@@ -474,7 +481,7 @@ router.get('/slug/:slug', async (req, res, next) => {
           updatedAt: true,
           authorId: true,
           category: { select: { id: true, slug: true, name: true } },
-          author: { select: { id: true, email: true, name: true } },
+          author: { select: { id: true, email: true, name: true, username: true, avatarUrl: true } },
           // AI Fields
           aiSummary: true,
           factCheckScore: true,
@@ -500,7 +507,7 @@ router.get('/slug/:slug', async (req, res, next) => {
           updatedAt: true,
           authorId: true,
           category: { select: { id: true, slug: true, name: true } },
-          author: { select: { id: true, email: true, name: true } },
+          author: { select: { id: true, email: true, name: true, username: true, avatarUrl: true } },
           // AI Fields
           aiSummary: true,
           factCheckScore: true,
@@ -700,7 +707,7 @@ router.get('/:id', async (req, res, next) => {
         status: true,
         authorId: true,
         category: { select: { id: true, slug: true, name: true } },
-        author: { select: { id: true, email: true, name: true } },
+        author: { select: { id: true, email: true, name: true, username: true, avatarUrl: true } },
       },
     });
 

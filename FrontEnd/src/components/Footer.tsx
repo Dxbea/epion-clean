@@ -45,13 +45,14 @@ const defaultSections: FooterSection[] = [
 ];
 
 const defaultCategories = [
-  'Politics',
-  'World',
-  'Economy',
+  'Monde',
+  'Politique',
+  'Économie',
   'Tech',
-  'Science',
-  'Environment',
-  'Business',
+  'Sciences',
+  'Santé',
+  'Culture',
+  'Sport',
   'National',
   'Opinions',
   'Trending',

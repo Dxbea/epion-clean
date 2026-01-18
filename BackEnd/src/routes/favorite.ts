@@ -58,8 +58,11 @@ router.get('/', async (req, res, next) => {
   try {
     let userId: string;
     try {
+      console.log('[Favorites] Checking user session...');
       userId = await getCurrentUserId(req, res);
-    } catch {
+      console.log('[Favorites] User ID:', userId);
+    } catch (err: any) {
+      console.error('[Favorites] Auth failed:', err?.message);
       return res.status(401).json({ error: 'NO_SESSION' });
     }
 
@@ -79,9 +82,9 @@ router.get('/', async (req, res, next) => {
       take: take + 1,
       ...(cursor
         ? {
-            cursor: { userId_articleId: { userId, articleId: cursor } },
-            skip: 1,
-          }
+          cursor: { userId_articleId: { userId, articleId: cursor } },
+          skip: 1,
+        }
         : {}),
       orderBy: { savedAt: 'desc' },
       select: {

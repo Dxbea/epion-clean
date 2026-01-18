@@ -3,11 +3,10 @@ import { Link } from 'react-router-dom';
 
 // mêmes catégories que ton Footer par défaut pour cohérence
 const CATEGORIES = [
-  'Politics','World','Economy','Tech','Science','Environment',
-  'Business','National','Opinions','Trending','Weather','Other'
+  'Monde', 'Politique', 'Économie', 'Société', 'Tech', 'Sciences', 'Santé', 'Environnement', 'Culture', 'Sport', 'Lifestyle', 'Insolite'
 ];
 
-export default function CategoryIndex(){
+export default function CategoryIndex() {
   return (
     <div className="mx-auto w-full max-w-7xl px-4 py-10">
       <header className="mb-6 flex items-center justify-between">
@@ -21,7 +20,7 @@ export default function CategoryIndex(){
 
       <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 md:grid-cols-4">
         {CATEGORIES.map((c) => {
-          const slug = c.toLowerCase().replace(/\s+/g,'-');
+          const slug = c.toLowerCase().replace(/\s+/g, '-');
           return (
             <Link
               key={c}

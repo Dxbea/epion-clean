@@ -142,7 +142,8 @@ export default function CreateArticlePage() {
         topic: prompt.trim(),
         language,
         style: tone,
-        category: cat ? cat.name : '', // On passe le nom pour le contexte IA
+        categoryId, // ⬅️ ID officiel pour la liaison BDD
+        categoryName: cat ? cat.name : '', // ⬅️ Nom pour le prompt context IA
         generateImage: imageMode === 'auto'
       });
 
@@ -308,7 +309,7 @@ export default function CreateArticlePage() {
           />
 
           <EpionSelect
-            label="Category"
+            label="Category *"
             value={categoryId}
             onChange={(v) => setCategoryId(v)}
             placeholder="Select..."
@@ -390,8 +391,12 @@ export default function CreateArticlePage() {
         <div className="flex items-center gap-3">
           <button
             type="submit"
-            disabled={isGenerating || !prompt.trim() || promptTooLong}
-            className="flex items-center gap-2 rounded-xl bg-black px-4 py-2 text-white disabled:opacity-60 dark:bg-white dark:text-black"
+            disabled={isGenerating || !prompt.trim() || promptTooLong || !categoryId}
+            className={`flex items-center gap-2 rounded-xl px-4 py-2 text-white transition-all
+              ${isGenerating || !prompt.trim() || promptTooLong || !categoryId
+                ? 'bg-neutral-400 cursor-not-allowed opacity-60'
+                : 'bg-black hover:opacity-90 dark:bg-white dark:text-black'
+              }`}
           >
             {isGenerating ? (
               <>

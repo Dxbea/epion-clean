@@ -31,14 +31,28 @@ export default function AvatarUploader({ value, onChange }: Props) {
         })
 
         const res = await fetch(`${API_BASE}/api/me/avatar`, init)
-        if (!res.ok) throw new Error()
+
+        if (res.status === 413) {
+          push('File too large (max 2MB).', 'error')
+          return
+        }
+
+        if (!res.ok) {
+          const errorJson = await res.json().catch(() => ({}))
+          throw new Error(errorJson.error || `HTTP ${res.status}`)
+        }
 
         const json = await res.json()
         onChange(json.avatarUrl)
         await refresh()
         push('Avatar updated.', 'success')
-      } catch {
-        push('Upload failed.', 'error')
+      } catch (e: any) {
+        if (e.message === 'AVATAR_TOO_LARGE') {
+          push('File too large (max 2MB).', 'error')
+        } else {
+          console.error(e)
+          push('Upload failed.', 'error')
+        }
       } finally {
         setBusy(false)
       }

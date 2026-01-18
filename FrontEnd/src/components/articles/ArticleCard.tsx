@@ -6,8 +6,9 @@ import type { Article } from '@/types/article'; // <- utiliser le type partagé
 import { useAuthRequired } from '@/hooks/useAuthRequired';
 
 import ArticleThumbnail from './ArticleThumbnail';
+import CategoryBadge from '@/components/shared/CategoryBadge';
 
-export default function ArticleCard({ article }: { article: Article }) {
+export default function ArticleCard({ article, disableLink = false }: { article: Article; disableLink?: boolean }) {
   const { isSaved, toggle } = useSavedArticles();
   const { requireAuth } = useAuthRequired();
   const saved = isSaved(article.id);
@@ -41,7 +42,7 @@ export default function ArticleCard({ article }: { article: Article }) {
   const Body = (
     <div className="p-3">
       {!!categoryLabel && (
-        <div className="mb-1 text-xs opacity-70">{categoryLabel}</div>
+        <CategoryBadge category={categoryLabel} className="mb-2" />
       )}
       <h4 className="leading-snug group-hover:underline">{article.title}</h4>
       {article.excerpt && (
@@ -53,6 +54,8 @@ export default function ArticleCard({ article }: { article: Article }) {
   );
 
   const Wrapper: React.FC<{ children: React.ReactNode }> = ({ children }) => {
+    if (disableLink) return <div className="block h-full cursor-pointer">{children}</div>;
+
     if (internal) return <a href={article.url}>{children}</a>;
     return (
       <a

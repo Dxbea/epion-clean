@@ -64,7 +64,10 @@ export async function createAIArticle(req: Request, res: Response, next: NextFun
                 content: generatedData.content,
                 // Defaulting to draft allows review
                 status: 'DRAFT',
-                authorId: userId,
+                // Author connection (Fix)
+                author: {
+                    connect: { id: userId }
+                },
 
                 // IA Fields
                 aiSummary: generatedData.summary,
@@ -76,7 +79,12 @@ export async function createAIArticle(req: Request, res: Response, next: NextFun
                 generationVersion: 1,
 
                 // Metadata
-                imageUrl: null // L'image sera générée plus tard via l'imagePrompt stocké
+                imageUrl: null, // L'image sera générée plus tard via l'imagePrompt stocké
+
+                // Connection de la catégorie si fournie
+                category: req.body.categoryId ? {
+                    connect: { id: req.body.categoryId }
+                } : undefined
             }
         });
 

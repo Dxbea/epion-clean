@@ -6,9 +6,10 @@ import ArticleThumbnail from '@/components/articles/ArticleThumbnail';
 import { API_BASE } from '@/config/api';
 import SaveButton from '@/components/ui/SaveButton';
 import { useMe } from '@/contexts/MeContext';
-import LikeButton from '@/components/ui/LikeButton';
+import ReactionButtons from '@/components/ui/ReactionButtons';
 import CommentsDrawer from '@/components/articles/CommentsDrawer';
-import ArticleToolbar from '@/components/articles/ArticleToolbar';
+import ArticleActionBar from '@/components/articles/ArticleActionBar';
+import ArticleAuthorPill from '@/components/articles/ArticleAuthorPill';
 // import FactCheckCard from '@/components/articles/FactCheckCard'; // Deprecated
 // import VerificationBlock from '../components/chat/VerificationBlock';
 import TrustHeader from '@/components/shared/TrustHeader';
@@ -16,8 +17,6 @@ import TrustHeader from '@/components/shared/TrustHeader';
 import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
 import { TrustScoreModal } from '@/components/chat/TrustScoreModal';
-import SummaryModal from '@/components/articles/SummaryModal';
-import PromptTransparencyModal from '@/components/articles/PromptTransparencyModal';
 import { useComments } from '@/hooks/useComments';
 import Modal from '@/components/ui/Modal';
 import SourceCard from '../components/chat/SourceCard';
@@ -33,7 +32,7 @@ type LoadedArticle = {
   imageUrl: string | null;
   publishedAt: string;
   category: { id: string; slug: string; name: string } | null;
-  author: { id: string; email: string; name: string | null } | null;
+  author: { id: string; email: string; name: string | null; username: string | null; avatarUrl: string | null; } | null;
   aiSummary: string | null;
   factCheckScore: number | null;
   factCheckData: any | null;
@@ -350,6 +349,7 @@ export default function Article() {
         attachedSource: {
           title: article?.title,
           id: article?.id,
+          slug: article?.slug,
           type: 'article'
         }
       }
@@ -358,6 +358,11 @@ export default function Article() {
 
   const handleShowPrompt = () => {
     setShowPrompt(true);
+  };
+
+  const handleSourceClick = (id: number) => {
+    setFocusedSourceId(id);
+    setActiveModal('sources');
   };
 
   // ----------------------------------------
@@ -421,90 +426,87 @@ export default function Article() {
         </nav>
 
         {/* Title + Save/Like/Edit */}
-        <header className="flex flex-wrap items-start justify-between gap-3">
+        {/* Title + Actions */}
+        <header className="space-y-4">
           <SectionHeader title={title} />
-          <div className="flex items-center gap-3">
-            {/* Save */}
-            <SaveButton
-              articleId={article.id}
-              className="inline-flex h-9 items-center justify-center rounded-full border px-4 text-sm shadow-sm hover:bg-black/5 dark:border-white/10"
-            />
 
+          <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
+            {/* Author Pill */}
+            <ArticleAuthorPill author={author} />
 
-            {/* Like */}
-            <LikeButton articleId={article.id} />
-
-            {/* Edit (dropdown) */}
-            {isAuthor && (
-              <div className="relative" ref={editMenuRef}>
-                <button
-                  type="button"
-                  aria-haspopup="menu"
-                  aria-expanded={isEditOpen}
-                  onClick={() => setIsEditOpen((o) => !o)}
-                  className="inline-flex h-9 items-center justify-center rounded-full border px-4 text-sm shadow-sm hover:bg-black/5 dark:border-white/10"
-                >
-                  Edit
-                  <svg className="ml-1 h-4 w-4 opacity-70" viewBox="0 0 20 20" fill="currentColor">
-                    <path
-                      fillRule="evenodd"
-                      d="M5.23 7.21a.75.75 0 011.06.02L10 10.94l3.71-3.71a.75.75 0 111.06 1.06l-4.24 4.24a.75.75 0 01-1.06 0L5.21 8.29a.75.75 0 01.02-1.08z"
-                      clipRule="evenodd"
-                    />
-                  </svg>
-                </button>
-
-                {isEditOpen && (
-                  <div
-                    role="menu"
-                    aria-label="Edit menu"
-                    className="absolute right-0 z-50 mt-2 w-48 overflow-hidden rounded-2xl border bg-white shadow-lg ring-1 ring-black/5 dark:border-white/10 dark:bg-neutral-950"
+            {/* Action Buttons */}
+            <div className="flex flex-wrap items-center gap-2 sm:gap-3">
+              {/* Edit (dropdown) */}
+              {isAuthor && (
+                <div className="relative" ref={editMenuRef}>
+                  <button
+                    type="button"
+                    aria-haspopup="menu"
+                    aria-expanded={isEditOpen}
+                    onClick={() => setIsEditOpen((o) => !o)}
+                    className="inline-flex h-9 items-center justify-center rounded-full border px-4 text-sm shadow-sm hover:bg-black/5 dark:border-white/10"
                   >
-                    <Link
-                      to={`/actuality/article/${article.slug}/edit`}
-                      role="menuitem"
-                      className="block w-full px-3 py-2 text-left text-sm hover:bg-black/5 dark:hover:bg-white/10"
-                      onClick={() => setIsEditOpen(false)}
-                    >
-                      Edit article
-                    </Link>
+                    Edit
+                    <svg className="ml-1 h-4 w-4 opacity-70" viewBox="0 0 20 20" fill="currentColor">
+                      <path
+                        fillRule="evenodd"
+                        d="M5.23 7.21a.75.75 0 011.06.02L10 10.94l3.71-3.71a.75.75 0 111.06 1.06l-4.24 4.24a.75.75 0 01-1.06 0L5.21 8.29a.75.75 0 01.02-1.08z"
+                        clipRule="evenodd"
+                      />
+                    </svg>
+                  </button>
 
-                    <button
-                      role="menuitem"
-                      className="block w-full px-3 py-2 text-left text-sm hover:bg-black/5 dark:hover:bg-white/10"
-                      onClick={() => {
-                        navigator.clipboard?.writeText(window.location.href).catch(() => { });
-                        setIsEditOpen(false);
-                      }}
+                  {isEditOpen && (
+                    <div
+                      role="menu"
+                      aria-label="Edit menu"
+                      className="absolute right-0 z-50 mt-2 w-48 overflow-hidden rounded-2xl border bg-white shadow-lg ring-1 ring-black/5 dark:border-white/10 dark:bg-neutral-950"
                     >
-                      Copy link
-                    </button>
+                      <Link
+                        to={`/actuality/article/${article.slug}/edit`}
+                        role="menuitem"
+                        className="block w-full px-3 py-2 text-left text-sm hover:bg-black/5 dark:hover:bg-white/10"
+                        onClick={() => setIsEditOpen(false)}
+                      >
+                        Edit article
+                      </Link>
 
-                    <div className="my-1 h-px bg-black/5 dark:bg-white/10" />
+                      <button
+                        role="menuitem"
+                        className="block w-full px-3 py-2 text-left text-sm hover:bg-black/5 dark:hover:bg-white/10"
+                        onClick={() => {
+                          navigator.clipboard?.writeText(window.location.href).catch(() => { });
+                          setIsEditOpen(false);
+                        }}
+                      >
+                        Copy link
+                      </button>
 
-                    <button
-                      role="menuitem"
-                      className="block w-full px-3 py-2 text-left text-sm text-red-600 hover:bg-red-50 dark:hover:bg-red-500/10"
-                      onClick={async () => {
-                        setIsEditOpen(false);
-                        if (!confirm('Delete this article?')) return;
-                        await fetch(`${API_BASE}/api/articles/${article.id}`, { method: 'DELETE', credentials: 'include' });
-                        window.location.href = '/actuality';
-                      }}
-                    >
-                      Delete
-                    </button>
-                  </div>
-                )}
-              </div>
-            )}
+                      <div className="my-1 h-px bg-black/5 dark:bg-white/10" />
+
+                      <button
+                        role="menuitem"
+                        className="block w-full px-3 py-2 text-left text-sm text-red-600 hover:bg-red-50 dark:hover:bg-red-500/10"
+                        onClick={async () => {
+                          setIsEditOpen(false);
+                          if (!confirm('Delete this article?')) return;
+                          await fetch(`${API_BASE}/api/articles/${article.id}`, { method: 'DELETE', credentials: 'include' });
+                          window.location.href = '/actuality';
+                        }}
+                      >
+                        Delete
+                      </button>
+                    </div>
+                  )}
+                </div>
+              )}
+            </div>
           </div>
         </header>
 
         {/* Meta */}
         <div className="text-sm opacity-70">
-          {category?.name ?? '—'} • {new Date(publishedAt).toLocaleDateString()} •{' '}
-          {author?.name ?? author?.email ?? 'Demo User'}
+          {category?.name ?? '—'} • {new Date(publishedAt).toLocaleDateString()}
           {typeof viewsAll === 'number' && <> • {Intl.NumberFormat().format(viewsAll)} views</>}
         </div>
 
@@ -551,9 +553,20 @@ export default function Article() {
 
         <article className="mt-8">
           {content ? (
-            <MarkdownRenderer content={content} />
+            <MarkdownRenderer
+              content={content}
+              isHighlightActive={isHighlightActive}
+              sources={normalizedSources}
+              onSourceClick={handleSourceClick}
+            />
           ) : excerpt ? (
-            <MarkdownRenderer content={excerpt} className="text-lg opacity-80" />
+            <MarkdownRenderer
+              content={excerpt}
+              className="text-lg opacity-80"
+              isHighlightActive={isHighlightActive}
+              sources={normalizedSources}
+              onSourceClick={handleSourceClick}
+            />
           ) : (
             <p className="opacity-50 italic">No content available.</p>
           )}
@@ -572,14 +585,18 @@ export default function Article() {
         )}
       </main>
 
-      {/* Toolbar & Drawer */}
-      <ArticleToolbar
+      {/* Action Bar & Drawer */}
+      <ArticleActionBar
+        articleId={article.id}
         onOpenComments={() => setIsCommentsOpen(true)}
         commentCount={commentsApi.items.length}
         onSummarize={handleSummarize}
         onChat={handleChat}
         onFactCheck={handleFactCheck}
         onShowPrompt={handleShowPrompt}
+        summaryText={summaryText}
+        summaryLoading={summaryLoading}
+        promptText={article?.generationPrompt || ''}
       />
 
       <CommentsDrawer
@@ -587,19 +604,6 @@ export default function Article() {
         isOpen={isCommentsOpen}
         onClose={() => setIsCommentsOpen(false)}
         {...commentsApi}
-      />
-
-      <SummaryModal
-        isOpen={showSummary}
-        onClose={() => setShowSummary(false)}
-        summaryText={summaryText}
-        loading={summaryLoading}
-      />
-
-      <PromptTransparencyModal
-        isOpen={showPrompt}
-        onClose={() => setShowPrompt(false)}
-        promptText={article?.generationPrompt || ''}
       />
 
       {/* Modal Transparence (Copied from ChatMessage) */}

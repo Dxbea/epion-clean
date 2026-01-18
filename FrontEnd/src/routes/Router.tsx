@@ -42,6 +42,8 @@ import FavoritesPage from '@/pages/FavoritesPage';
 import { useMe } from '@/contexts/MeContext';
 import ResetPassword from '../pages/ResetPassword';
 import { useAuthPrompt } from '@/contexts/AuthPromptContext';
+import Activity from '@/pages/user/Activity';
+import Profile from '@/pages/Profile';
 
 function RequireAuth({ children }: { children: React.ReactElement }) {
   const { me, loading } = useMe();
@@ -121,6 +123,18 @@ export default function Router(): React.ReactElement {
           }
         />
         <Route
+          path="/activity"
+          element={
+            <RequireAuth>
+              <Activity />
+            </RequireAuth>
+          }
+        />
+        <Route
+          path="/saved"
+          element={<Navigate to="/activity?tab=SAVED" replace />}
+        />
+        <Route
           path="/account/articles"
           element={
             <RequireAuth>
@@ -130,12 +144,11 @@ export default function Router(): React.ReactElement {
         />
         <Route
           path="/account/saved"
-          element={
-            <RequireAuth>
-              <FavoritesPage />
-            </RequireAuth>
-          }
+          element={<Navigate to="/activity?tab=SAVED" replace />}
         />
+
+        {/* --- Public Profile --- */}
+        <Route path="/u/:userId" element={<Profile />} />
 
         {/* --- chat (PLUS DE REQUIREAUTH ICI) --- */}
         <Route path="/chat" element={<Chat />} />

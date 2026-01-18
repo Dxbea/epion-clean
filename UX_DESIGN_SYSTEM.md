@@ -8,7 +8,7 @@ Toute déviation (couleurs pastels, glassmorphism, gris moyens) est interdite.
 ## 1. Philosophie : La Règle du 90/10
 L'interface est un instrument de mesure scientifique, pas une décoration.
 
-* **90% Structure (Neutre)** : L'environnement est strictement **Noir** (`#000000`, `gray-900`) et **Blanc** (`#FFFFFF`).
+* **90% Structure (Neutre)** : L'environnement est strictement **Noir** (`#000000`, `gray-900`) et **Blanc** (`#FAFAF5`).
 * **10% Âme (Vivid)** : La couleur n'est utilisée que pour la **Marque** (Identité) ou la **Donnée** (Score). Elle doit être saturée et "Néon".
 * **Interdit 🚫** : Pas d'effets de verre flou (Glassmorphism), pas de dégradés "mous" ou pastels, pas de titres colorés (les titres sont noirs).
 
@@ -18,12 +18,10 @@ L'interface est un instrument de mesure scientifique, pas une décoration.
 *C'est la signature visuelle de l'IA Epion. Elle représente la technologie et la fluidité.*
 
 ### Le Gradient Signature
-Un spectre continu qui traverse le Bleu Ciel, le Turquoise et le Menthe.
-* **Code CSS** : `linear-gradient(90deg, #0EA5E9 0%, #2DD4BF 50%, #34D399 100%)`
-* **Composition** :
-    1.  Ciel (`#0EA5E9`)
-    2.  Turquoise (`#2DD4BF`)
-    3.  Menthe (`#34D399`)
+Pour les endroits où on met de la couleur je veux soit des dégradés soit des couleurs unies. Pour les dégradés on peut en faire plusieurs à partir de ces 3 couleurs epion qui completent la palette de couleur principale d'epion ave le noir et blanc cassé. 
+Un spectre continu qui traverse le Bleu electrique, le vert clair, et le bleu foncé.
+* **Code CSS** : `linear-gradient(90deg, #87E8ED 0%, #87E89D 50%, #0031BC 100%)`
+
 
 ### Règles d'Usage (Brand)
 * **Boutons d'Action (Actifs)** : Fond Gradient Signature complet.

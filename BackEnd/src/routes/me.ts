@@ -25,7 +25,11 @@ router.get('/', async (req, res, next) => {
         username: true,
         phone: true,
         avatarUrl: true,
+        bannerUrl: true,
         role: true,
+        bio: true,
+        followersCount: true,
+        followingCount: true,
       },
     });
     if (!user) return res.status(401).json({ error: 'INVALID_SESSION' });
@@ -37,8 +41,13 @@ router.get('/', async (req, res, next) => {
       displayName: user.name ?? '',
       username: user.username ?? '',
       phone: user.phone ?? '',
+      phones: user.phone ?? '',
       avatarUrl: user.avatarUrl ?? null,
+      bannerUrl: user.bannerUrl ?? null,
       role: user.role,
+      bio: user.bio ?? null,
+      followersCount: user.followersCount ?? 0,
+      followingCount: user.followingCount ?? 0,
     });
   } catch (e) {
     next(e);
@@ -54,10 +63,29 @@ router.put('/', async (req, res, next) => {
     const sess = await requireSession(req, res);
     if (!sess) return res.status(401).json({ error: 'NO_SESSION' });
 
-    const { displayName, username, phone, avatarUrl } = req.body ?? {};
+    // Rate limiting: 10 updates per minute per user
+    const rl = checkRateLimit(sess.userId, {
+      bucket: 'me:update',
+      windowMs: 60_000,
+      max: 10,
+    });
+
+    if (!rl.ok) {
+      console.warn(`[RateLimit] User ${sess.userId} exceeded me:update limit.`);
+      return res.status(429).json({
+        error: 'RATE_LIMIT_EXCEEDED',
+        message: 'Too many profile updates. Please try again later.',
+        retryInMs: rl.resetMs,
+      });
+    }
+
+    const { displayName, username, phone, avatarUrl, bio } = req.body ?? {};
+
+    console.log(`[PUT /api/me] User ${sess.userId} updating profile:`, { displayName, username });
 
     const dn = String(displayName ?? '').trim();
     const un = String(username ?? '').trim();
+    const b = bio ? String(bio).trim() : null;
 
     if (!dn || dn.length < 2 || dn.length > 80) {
       return res.status(400).json({ error: 'BAD_INPUT', field: 'displayName' });
@@ -82,6 +110,7 @@ router.put('/', async (req, res, next) => {
         username: un || null,
         phone: String(phone ?? '').trim() || null,
         avatarUrl: avatarUrl ?? null,
+        bio: b,
       },
       select: {
         id: true,
@@ -92,8 +121,13 @@ router.put('/', async (req, res, next) => {
         phone: true,
         avatarUrl: true,
         role: true,
+        bio: true,
+        followersCount: true,
+        followingCount: true,
       },
     });
+
+    console.log(`[PUT /api/me] User ${sess.userId} updated successfully.`); // Success log
 
     return res.json({
       id: updated.id,
@@ -104,8 +138,12 @@ router.put('/', async (req, res, next) => {
       phone: updated.phone ?? '',
       avatarUrl: updated.avatarUrl ?? null,
       role: updated.role,
+      bio: updated.bio ?? null,
+      followersCount: updated.followersCount ?? 0,
+      followingCount: updated.followingCount ?? 0,
     });
   } catch (e) {
+    console.error(`[PUT /api/me] Error:`, e);
     next(e);
   }
 });
@@ -153,6 +191,67 @@ router.post('/avatar', async (req, res, next) => {
 
     res.json({ ok: true, avatarUrl: updated.avatarUrl });
   } catch (e) {
+    next(e);
+  }
+});
+
+/**
+ * POST /api/me/banner
+ * Body: { dataUrl: string } (Base64)
+ * Save to disk -> public/uploads/banners/
+ */
+import fs from 'fs';
+import path from 'path';
+
+router.post('/banner', async (req, res, next) => {
+  try {
+    const sess = await requireSession(req, res);
+    if (!sess) return res.status(401).json({ error: 'NO_SESSION' });
+
+    const dataUrl = String(req.body?.dataUrl || '');
+    if (!dataUrl.startsWith('data:image/')) {
+      return res.status(400).json({ error: 'BAD_INPUT' });
+    }
+
+    // Limit size (approx check on base64 length, 5MB ~ 6.7MB base64)
+    if (dataUrl.length > 7_000_000) {
+      return res.status(400).json({ error: 'BANNER_TOO_LARGE' });
+    }
+
+    // Prepare directory
+    const uploadDir = path.join(process.cwd(), 'public', 'uploads', 'banners');
+    if (!fs.existsSync(uploadDir)) {
+      fs.mkdirSync(uploadDir, { recursive: true });
+    }
+
+    // Extract extension and data
+    const matches = dataUrl.match(/^data:image\/([a-zA-Z]+);base64,(.+)$/);
+    if (!matches || matches.length !== 3) {
+      return res.status(400).json({ error: 'INVALID_IMAGE_FORMAT' });
+    }
+    const ext = matches[1] === 'jpeg' ? 'jpg' : matches[1];
+    const base64Data = matches[2];
+
+    // Generate filename
+    const filename = `${sess.userId}-${Date.now()}.${ext}`;
+    const filePath = path.join(uploadDir, filename);
+
+    // Save file
+    fs.writeFileSync(filePath, Buffer.from(base64Data, 'base64'));
+
+    // Public URL
+    const publicUrl = `/uploads/banners/${filename}`;
+
+    // Update DB
+    const updated = await prisma.user.update({
+      where: { id: sess.userId },
+      data: { bannerUrl: publicUrl },
+      select: { id: true, bannerUrl: true },
+    });
+
+    res.json({ ok: true, bannerUrl: updated.bannerUrl });
+  } catch (e) {
+    console.error('[POST /api/me/banner] Error:', e);
     next(e);
   }
 });

@@ -14,5 +14,6 @@ export const env = {
   JWT_SECRET: required('JWT_SECRET', 'replace_me_with_a_long_random_secret'),
   COOKIE_NAME: process.env.COOKIE_NAME ?? 'epion_session',
   BCRYPT_ROUNDS: Number(process.env.BCRYPT_ROUNDS ?? 12),
+  OPENAI_API_KEY: process.env.OPENAI_API_KEY,
 };
 // FIN BLOC

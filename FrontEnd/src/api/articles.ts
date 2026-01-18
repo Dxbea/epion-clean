@@ -5,7 +5,9 @@ export interface GenerateArticleParams {
     topic: string;
     language: string;
     style: string;
-    category: string;
+    category?: string; // @deprecated use categoryName
+    categoryName?: string; // context for AI
+    categoryId?: string; // ID for DB relation
     generateImage: boolean;
 }
 

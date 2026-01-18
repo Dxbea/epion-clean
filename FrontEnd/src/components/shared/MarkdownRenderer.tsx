@@ -68,9 +68,9 @@ export default function MarkdownRenderer({ content, className = '', isHighlightA
                                                 console.log("🎯 Citation Clicked:", idVal);
                                                 if (onSourceClick) onSourceClick(idVal);
                                             }}
-                                            className={`text-[9px] font-bold px-1 rounded-sm transition-colors border ${isActive
-                                                ? 'bg-black text-[#00dc82] border-transparent'
-                                                : 'text-[#00dc82] bg-[#00dc82]/10 border-[#00dc82]/20'
+                                            className={`text-[10px] font-bold transition-colors ${isActive
+                                                ? 'text-[#00dc82] underline decoration-2 underline-offset-2'
+                                                : 'text-[#00dc82] hover:text-[#00dc82]/80'
                                                 }`}
                                             title={`Voir la source ${num}`}
                                         >

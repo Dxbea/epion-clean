@@ -94,10 +94,10 @@ router.post('/auth/login', loginLimiter, async (req, res, next) => {
 
     // 2️⃣ Recherche du user
     const user = await prisma.user.findUnique({ where: { email } });
-    
+
     if (!user || !user.passwordHash) {
       return res.status(401).json({ error: 'INVALID_CREDENTIALS' });
-      
+
     }
 
     // 3️⃣ Vérification du mot de passe
@@ -105,9 +105,9 @@ router.post('/auth/login', loginLimiter, async (req, res, next) => {
     console.log('✅ LOGIN OK for user', user.id);
     if (!ok) {
       return res.status(401).json({ error: 'INVALID_CREDENTIALS' });
-      
+
     }
-    
+
 
     // 4️⃣ Création de la session DB
     const session = await prisma.session.create({
@@ -195,7 +195,7 @@ router.post('/auth/request-verify', async (req, res, next) => {
 router.post('/auth/logout', async (req, res) => {
   const sess = await requireSession(req, res);
   if (sess) {
-    await prisma.session.delete({ where: { id: sess.sessionId } }).catch(() => {});
+    await prisma.session.delete({ where: { id: sess.sessionId } }).catch(() => { });
   }
   clearSessionCookie(res);
   res.json({ ok: true });
@@ -208,12 +208,38 @@ router.get('/auth/me', async (req, res) => {
 
   const user = await prisma.user.findUnique({
     where: { id: sess.userId },
-    select: { id: true, email: true, name: true, emailVerifiedAt: true },
+    select: {
+      id: true,
+      email: true,
+      emailVerifiedAt: true,
+      name: true,
+      username: true,
+      phone: true,
+      avatarUrl: true,
+      bannerUrl: true,
+      role: true,
+      bio: true,
+      followersCount: true,
+      followingCount: true,
+    },
   });
   if (!user) return res.status(401).json({ error: 'INVALID_SESSION' });
 
   res.set('Cache-Control', 'no-store');
-  res.json(user);
+  res.json({
+    id: user.id,
+    email: user.email,
+    emailVerifiedAt: user.emailVerifiedAt,
+    displayName: user.name ?? '',
+    username: user.username ?? '',
+    phone: user.phone ?? '',
+    avatarUrl: user.avatarUrl ?? null,
+    bannerUrl: user.bannerUrl ?? null,
+    role: user.role,
+    bio: user.bio ?? null,
+    followersCount: user.followersCount ?? 0,
+    followingCount: user.followingCount ?? 0,
+  });
 });
 
 /* ------------------------ FORGOT / RESET ------------------------ */
@@ -379,24 +405,24 @@ router.post('/auth/email/verification-link', async (req, res, next) => {
     }
 
     // on supprime les anciens tokens de ce user
-await prisma.emailVerificationToken.deleteMany({
-  where: { userId: user.id },
-});
+    await prisma.emailVerificationToken.deleteMany({
+      where: { userId: user.id },
+    });
 
-const token = crypto.randomUUID();
-const expiresAt = new Date(Date.now() + 1000 * 60 * 60 * 24); // 24 h
+    const token = crypto.randomUUID();
+    const expiresAt = new Date(Date.now() + 1000 * 60 * 60 * 24); // 24 h
 
-await prisma.emailVerificationToken.create({
-  data: {
-    userId: user.id,
-    token,
-    expiresAt,
-  },
-});
+    await prisma.emailVerificationToken.create({
+      data: {
+        userId: user.id,
+        token,
+        expiresAt,
+      },
+    });
 
 
     // auth.ts – dans router.post('/auth/email/verification-link', ...)
-const verifyUrl = `${APP_URL}/api/auth/verify-email?token=${encodeURIComponent(token)}`;
+    const verifyUrl = `${APP_URL}/api/auth/verify-email?token=${encodeURIComponent(token)}`;
 
 
 

@@ -19,7 +19,7 @@ export default function FavoritesPage() {
       setLoading(true);
       const p = new URLSearchParams({ take: '24' });
       if (cursor) p.set('cursor', cursor);
-      const r = await fetch(`${API_BASE}/api/favorites?${p.toString()}`);
+      const r = await fetch(`${API_BASE}/api/favorites?${p.toString()}`, { credentials: 'include' });
       if (!r.ok) throw new Error(`HTTP ${r.status}`);
       const j = await r.json();
       const page: Article[] = (Array.isArray(j.items) ? j.items : []).map((it: any) => ({
@@ -32,7 +32,7 @@ export default function FavoritesPage() {
       setItems(prev => cursor ? [...prev, ...page] : page);
       setNextCursor(j.nextCursor ?? null);
       setError(null);
-    } catch (e:any) {
+    } catch (e: any) {
       setError(e.message || 'Failed to load favorites');
     } finally { setLoading(false); }
   }, []);

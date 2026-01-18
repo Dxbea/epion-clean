@@ -8,6 +8,8 @@ import ArticleThumbnail from './ArticleThumbnail';
 
 
 export default function HeroArticle({ article }: { article: Article | null }) {
+  if (!article) return null;
+
   // Normalize category
   let categoryLabel: string | null = null;
   if (typeof article.category === 'string') {

@@ -111,7 +111,7 @@ export default function AccountProfileForm() {
   // ─────────────────────────────
   // Submit "Save profile"
   // ─────────────────────────────
-    async function onSubmit(values: FormValues) {
+  async function onSubmit(values: FormValues) {
     clearErrors('username')
 
     try {
@@ -345,11 +345,10 @@ export default function AccountProfileForm() {
                 <input
                   id="username"
                   onBlur={(e) => checkUsername(e.target.value)}
-                  className={`w-full rounded-xl border px-3 py-2 text-sm outline-none focus:ring-2 focus:ring-brand-blue ${
-                    errors.username
+                  className={`w-full rounded-xl border px-3 py-2 text-sm outline-none focus:ring-2 focus:ring-brand-blue ${errors.username
                       ? 'border-red-500 bg-white dark:bg-neutral-950'
                       : 'border-surface-200 bg-white dark:border-neutral-800 dark:bg-neutral-950'
-                  }`}
+                    }`}
                   {...register('username')}
                 />
                 {checkingU && (

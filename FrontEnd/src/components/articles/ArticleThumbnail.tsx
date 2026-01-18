@@ -2,14 +2,18 @@ import React from 'react';
 
 // Images officielles par défaut (Unsplash HD)
 const CATEGORY_DEFAULTS: Record<string, string> = {
-    politics: 'https://images.unsplash.com/photo-1541872703-74c5963631df?auto=format&fit=crop&q=80', // Assemblée
-    world: 'https://images.unsplash.com/photo-1526778548025-fa2f459cd5c1?auto=format&fit=crop&q=80', // Globe
+    politique: 'https://images.unsplash.com/photo-1541872703-74c5963631df?auto=format&fit=crop&q=80', // Assemblée
+    monde: 'https://images.unsplash.com/photo-1526778548025-fa2f459cd5c1?auto=format&fit=crop&q=80', // Globe
     tech: 'https://images.unsplash.com/photo-1518770660439-4636190af475?auto=format&fit=crop&q=80', // Puce
     science: 'https://images.unsplash.com/photo-1507413245164-6160d8298b31?auto=format&fit=crop&q=80', // Espace
-    business: 'https://images.unsplash.com/photo-1460925895917-afdab827c52f?auto=format&fit=crop&q=80', // Bureau
-    finance: 'https://images.unsplash.com/photo-1591696205602-2f950c417cb9?auto=format&fit=crop&q=80', // Graphiques
+    economie: 'https://images.unsplash.com/photo-1460925895917-afdab827c52f?auto=format&fit=crop&q=80', // Bureau
+    societe: 'https://images.unsplash.com/photo-1591696205602-2f950c417cb9?auto=format&fit=crop&q=80', // Graphiques
     sport: 'https://images.unsplash.com/photo-1461896836934-ffe607ba8211?auto=format&fit=crop&q=80', // Stade
-    health: 'https://images.unsplash.com/photo-1505751172876-fa1923c5c528?auto=format&fit=crop&q=80', // Médical
+    sante: 'https://images.unsplash.com/photo-1505751172876-fa1923c5c528?auto=format&fit=crop&q=80', // Médical
+    environnement: 'https://images.unsplash.com/photo-1470071459604-3b5ec3a7fe05?auto=format&fit=crop&q=80', // Nature
+    culture: 'https://images.unsplash.com/photo-1514525253440-b39345208668?auto=format&fit=crop&q=80', // Arts
+    lifestyle: 'https://images.unsplash.com/photo-1511988617509-a57c8a288659?auto=format&fit=crop&q=80', // Lifestyle
+    insolite: 'https://images.unsplash.com/photo-1493612276216-9c91155e6236?auto=format&fit=crop&q=80', // Insolite
     default: 'https://images.unsplash.com/photo-1504711434969-e33886168f5c?auto=format&fit=crop&q=80', // Journal
 };
 

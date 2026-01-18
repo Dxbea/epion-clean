@@ -102,15 +102,8 @@ export default function ChatSession() {
   const initialContext = location.state?.initialContext;
 
   // IMPORTANT : plus de création auto ici, c'est géré par /chat.
-
-  // Auto-send initial context if present and chat is empty
-  React.useEffect(() => {
-    if (initialContext && id && !messages.length && !thinking && !loading) {
-      // Clear state to avoid double sending on refresh (not perfect but helpful)
-      nav(location.pathname, { replace: true, state: { ...location.state, initialContext: undefined } });
-      sendMessage(id, initialContext);
-    }
-  }, [id, initialContext, messages.length, thinking, loading, sendMessage, nav, location]);
+  // L'effet d'auto-send a été supprimé pour éviter la duplication et l'envoi visible.
+  // Le contexte est maintenant attaché silencieusement via handleSend.
 
   // appliquer classes <body> pour le layout local
   React.useEffect(() => {
@@ -240,7 +233,8 @@ export default function ChatSession() {
       await sendMessage(id, text, model, rigor, {
         sourceRestricted,
         neutralityForced,
-        timeRecent
+        timeRecent,
+        attachedContext: messages.length === 0 ? attachedContext : undefined // Attach only on first message
       });
     } catch (err: any) {
       console.error('sendMessage error', err);
@@ -399,6 +393,13 @@ export default function ChatSession() {
                 <div className="flex items-center gap-2 rounded-lg border border-teal-500/20 bg-teal-500/10 px-3 py-2 text-sm text-teal-700 dark:text-teal-400">
                   <span className="font-semibold">Context Attached:</span>
                   <span className="truncate max-w-[200px]">{attachedContext.title || attachedContext.content?.title}</span>
+                  <div className="h-4 w-px bg-teal-500/20 mx-1"></div>
+                  <button
+                    onClick={() => nav(`/article/${attachedContext.slug || attachedContext.id}`)}
+                    className="text-xs font-medium underline hover:text-teal-800 dark:hover:text-teal-300 transition-colors"
+                  >
+                    Voir l'article
+                  </button>
                 </div>
               </div>
             )}

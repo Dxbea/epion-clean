@@ -234,6 +234,7 @@ export function useChatSession(sessionId?: string) {
         sourceRestricted?: boolean;
         neutralityForced?: boolean;
         timeRecent?: boolean;
+        attachedContext?: any;
       }
     ) => {
       setThinking(true);

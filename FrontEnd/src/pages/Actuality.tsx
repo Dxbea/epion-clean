@@ -247,12 +247,7 @@ export default function Actuality() {
             >
               Find articles by category
             </a>
-            <a
-              href="/actuality/favorites"
-              className="rounded-xl border px-4 py-2 text-sm hover:bg-black/5 dark:border-white/10"
-            >
-              Favorites
-            </a>
+
           </div>
         </div>
       </section>

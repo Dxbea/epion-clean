@@ -1,4 +1,5 @@
 // BackEnd/src/server.ts
+import path from 'path';
 import './env';
 import express from 'express';
 import cors from 'cors';
@@ -20,6 +21,8 @@ import { router as statsRouter } from './routes/stats';
 import { router as commentsRouter } from './routes/comments';
 import { router as aiRouter } from './routes/ai';
 import { router as debugRouter } from './routes/debug-checks';
+import { router as socialRouter } from './routes/social';
+import { router as usersRouter } from './routes/users';
 import { initializeCron } from './cron/dailyReset';
 
 // ... (existing code)
@@ -72,8 +75,19 @@ app.use(
 // ----------------------------
 
 // Limiter taille des payloads -> anti DoS
-app.use(express.json({ limit: '1mb' }));
-app.use(express.urlencoded({ extended: false, limit: '1mb' }));
+app.use(express.json({ limit: '10mb' }));
+app.use(express.urlencoded({ extended: false, limit: '10mb' }));
+
+
+
+// ... (imports)
+
+// ----------------------------
+//  📦 Middleware globaux
+// ----------------------------
+
+// Servir les fichiers statiques (uploads)
+app.use('/uploads', express.static(path.join(process.cwd(), 'public/uploads')));
 
 app.use(cookieParser());
 
@@ -116,6 +130,8 @@ app.use('/api/me', meRouter);
 app.use('/api', commentsRouter);
 app.use('/api/ai', aiRouter);
 app.use('/api/debug', debugRouter);
+app.use('/api/social', socialRouter);
+app.use('/api/users', usersRouter);
 
 // ----------------------------
 //  ❌ 404 pour tout le reste
@@ -150,14 +166,18 @@ import { prisma } from './lib/db';
 
 (async () => {
   const categoriesToEnsure = [
-    { name: 'News', slug: 'news' },
-    { name: 'Other', slug: 'other' },
+    { name: 'Monde', slug: 'monde' },
+    { name: 'Politique', slug: 'politique' },
+    { name: 'Économie', slug: 'economie' },
+    { name: 'Société', slug: 'societe' },
     { name: 'Tech', slug: 'tech' },
-    { name: 'Science', slug: 'science' },
-    { name: 'Business', slug: 'business' },
-    { name: 'Politics', slug: 'politics' },
+    { name: 'Sciences', slug: 'sciences' },
+    { name: 'Santé', slug: 'sante' },
+    { name: 'Environnement', slug: 'environnement' },
+    { name: 'Culture', slug: 'culture' },
     { name: 'Sport', slug: 'sport' },
-    { name: 'World', slug: 'world' },
+    { name: 'Lifestyle', slug: 'lifestyle' },
+    { name: 'Insolite', slug: 'insolite' },
   ];
 
   for (const cat of categoriesToEnsure) {
