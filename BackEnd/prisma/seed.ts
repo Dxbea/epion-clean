@@ -26,6 +26,21 @@ async function main() {
 
   console.log(`👤 Admin user created/verified: ${admin.email}`);
 
+  // 1b. Create UserUsage for Admin (Epion Energy)
+  await prisma.userUsage.upsert({
+    where: { userId: admin.id },
+    update: {
+      dailyCredits: 10000,
+      plan: 'PREMIUM',
+    },
+    create: {
+      userId: admin.id,
+      dailyCredits: 10000,
+      plan: 'PREMIUM',
+    },
+  });
+  console.log(`💰 UserUsage created (PREMIUM, 10000 credits)`);
+
   // 2. Create Categories
   const categoriesData = [
     { name: 'Monde', slug: 'monde' },

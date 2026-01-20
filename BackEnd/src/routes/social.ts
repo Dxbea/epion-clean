@@ -2,7 +2,7 @@
 import { Router } from 'express';
 import { prisma } from '../lib/db';
 import { getCurrentUserId } from '../lib/currentUser';
-import { checkRateLimit } from '../lib/rateLimiter';
+import { checkAndIncrement } from '../lib/rateLimiter';
 
 export const router = Router();
 
@@ -23,19 +23,8 @@ router.post('/articles/:id/repost', async (req, res, next) => {
 
         const articleId = String(req.params.id);
 
-        // Rate Limit
-        const rl = checkRateLimit(`repost:${userId}`, {
-            bucket: 'social:repost',
-            windowMs: 60_000,
-            max: 60,
-        });
-        if (!rl.ok) {
-            return res.status(429).json({
-                error: 'rate_limit_repost',
-                message: 'Tu repostes trop vite.',
-                retryInMs: rl.resetMs,
-            });
-        }
+        // Rate Limit (Maintenant couplé au quota DB)
+        await checkAndIncrement(userId);
 
         // Check Article
         const article = await prisma.article.findUnique({
@@ -238,15 +227,8 @@ router.post('/users/:id/follow', async (req, res, next) => {
         }
 
         // Rate Limit
-        const rl = checkRateLimit(`follow:${followerId}`, {
-            bucket: 'social:follow',
-            windowMs: 60_000,
-            max: 30,
-        });
-        if (!rl.ok) {
-            return res.status(429).json({ error: 'rate_limit', retryInMs: rl.resetMs });
-        }
-
+        // Rate Limit (DB)
+        await checkAndIncrement(followerId);
         // Transaction to ensure consistency
         const result = await prisma.$transaction(async (tx) => {
             const existing = await tx.follow.findUnique({

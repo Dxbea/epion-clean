@@ -1,52 +1,70 @@
 import React from 'react';
+import { STOCK_IMAGES } from '@/lib/stockImages';
 
-// Images officielles par défaut (Unsplash HD)
-const CATEGORY_DEFAULTS: Record<string, string> = {
-    politique: 'https://images.unsplash.com/photo-1541872703-74c5963631df?auto=format&fit=crop&q=80', // Assemblée
-    monde: 'https://images.unsplash.com/photo-1526778548025-fa2f459cd5c1?auto=format&fit=crop&q=80', // Globe
-    tech: 'https://images.unsplash.com/photo-1518770660439-4636190af475?auto=format&fit=crop&q=80', // Puce
-    science: 'https://images.unsplash.com/photo-1507413245164-6160d8298b31?auto=format&fit=crop&q=80', // Espace
-    economie: 'https://images.unsplash.com/photo-1460925895917-afdab827c52f?auto=format&fit=crop&q=80', // Bureau
-    societe: 'https://images.unsplash.com/photo-1591696205602-2f950c417cb9?auto=format&fit=crop&q=80', // Graphiques
-    sport: 'https://images.unsplash.com/photo-1461896836934-ffe607ba8211?auto=format&fit=crop&q=80', // Stade
-    sante: 'https://images.unsplash.com/photo-1505751172876-fa1923c5c528?auto=format&fit=crop&q=80', // Médical
-    environnement: 'https://images.unsplash.com/photo-1470071459604-3b5ec3a7fe05?auto=format&fit=crop&q=80', // Nature
-    culture: 'https://images.unsplash.com/photo-1514525253440-b39345208668?auto=format&fit=crop&q=80', // Arts
-    lifestyle: 'https://images.unsplash.com/photo-1511988617509-a57c8a288659?auto=format&fit=crop&q=80', // Lifestyle
-    insolite: 'https://images.unsplash.com/photo-1493612276216-9c91155e6236?auto=format&fit=crop&q=80', // Insolite
-    default: 'https://images.unsplash.com/photo-1504711434969-e33886168f5c?auto=format&fit=crop&q=80', // Journal
+// Mappage des mots-clés de catégorie vers les clés de STOCK_IMAGES
+const CATEGORY_MAP: Record<string, string> = {
+    politique: 'politics',
+    monde: 'world',
+    tech: 'tech',
+    science: 'science',
+    economie: 'business',
+    business: 'business',
+    societe: 'news',
+    news: 'news',
+    sport: 'sport',
+    sante: 'science',
+    environnement: 'world',
+    culture: 'other',
+    lifestyle: 'other',
+    insolite: 'other',
 };
 
 type Props = {
     imageUrl?: string | null;
     category?: string | null;
-    title?: string; // Gardé pour compatibilité mais non utilisé
+    title?: string;
     className?: string;
 };
+
+/**
+ * Génère un index déterministe basé sur une chaîne de caractères (le titre)
+ */
+function getDeterministicIndex(seed: string, max: number): number {
+    if (!seed || max <= 1) return 0;
+    let hash = 0;
+    for (let i = 0; i < seed.length; i++) {
+        hash = seed.charCodeAt(i) + ((hash << 5) - hash);
+    }
+    return Math.abs(hash) % max;
+}
 
 export default function ArticleThumbnail({
     imageUrl,
     category,
+    title,
     className = '',
 }: Props) {
     // 1. Normalisation de la catégorie
     const catKey = (category || '').toLowerCase().trim();
 
     // 2. Sélection de l'image
-    // Priorité : Image DB > Image Catégorie (match partiel) > Image Default
     let src = imageUrl;
 
     if (!src) {
-        const foundKey = Object.keys(CATEGORY_DEFAULTS).find((k) =>
-            catKey.includes(k)
-        );
-        src = foundKey ? CATEGORY_DEFAULTS[foundKey] : CATEGORY_DEFAULTS.default;
+        // Trouver la clé correspondante dans STOCK_IMAGES
+        const matchedKey = Object.keys(CATEGORY_MAP).find((k) => catKey.includes(k));
+        const stockKey = matchedKey ? CATEGORY_MAP[matchedKey] : 'news';
+
+        const images = STOCK_IMAGES[stockKey] || STOCK_IMAGES.other;
+
+        // Sélection déterministe basée sur le titre pour que l'image reste la même pour un article donné
+        const index = getDeterministicIndex(title || '', images.length);
+        src = images[index];
     }
 
     return (
         <img
             src={src}
-            // alt décoratif, on le laisse vide
             alt=""
             className={`object-cover bg-gray-100 ${className}`}
             loading="lazy"

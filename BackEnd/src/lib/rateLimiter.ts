@@ -1,47 +1,66 @@
-// BackEnd/src/lib/rateLimiter.ts
+import { prisma } from './db';
 
-export type RateLimitOptions = {
-  windowMs: number;   // durée de la fenêtre en ms
-  max: number;        // nb max de requêtes dans la fenêtre
-  bucket: string;     // nom logique ("chat:messages", "chat:create", etc.)
-};
+// Limite par défaut : 10 messages / jour pour les users gratuits
+const MAX_DAILY_MESSAGES = 10;
+// Limite pour les invités (IP)
+const MAX_GUEST_DAILY_MESSAGES = 5;
 
-type BucketState = {
-  count: number;
-  resetAt: number;    // timestamp en ms
-};
+/**
+ * Vérifie et incrémente le quota journalier de manière atomique via une Transaction.
+ * Supporte les IDs utilisateurs (string simple) et les IPs (préfixés par "ip:")
+ */
+export async function checkAndIncrement(identifier: string) {
+  const now = new Date();
+  const today = new Date(now.getFullYear(), now.getMonth(), now.getDate());
 
-const buckets = new Map<string, BucketState>();
+  // IP usage logic for Guests
+  if (identifier.startsWith('ip:')) {
+    const dbKey = identifier.replace('ip:', '');
+    const max = MAX_GUEST_DAILY_MESSAGES;
 
-export function checkRateLimit(userId: string, opts: RateLimitOptions) {
-  const key = `${opts.bucket}:${userId}`;
-  const now = Date.now();
-  const current = buckets.get(key);
+    return await prisma.$transaction(async (tx) => {
+      const currentUsage = await tx.ipUsage.upsert({
+        where: { ipAddress: dbKey },
+        update: {},
+        create: {
+          ipAddress: dbKey,
+          messageCount: 0,
+          lastMessageAt: now,
+        },
+      });
 
-  // nouvelle fenêtre
-  if (!current || current.resetAt <= now) {
-    const resetAt = now + opts.windowMs;
-    buckets.set(key, { count: 1, resetAt });
-    return {
-      ok: true,
-      remaining: opts.max - 1,
-      resetMs: opts.windowMs,
-    };
+      const lastAt = new Date(currentUsage.lastMessageAt);
+      const lastDay = new Date(lastAt.getFullYear(), lastAt.getMonth(), lastAt.getDate());
+      let count = currentUsage.messageCount;
+
+      if (lastDay.getTime() < today.getTime()) {
+        count = 0;
+      }
+
+      if (count >= max) {
+        const err: any = new Error('Guest daily limit reached.');
+        err.code = 'RateLimitExceeded';
+        err.status = 429;
+        throw err;
+      }
+
+      const newCount = count + 1;
+      await tx.ipUsage.update({
+        where: { ipAddress: dbKey },
+        data: { messageCount: newCount, lastMessageAt: now },
+      });
+
+      return {
+        allowed: true,
+        remaining: max - newCount,
+      };
+    });
   }
 
-  // déjà dans une fenêtre existante
-  if (current.count >= opts.max) {
-    return {
-      ok: false,
-      remaining: 0,
-      resetMs: current.resetAt - now,
-    };
-  }
-
-  current.count += 1;
+  // Users: No rate limit (controlled by Billing or removed)
+  // We return allowed=true to not break existing calls in comments/articles
   return {
-    ok: true,
-    remaining: opts.max - current.count,
-    resetMs: current.resetAt - now,
+    allowed: true,
+    remaining: 9999,
   };
 }

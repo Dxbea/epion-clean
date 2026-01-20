@@ -3,7 +3,7 @@ import { Router } from 'express';
 import { prisma } from '../lib/db';
 import { getCurrentUserId } from '../lib/currentUser';
 import { ReactionType } from '@prisma/client';
-import { checkRateLimit } from '../lib/rateLimiter';
+import { checkAndIncrement } from '../lib/rateLimiter';
 import { sanitizeCommentHtml } from '../lib/sanitizeHtml';
 import { moderationService } from '../services/moderationService';
 
@@ -219,21 +219,8 @@ router.post('/articles/:id/comments', async (req, res, next) => {
       });
     }
 
-    // rate limit par user (débit)
-    const rl = checkRateLimit(userId, {
-      bucket: 'comments:post',
-      windowMs: 60_000,
-      max: COMMENT_LIMITS.maxPerMinute,
-    });
-
-    if (!rl.ok) {
-      return res.status(429).json({
-        error: 'rate_limit_comments',
-        message:
-          'Tu publies des commentaires trop vite. Attends quelques instants avant de réessayer.',
-        retryInMs: rl.resetMs,
-      });
-    }
+    // rate limit par user (DB)
+    await checkAndIncrement(userId);
 
     // quota global de commentaires par compte (volume total)
     const totalComments = await prisma.comment.count({
@@ -350,19 +337,8 @@ router.post('/articles/:id/react', async (req, res, next) => {
       return res.status(400).json({ error: 'Invalid reaction type' });
     }
 
-    // Rate-limit
-    const rl = checkRateLimit(`react:${userId}`, {
-      bucket: 'articles:react',
-      windowMs: 60_000,
-      max: 120,
-    });
-    if (!rl.ok) {
-      return res.status(429).json({
-        error: 'rate_limit_articles_react',
-        message: 'Tu changes de réaction trop vite.',
-        retryInMs: rl.resetMs,
-      });
-    }
+    // Rate-limit (DB)
+    await checkAndIncrement(userId);
 
     // 🔐 Check article exists and is published
     const article = await ensurePublishedArticle(articleId);

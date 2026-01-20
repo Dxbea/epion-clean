@@ -6,6 +6,8 @@ import { API_BASE } from '@/config/api';
 import { useToast } from '@/components/ui/Toast';
 import { withCsrf } from '@/lib/csrf';
 
+import UserListModal from './UserListModal';
+
 interface ProfileUser {
     id: string;
     displayName?: string | null;
@@ -28,6 +30,13 @@ export default function ProfileHeader({ user, isOwnProfile = false, initialIsFol
     const { updateLocal } = useMe();
     const { push } = useToast();
     const [followersCount, setFollowersCount] = React.useState(user.followersCount);
+
+    // Modal states
+    const [isModalOpen, setIsModalOpen] = React.useState(false);
+    const [modalTitle, setModalTitle] = React.useState<'Followers' | 'Following'>('Followers');
+    const [modalUsers, setModalUsers] = React.useState<any[]>([]);
+    const [modalLoading, setModalLoading] = React.useState(false);
+
     const bannerInputRef = useRef<HTMLInputElement>(null);
 
     const displayName = user.displayName || 'Anonymous User';
@@ -35,6 +44,24 @@ export default function ProfileHeader({ user, isOwnProfile = false, initialIsFol
     const joinedDate = new Date(user.createdAt).toLocaleDateString(undefined, { month: 'long', year: 'numeric' });
 
     const initials = (displayName || '?').charAt(0).toUpperCase();
+
+    const fetchUsers = async (type: 'followers' | 'following') => {
+        setModalTitle(type === 'followers' ? 'Followers' : 'Following');
+        setIsModalOpen(true);
+        setModalLoading(true);
+        try {
+            const res = await fetch(`${API_BASE}/api/users/${user.id}/${type}`);
+            if (!res.ok) throw new Error('Failed to fetch list');
+            const data = await res.json();
+            setModalUsers(data);
+        } catch (error) {
+            console.error(error);
+            push('Could not load user list', 'error');
+            setIsModalOpen(false);
+        } finally {
+            setModalLoading(false);
+        }
+    };
 
     const handleFollowToggle = (isFollowing: boolean, newCount?: number) => {
         if (typeof newCount === 'number') {
@@ -212,17 +239,32 @@ export default function ProfileHeader({ user, isOwnProfile = false, initialIsFol
 
                     {/* Stats */}
                     <div className="flex items-center gap-4 text-neutral-700 dark:text-neutral-300">
-                        <div className="flex items-center gap-1 hover:underline cursor-pointer">
+                        <button
+                            className="flex items-center gap-1 hover:underline cursor-pointer group"
+                            onClick={() => fetchUsers('followers')}
+                        >
                             <span className="font-bold text-neutral-900 dark:text-white">{followersCount}</span>
                             <span className="text-neutral-500">Followers</span>
-                        </div>
-                        <div className="flex items-center gap-1 hover:underline cursor-pointer">
+                        </button>
+                        <button
+                            className="flex items-center gap-1 hover:underline cursor-pointer group"
+                            onClick={() => fetchUsers('following')}
+                        >
                             <span className="font-bold text-neutral-900 dark:text-white">{user.followingCount}</span>
                             <span className="text-neutral-500">Following</span>
-                        </div>
+                        </button>
                     </div>
                 </div>
             </div>
+
+            {/* Modal */}
+            <UserListModal
+                isOpen={isModalOpen}
+                onClose={() => setIsModalOpen(false)}
+                title={modalTitle}
+                users={modalUsers}
+                loading={modalLoading}
+            />
         </div>
     );
 }

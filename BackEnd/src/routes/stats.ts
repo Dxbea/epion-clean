@@ -2,7 +2,6 @@
 import { Router } from 'express';
 import { prisma } from '../lib/db';
 import { getCurrentUserId } from '../lib/currentUser';
-import { checkRateLimit } from '../lib/rateLimiter';
 
 export const router = Router();
 
@@ -16,9 +15,9 @@ router.get('/top', async (req, res, next) => {
     const period = String(req.query.period || 'all').toLowerCase(); // 'all' | '7d' | '30d'
 
     const orderBy =
-      period === '7d'  ? { views7d:  'desc' as const } :
-      period === '30d' ? { views30d: 'desc' as const } :
-                         { viewsAll: 'desc' as const };
+      period === '7d' ? { views7d: 'desc' as const } :
+        period === '30d' ? { views30d: 'desc' as const } :
+          { viewsAll: 'desc' as const };
 
     const rows = await prisma.articleStats.findMany({
       where: {
@@ -59,8 +58,8 @@ router.get('/top', async (req, res, next) => {
           period === '7d'
             ? r.views7d
             : period === '30d'
-            ? r.views30d
-            : r.viewsAll,
+              ? r.views30d
+              : r.viewsAll,
       }));
 
     res.json({ items });

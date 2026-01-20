@@ -1,7 +1,7 @@
 import { Router } from 'express';
 import { prisma } from '../lib/db';
 import { requireSession } from '../lib/session';
-import { checkRateLimit } from '../lib/rateLimiter';
+import { checkAndIncrement } from '../lib/rateLimiter';
 import { callPerplexity } from '../lib/perplexity';
 import { AI_MODELS } from '../config/ai-models';
 import type { Prisma } from '@prisma/client';
@@ -22,13 +22,8 @@ router.post('/summarize', async (req, res) => {
         const sess = await requireSession(req, res);
         if (!sess) return res.status(401).json({ error: 'NO_SESSION' });
 
-        // Rate Limit: 5 requests per hour per user
-        const rl = checkRateLimit(sess.userId, {
-            bucket: 'ai:summarize',
-            windowMs: 60 * 60 * 1000,
-            max: 5
-        });
-        if (!rl.ok) return res.status(429).json({ error: 'RATE_LIMIT_EXCEEDED', retryAfter: rl.resetMs });
+        // Rate Limit (DB)
+        await checkAndIncrement(sess.userId);
 
         const body = summarizeSchema.safeParse(req.body);
         if (!body.success) return res.status(400).json({ error: 'INVALID_INPUT', details: body.error.format() });
@@ -90,13 +85,8 @@ router.post('/fact-check', async (req, res) => {
         const sess = await requireSession(req, res);
         if (!sess) return res.status(401).json({ error: 'NO_SESSION' });
 
-        // Rate Limit: 3 requests per hour per user (more expensive)
-        const rl = checkRateLimit(sess.userId, {
-            bucket: 'ai:factcheck',
-            windowMs: 60 * 60 * 1000,
-            max: 3
-        });
-        if (!rl.ok) return res.status(429).json({ error: 'RATE_LIMIT_EXCEEDED', retryAfter: rl.resetMs });
+        // Rate Limit (DB)
+        await checkAndIncrement(sess.userId);
 
         const body = summarizeSchema.safeParse(req.body);
         if (!body.success) return res.status(400).json({ error: 'INVALID_INPUT', details: body.error.format() });

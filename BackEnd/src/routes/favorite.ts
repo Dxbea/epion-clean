@@ -2,7 +2,7 @@
 import { Router } from 'express';
 import { prisma } from '../lib/db';
 import { getCurrentUserId } from '../lib/currentUser';
-import { checkRateLimit } from '../lib/rateLimiter';
+import { checkAndIncrement } from '../lib/rateLimiter';
 
 export const router = Router();
 
@@ -149,20 +149,8 @@ router.post('/:id', async (req, res, next) => {
 
     const articleId = String(req.params.id);
 
-    // rate-limit sur les opérations de favoris
-    const rl = checkRateLimit(`favorites:${userId}`, {
-      bucket: 'favorites:toggle',
-      windowMs: 60_000,
-      max: FAVORITES_LIMITS.maxOpsPerMinute,
-    });
-    if (!rl.ok) {
-      return res.status(429).json({
-        error: 'rate_limit_favorites',
-        message:
-          'Tu modifies tes favoris trop vite. Attends quelques instants avant de réessayer.',
-        retryInMs: rl.resetMs,
-      });
-    }
+    // rate-limit sur les opérations de favoris (DB)
+    await checkAndIncrement(userId);
 
     // article doit exister et être publié
     const article = await ensurePublishedArticle(articleId);
@@ -220,20 +208,8 @@ router.delete('/:id', async (req, res, next) => {
 
     const articleId = String(req.params.id);
 
-    // même rate-limit que pour POST
-    const rl = checkRateLimit(`favorites:${userId}`, {
-      bucket: 'favorites:toggle',
-      windowMs: 60_000,
-      max: FAVORITES_LIMITS.maxOpsPerMinute,
-    });
-    if (!rl.ok) {
-      return res.status(429).json({
-        error: 'rate_limit_favorites',
-        message:
-          'Tu modifies tes favoris trop vite. Attends quelques instants avant de réessayer.',
-        retryInMs: rl.resetMs,
-      });
-    }
+    // même rate-limit que pour POST (DB)
+    await checkAndIncrement(userId);
 
     await prisma.savedArticle
       .delete({

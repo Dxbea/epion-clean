@@ -6,8 +6,9 @@ import SectionHeader from '@/components/SectionHeader';
 import type { Article } from '@/types/article';
 import { usePaginatedArticles } from '@/hooks/usePaginatedArticles';
 import TopOfWeekRow from '@/components/articles/TOTW';
-import { API_BASE } from '@/config/api';
 import { useLocation } from 'react-router-dom';
+import { useMe } from '@/contexts/MeContext';
+import { api } from '@/config/api';
 
 
 
@@ -75,20 +76,31 @@ function groupBy<T, K extends string | number>(arr: T[], key: (x: T) => K) {
 const since24h = (iso: string) => Date.now() - new Date(iso).getTime() <= 24 * 3600 * 1000;
 
 export default function Actuality() {
+  const { me } = useMe();
   // 🔗 Récupère les articles paginés depuis l’API
   const { items, hasMore, loadMore } = usePaginatedArticles({ take: 24 });
+
+  // Articles suivis
+  const [followingArticles, setFollowingArticles] = React.useState<Article[]>([]);
+  const [loadingFollowing, setLoadingFollowing] = React.useState(false);
 
   // Fallback si l’API est vide / down
   const articles: Article[] = items.length ? items : FALLBACK;
 
-  // HERO = le plus vu des dernières 24h sinon le plus vu global
-  const [hero, setHero] = React.useState<Article | null>(null);
-  React.useMemo(() => {
+  // 1. Hero stable calculé seulement depuis la liste des articles paginés
+  const memoHero = React.useMemo(() => {
+    if (!articles.length) return null;
     const last24 = [...articles]
       .filter(a => since24h(a.publishedAt))
       .sort((a, b) => (b.views || 0) - (a.views || 0))[0];
-    setHero(last24 || [...articles].sort((a, b) => (b.views || 0) - (a.views || 0))[0]);
+    return last24 || [...articles].sort((a, b) => (b.views || 0) - (a.views || 0))[0];
   }, [articles]);
+
+  // 2. Hero spécifique chargé depuis l'API (Top All Time)
+  const [apiHero, setApiHero] = React.useState<Article | null>(null);
+
+  // 3. Le héros final est celui de l'API s'il est prêt, sinon le calculé
+  const hero = apiHero || memoHero;
 
   // -------- sections par catégorie (top 4 + tie-breaker aléatoire) --------
   const byCat = React.useMemo(() => {
@@ -152,21 +164,30 @@ export default function Actuality() {
     let alive = true;
     (async () => {
       try {
-        const r = await fetch(`${API_BASE}/api/articles/top?period=all&take=1`);
-        const j = await r.json();
-        if (alive) setHero((j.items?.[0] as Article) || null);
+        const j = await api<{ items: Article[] }>('/api/articles/top?period=all&take=1');
+        if (alive) setApiHero((j.items?.[0] as Article) || null);
       } catch { }
     })();
     return () => { alive = false; };
   }, []);
 
-
-
-
-
-
-
-
+  // Fetch following feed
+  React.useEffect(() => {
+    if (!me) return;
+    let alive = true;
+    (async () => {
+      setLoadingFollowing(true);
+      try {
+        const j = await api<{ items: Article[] }>('/api/articles/following');
+        if (alive) setFollowingArticles(Array.isArray(j.items) ? j.items : []);
+      } catch (e) {
+        console.error("Failed to fetch following feed", e);
+      } finally {
+        if (alive) setLoadingFollowing(false);
+      }
+    })();
+    return () => { alive = false; };
+  }, [me]);
 
   return (
     <main className="mx-auto w-full max-w-7xl px-4 py-10 space-y-10">
@@ -192,6 +213,22 @@ export default function Actuality() {
 
       {/* TOTW */}
       <TopOfWeekRow />
+
+      {/* Following Section (Logged in only) */}
+      {me && (
+        followingArticles.length > 0 ? (
+          <ArticleSection
+            title="From people you follow"
+            articles={followingArticles.slice(0, 4)}
+          />
+        ) : (
+          <section className="rounded-2xl border border-black/5 bg-black/[0.02] p-8 text-center dark:border-white/5 dark:bg-white/[0.02]">
+            <p className="text-sm text-neutral-500 dark:text-neutral-400">
+              Articles from people you follow will appear here. No articles found yet.
+            </p>
+          </section>
+        )
+      )}
 
       {/* Catégories populaires */}
       <section className="space-y-10">

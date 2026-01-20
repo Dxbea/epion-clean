@@ -6,7 +6,9 @@ import { ArticleStatus, Prisma } from '@prisma/client';
 import { getCurrentUserId, getCurrentUser } from '../lib/currentUser';
 import { getViewerHash } from '../lib/viewer';
 import { ARTICLE_LIMITS } from '../config/articleLimits';
-import { checkRateLimit } from '../lib/rateLimiter';
+import { checkAndIncrement } from '../lib/rateLimiter';
+import { checkArticleQuota } from '../lib/billing-service';
+import { ingestArticle } from '../lib/rag-service';
 import { sanitizeArticleHtml } from '../lib/sanitizeHtml';
 
 
@@ -106,6 +108,11 @@ router.put('/:id', async (req, res, next) => {
       data,
       select: { id: true, slug: true },
     });
+
+    // 🧠 RAG: Fire-and-forget re-ingestion (non-blocking)
+    ingestArticle(updated.id).catch(err =>
+      console.error('⚠️ Background Re-Ingestion Failed:', err)
+    );
 
     res.json(updated);
   } catch (e) {
@@ -218,19 +225,9 @@ router.get('/top', async (req, res, next) => {
       // en cas d'erreur inattendue, on reste sur la clé IP
     }
 
-    const rl = checkRateLimit(key, {
-      bucket: 'articles:top',
-      windowMs: 10_000, // 10 s
-      max: 60,          // largement suffisant pour l’UI
-    });
-    if (!rl.ok) {
-      return res.status(429).json({
-        error: 'rate_limit_articles_top',
-        message:
-          'Trop de requêtes de “top articles” en même temps. Attends un peu avant de réessayer.',
-        retryInMs: rl.resetMs,
-      });
-    }
+    // --- petit rate-limit sur les tops (DB) ---
+    // Gère "ip:..." et "user:..."
+    await checkAndIncrement(key);
 
     const take = Math.min(
       Math.max(parseInt(String(req.query.take ?? '6'), 10) || 6, 1),
@@ -274,13 +271,68 @@ router.get('/top', async (req, res, next) => {
 
     // period=7d (par défaut) — on compte sur ArticleView
     const since = new Date(Date.now() - 7 * 24 * 60 * 60 * 1000);
-    const grouped = await prisma.articleView.groupBy({
+    let grouped = await prisma.articleView.groupBy({
       by: ['articleId'],
       where: { createdAt: { gte: since } },
       _count: { articleId: true },
       orderBy: { _count: { articleId: 'desc' } },
       take,
     });
+
+    // --- FALLBACK: If no views in last 7 days, take all-time top or most recent ---
+    if (grouped.length === 0) {
+      const fallbackRows = await prisma.articleStats.findMany({
+        orderBy: { viewsAll: 'desc' },
+        take,
+        where: { article: { status: 'PUBLISHED' } },
+        select: { articleId: true, viewsAll: true }
+      });
+
+      let items = await Promise.all(fallbackRows.map(async (f) => {
+        const a = await prisma.article.findUnique({
+          where: { id: f.articleId },
+          include: { category: true }
+        });
+        if (!a) return null;
+        return {
+          id: a.id,
+          title: a.title,
+          excerpt: a.summary ?? null,
+          imageUrl: a.imageUrl ?? null,
+          url: `/article/${a.slug || a.id}`,
+          publishedAt: a.createdAt.toISOString(),
+          category: a.category?.name ?? null,
+          tags: [],
+          views: f.viewsAll,
+        };
+      }));
+
+      items = items.filter(Boolean);
+
+      // --- SECOND FALLBACK: If still nothing, just take any published articles ---
+      if (items.length === 0) {
+        const anyPublished = await prisma.article.findMany({
+          where: { status: 'PUBLISHED' },
+          orderBy: { createdAt: 'desc' },
+          take,
+          include: { category: true },
+        });
+
+        items = anyPublished.map((a) => ({
+          id: a.id,
+          title: a.title,
+          excerpt: a.summary ?? null,
+          imageUrl: a.imageUrl ?? null,
+          url: `/article/${a.slug || a.id}`,
+          publishedAt: a.createdAt.toISOString(),
+          category: a.category?.name ?? null,
+          tags: [],
+          views: 0,
+        })) as any;
+      }
+
+      return res.json({ items });
+    }
 
     const ids = grouped.map((g) => g.articleId);
     if (ids.length === 0) return res.json({ items: [] });
@@ -402,6 +454,72 @@ router.get('/', async (req, res, next) => {
         }
         : null,
       author: a.author,
+    }));
+
+    const nextCursor = raw.length === take ? raw[raw.length - 1].id : null;
+
+    res.json({ items, nextCursor });
+  } catch (err) {
+    next(err);
+  }
+});
+
+/** GET /api/articles/following — Flux des personnes suivies */
+router.get('/following', async (req, res, next) => {
+  try {
+    let userId: string;
+    try {
+      userId = await getCurrentUserId(req, res);
+    } catch {
+      // Pour les invités, on renvoie une liste vide sans erreur
+      return res.json({ items: [], nextCursor: null });
+    }
+
+    const rawTake = Number(req.query.take ?? 12);
+    const take = Math.min(Math.max(rawTake, 1), 50);
+    const cursor = typeof req.query.cursor === 'string' ? req.query.cursor : undefined;
+
+    // Trouver les IDs des personnes suivies
+    const followings = await prisma.follow.findMany({
+      where: { followerId: userId },
+      select: { followingId: true },
+    });
+    const followingIds = followings.map((f) => f.followingId);
+
+    if (followingIds.length === 0) {
+      return res.json({ items: [], nextCursor: null });
+    }
+
+    const raw = await prisma.article.findMany({
+      take,
+      ...(cursor ? { skip: 1, cursor: { id: cursor } } : {}),
+      orderBy: { createdAt: 'desc' },
+      where: {
+        authorId: { in: followingIds },
+        status: 'PUBLISHED',
+      },
+      select: {
+        id: true,
+        slug: true,
+        title: true,
+        summary: true,
+        imageUrl: true,
+        createdAt: true,
+        category: { select: { name: true } },
+        author: { select: { id: true, name: true, username: true, avatarUrl: true } },
+      },
+    });
+
+    const items = raw.map((a) => ({
+      id: a.id,
+      slug: a.slug,
+      title: a.title,
+      excerpt: a.summary ?? null,
+      imageUrl: a.imageUrl ?? null,
+      publishedAt: a.createdAt.toISOString(),
+      category: a.category?.name ?? null,
+      author: a.author,
+      url: `/article/${a.slug || a.id}`,
     }));
 
     const nextCursor = raw.length === take ? raw[raw.length - 1].id : null;
@@ -592,20 +710,9 @@ router.get('/search', async (req, res, next) => {
       // on reste sur la clé IP si problème
     }
 
-    const rl = checkRateLimit(key, {
-      bucket: 'articles:search',
-      windowMs: 10_000, // fenêtre de 10 s
-      max: 30,          // max 30 recherches / 10 s
-    });
-
-    if (!rl.ok) {
-      return res.status(429).json({
-        error: 'rate_limit_articles_search',
-        message:
-          'Tu effectues trop de recherches en même temps. Réessaie dans quelques secondes.',
-        retryInMs: rl.resetMs,
-      });
-    }
+    // --- petit rate-limit sur la recherche (DB) ---
+    // Gère "ip:..." et "user:..."
+    await checkAndIncrement(key);
 
     // --- logique de recherche ---
     const q =
@@ -782,19 +889,20 @@ router.post('/', async (req, res, next) => {
       return res.status(401).json({ error: 'NO_SESSION' });
     }
 
-    // 0) rate-limit création d’articles
-    const rl = checkRateLimit(currentUserId, {
-      bucket: 'articles:create',
-      windowMs: 60_000, // 1 minute
-      max: limits.maxCreatesPerMinute,
-    });
-    if (!rl.ok) {
-      return res.status(429).json({
-        error: 'rate_limit_articles_create',
-        message:
-          'Tu crées des articles trop vite. Attends quelques instants avant de réessayer.',
-        retryInMs: rl.resetMs,
-      });
+    // 0) rate-limit création d’articles (DB)
+    await checkAndIncrement(currentUserId);
+
+    // 🔒 BILLING CHECK: Weekly Article Quota (Epion Energy)
+    try {
+      await checkArticleQuota(currentUserId);
+    } catch (error: any) {
+      if (error.message === 'WEEKLY_QUOTA_EXCEEDED') {
+        return res.status(403).json({
+          error: "Quota hebdomadaire d'articles atteint.",
+          code: "QUOTA_ARTICLE_EXCEEDED"
+        });
+      }
+      throw error;
     }
 
     // 1) validations de base
@@ -895,8 +1003,12 @@ router.post('/', async (req, res, next) => {
         aiLockedFields:
           Array.isArray(aiLockedFields) ? (aiLockedFields as any) : null,
       },
-      select: { id: true, slug: true },
     });
+
+    // 🧠 RAG: Fire-and-forget ingestion (non-blocking)
+    ingestArticle(created.id).catch(err =>
+      console.error('⚠️ Background Ingestion Failed:', err)
+    );
 
     res.status(201).json(created);
   } catch (err) {

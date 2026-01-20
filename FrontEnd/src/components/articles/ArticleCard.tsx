@@ -5,12 +5,12 @@ import { isInternalUrl } from '@/utils/url';
 import type { Article } from '@/types/article'; // <- utiliser le type partagé
 import { useAuthRequired } from '@/hooks/useAuthRequired';
 
+import SaveButton from '@/components/ui/SaveButton';
 import ArticleThumbnail from './ArticleThumbnail';
 import CategoryBadge from '@/components/shared/CategoryBadge';
 
 export default function ArticleCard({ article, disableLink = false }: { article: Article; disableLink?: boolean }) {
-  const { isSaved, toggle } = useSavedArticles();
-  const { requireAuth } = useAuthRequired();
+  const { isSaved } = useSavedArticles();
   const saved = isSaved(article.id);
   const internal = isInternalUrl(article.url);
 
@@ -73,20 +73,11 @@ export default function ArticleCard({ article, disableLink = false }: { article:
       className="group relative overflow-hidden rounded-2xl border border-black/5 bg-white shadow-sm
                  transition-shadow hover:shadow-md dark:border-white/10 dark:bg-neutral-950"
     >
-      <button
-        aria-label={saved ? 'Remove from saved' : 'Save article'}
-        onClick={(e) => {
-          e.preventDefault();
-          // 🔐 blocage invité + popup
-          const ok = requireAuth('You need to sign in to save articles.');
-          if (!ok) return;
-          toggle(article.id);
-        }}
-        className="absolute right-2 top-2 z-10 rounded-full bg-white/90 px-2 py-1 text-xs shadow hover:bg-white
-                   dark:bg-neutral-900/90"
-      >
-        {saved ? 'Saved ★' : 'Save ☆'}
-      </button>
+      <SaveButton
+        articleId={article.id}
+        variant="card-pill"
+        className="absolute right-2 top-2 z-10"
+      />
 
       <Wrapper>
         {Image}

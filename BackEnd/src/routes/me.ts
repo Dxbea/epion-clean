@@ -2,7 +2,7 @@
 import { Router } from 'express';
 import { prisma } from '../lib/db';
 import { requireSession } from '../lib/session';
-import { checkRateLimit } from '../lib/rateLimiter';
+import { checkAndIncrement } from '../lib/rateLimiter';
 
 export const router = Router();
 
@@ -63,21 +63,8 @@ router.put('/', async (req, res, next) => {
     const sess = await requireSession(req, res);
     if (!sess) return res.status(401).json({ error: 'NO_SESSION' });
 
-    // Rate limiting: 10 updates per minute per user
-    const rl = checkRateLimit(sess.userId, {
-      bucket: 'me:update',
-      windowMs: 60_000,
-      max: 10,
-    });
-
-    if (!rl.ok) {
-      console.warn(`[RateLimit] User ${sess.userId} exceeded me:update limit.`);
-      return res.status(429).json({
-        error: 'RATE_LIMIT_EXCEEDED',
-        message: 'Too many profile updates. Please try again later.',
-        retryInMs: rl.resetMs,
-      });
-    }
+    // Rate limiting (Maintenant couplé au quota DB)
+    await checkAndIncrement(sess.userId);
 
     const { displayName, username, phone, avatarUrl, bio } = req.body ?? {};
 
@@ -272,18 +259,8 @@ router.get('/articles/stats', async (req, res, next) => {
     const userId = sess.userId;
 
     // petit rate-limit : stats "mes articles"
-    const rl = checkRateLimit(userId, {
-      bucket: 'me:articles_stats',
-      windowMs: 60_000,
-      max: 60,
-    });
-    if (!rl.ok) {
-      return res.status(429).json({
-        error: 'rate_limit_me_articles_stats',
-        message: 'Tu consultes les stats trop vite. Réessaie dans un instant.',
-        retryInMs: rl.resetMs,
-      });
-    }
+    // Rate limiting (DB)
+    await checkAndIncrement(userId);
 
     const [total, draft, published, archived] = await Promise.all([
       prisma.article.count({ where: { authorId: userId } }),
@@ -318,20 +295,8 @@ router.get('/articles', async (req, res, next) => {
 
     const userId = sess.userId;
 
-    // rate-limit léger sur la liste paginée
-    const rl = checkRateLimit(userId, {
-      bucket: 'me:articles',
-      windowMs: 60_000, // 1 min
-      max: 120, // largement suffisant
-    });
-    if (!rl.ok) {
-      return res.status(429).json({
-        error: 'rate_limit_me_articles',
-        message:
-          'Tu charges la liste de tes articles trop souvent. Réessaie dans un instant.',
-        retryInMs: rl.resetMs,
-      });
-    }
+    // rate-limit léger sur la liste paginée (DB)
+    await checkAndIncrement(userId);
 
     const rawStatus = (req.query.status as string | undefined)?.toUpperCase();
     const ALLOWED = ['ALL', 'DRAFT', 'PUBLISHED', 'ARCHIVED'] as const;

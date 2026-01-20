@@ -8,7 +8,8 @@ import {
   type PlanId,
   type ChatLimits,
 } from '../config/chatLimits';
-import { checkRateLimit } from '../lib/rateLimiter';
+import { checkAndChargeUser, COSTS } from '../lib/billing-service';
+import { PlanType } from '@prisma/client';
 import { callPerplexity, type PerplexityMessage, generateSystemPrompt } from '../lib/perplexity';
 import { getRichTrustScore } from '../lib/trust-score';
 import { analyzeOutputQuality } from '../lib/semantic-scanner'; // AJOUT
@@ -93,20 +94,9 @@ router.post('/sessions', async (req, res, next) => {
   try {
     const userId = await getCurrentUserId(req, res);
     const limits = getLimitsForUser(userId);
-    // 0) petit rate-limit : création de sessions
-    const rl = checkRateLimit(userId, {
-      bucket: 'chat:create_session',
-      windowMs: 60_000, // fenêtre de 60 s
-      max: 10,          // max 10 nouvelles sessions / minute
-    });
-    if (!rl.ok) {
-      return res.status(429).json({
-        error: 'rate_limit_sessions',
-        message:
-          'Tu crées des conversations trop vite. Attends quelques secondes avant d’en créer de nouvelles.',
-        retryInMs: rl.resetMs,
-      });
-    }
+    // 0) petit rate-limit : création de sessions (Maintenant couplé au quota DB)
+    // Removed old rate limiter
+    // await checkAndIncrement(userId);
 
 
     // 1) hard-limit sur le nombre de sessions par utilisateur
@@ -348,6 +338,9 @@ router.post('/sessions/:id/messages', async (req, res, next) => {
         subscriptionTier: true,
         dailyQueryCount: true,
         role: true,
+        usage: {
+          select: { plan: true } // Need plan for routing
+        }
       },
     });
 
@@ -358,36 +351,9 @@ router.post('/sessions/:id/messages', async (req, res, next) => {
       });
     }
 
-    // 🔒 0ter) VÉRIFICATION DU QUOTA (FREE/READER)
-    // Si Tier = FREE ou READER (pas PREMIUM, pas ADMIN)
-    // et dailyQueryCount >= 3 => 403
-    const tier = user.subscriptionTier || 'FREE';
-    // On considère ADMIN comme illimité aussi
-    if (tier !== 'PREMIUM' && user.role !== 'ADMIN') {
-      if (user.dailyQueryCount >= 3) {
-        return res.status(403).json({
-          error: 'QUOTA_EXCEEDED',
-          message:
-            'Quota journalier atteint (3/3). Passez Premium pour des requêtes illimitées.',
-          tier,
-        });
-      }
-    }
-
-    // 0bis) petit rate-limit : envoi de messages
-    const rl = checkRateLimit(userId, {
-      bucket: 'chat:messages',
-      windowMs: 30_000, // fenêtre de 30 s
-      max: 60,          // max 60 messages / 30 s
-    });
-    if (!rl.ok) {
-      return res.status(429).json({
-        error: 'rate_limit_messages',
-        message:
-          'Tu envoies des messages trop vite. Ralentis un peu et réessaie dans quelques secondes.',
-        retryInMs: rl.resetMs,
-      });
-    }
+    // 🔒 0ter) VÉRIFICATION DU QUOTA (Nouveau système Billing Service)
+    // Removed old rate limiter check
+    // const usage = await checkAndIncrement(userId);
 
     // 1) vérification basique
     if (!content) {
@@ -455,16 +421,57 @@ router.post('/sessions/:id/messages', async (req, res, next) => {
       console.log(`[CHAT_DEBUG] History last item:`, JSON.stringify(history[history.length - 1], null, 2));
     }
 
-    // 0) Récupération du mode (Priorité : Body > Session)
+    // 0) Récupération du mode (Priorité : Body > Session > Default 'web')
     const sessionData = await prisma.chatSession.findUnique({
       where: { id: sessionId },
       select: { mode: true }
     });
 
-    // Le mode peut être envoyé 'on-the-fly' dans le body pour éviter les race conditions
-    const effectiveMode = (req.body.mode && ['fast', 'balanced', 'precise'].includes(req.body.mode))
-      ? req.body.mode
-      : (sessionData?.mode || 'balanced');
+    const requestedMode = req.body.mode || sessionData?.mode || 'web';
+    // Mapping legacy modes if necessary, or strictly following new 'fast' | 'web'
+    const mode = (requestedMode === 'fast') ? 'fast' : 'web';
+
+    // ---------------------------------------------------------
+    // 🧠 SMART ROUTER & BILLING GATE
+    // ---------------------------------------------------------
+    let actionType: keyof typeof COSTS;
+    let modelName: string;
+
+    const userPlan = user.usage?.plan || PlanType.FREE;
+
+    if (mode === 'fast') {
+      actionType = 'CHAT_FAST';
+      modelName = 'gpt-4o-mini';
+    } else {
+      // Mode WEB
+      if (userPlan === PlanType.PREMIUM) {
+        actionType = 'CHAT_WEB_DEEP';
+        modelName = 'llama-3.1-sonar-large-128k-online';
+      } else {
+        actionType = 'CHAT_WEB_STANDARD';
+        modelName = 'llama-3.1-sonar-small-128k-online';
+      }
+    }
+
+    // 💰 BILLING CHECK
+    try {
+      await checkAndChargeUser(userId, actionType);
+    } catch (error: any) {
+      if (error.message === 'INSUFFICIENT_FUNDS_WEB') {
+        return res.status(402).json({
+          error: "Quota Web épuisé. Passez en mode Eco.",
+          code: "QUOTA_WEB",
+          fallbackMode: "fast"
+        });
+      }
+      if (error.message === 'INSUFFICIENT_FUNDS_TOTAL') {
+        return res.status(402).json({
+          error: "Crédits épuisés pour aujourd'hui.",
+          code: "QUOTA_TOTAL"
+        });
+      }
+      throw error; // Other errors
+    }
 
     // 6) Injection du System Prompt Dynamique
     const chatOptions: ChatOptions = {
@@ -473,17 +480,17 @@ router.post('/sessions/:id/messages', async (req, res, next) => {
       recentEvents: req.body.timeRecent || false
     };
 
-    console.log('[CHAT_DEBUG] Options:', JSON.stringify(chatOptions));
-
-    const systemInstruction = generateSystemPrompt(effectiveMode, chatOptions);
+    // Use effective mode for prompt generation (can map 'web' to 'balanced' or 'precise' if needed)
+    // For now, assuming generateSystemPrompt handles 'fast' and others.
+    // If generateSystemPrompt expects 'balanced'/'precise', we map 'web' -> 'balanced'
+    const promptMode = (mode === 'fast') ? 'fast' : 'balanced';
+    const systemInstruction = generateSystemPrompt(promptMode as any, chatOptions);
 
     // CRUCIAL FIX: Inject System Prompt at the beginning of history
     history.unshift({ role: 'system', content: systemInstruction });
 
-    const model = String(req.body?.model ?? AI_MODELS.STANDARD);
-
-    // 7) Call Perplexity
-    const perplexityResponse = await callPerplexity(history, model);
+    // 7) Call Perplexity with determined model
+    const perplexityResponse = await callPerplexity(history, modelName);
 
     // DEBUG: Check what API returns
     console.log('[CHAT_DEBUG] Perplexity Response keys:', Object.keys(perplexityResponse));
@@ -590,13 +597,14 @@ router.post('/sessions/:id/messages', async (req, res, next) => {
       select: { id: true, content: true, sources: true, metadata: true, createdAt: true } as any,
     }) as any;
 
+    /*
     // 7) UPDATE QUOTA (Incrémenter dailyQueryCount)
-    // On incrémente pour tout le monde sans distinction pour le tracking,
-    // mais le blocage ne se fait que pour les FREE/READER au début.
+    // REMOVED: Managed by billingService now.
     await prisma.user.update({
       where: { id: userId },
       data: { dailyQueryCount: { increment: 1 } },
     });
+    */
 
     // 8) auto-title si vide
     if (!session.topic || session.topic === 'New chat') {

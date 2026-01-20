@@ -1,10 +1,12 @@
-
 import { Router } from 'express';
 import { prisma } from '../lib/db';
 import { getCurrentUserId } from '../lib/currentUser';
-import { checkRateLimit } from '../lib/rateLimiter';
+import * as userController from '../controllers/userController';
 
 export const router = Router();
+
+router.get('/:id/followers', userController.getUserFollowers);
+router.get('/:id/following', userController.getUserFollowing);
 
 /**
  * GET /api/users/:idOrUsername

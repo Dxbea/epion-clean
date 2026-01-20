@@ -1,12 +1,14 @@
 // BackEnd/prisma/schema.prisma
 generator client {
-  provider = "prisma-client-js"
+  provider        = "prisma-client-js"
+  previewFeatures = ["postgresqlExtensions"]
 }
 
 datasource db {
-  provider = "postgresql"
+  provider   = "postgresql"
   // .env doit contenir : DATABASE_URL="postgresql://postgres:postgres@localhost:5432/epion?schema=public"
-  url      = env("DATABASE_URL")
+  url        = env("DATABASE_URL")
+  extensions = [vector]
 }
 
 enum Role {
@@ -75,7 +77,38 @@ model User {
   following      Follow[]    @relation("UserFollowing")
   followersCount Int         @default(0)
   followingCount Int         @default(0)
+
+  usage UserUsage?
 }
+
+enum PlanType {
+  FREE
+  READER
+  PREMIUM
+}
+
+model UserUsage {
+  userId              String   @id
+  user                User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  
+  // Epion Energy System
+  dailyCredits        Int      @default(700)
+  lastResetAt         DateTime @default(now())
+  
+  // Weekly Article Quota
+  articlesCreated     Int      @default(0)
+  articleQuotaResetAt DateTime @default(now())
+  
+  plan                PlanType @default(FREE)
+}
+
+// -----------------------------------------------------------------------------
+model IpUsage {
+  ipAddress      String   @id
+  messageCount   Int      @default(0)
+  lastMessageAt  DateTime @default(now())
+}
+
 
 model Repost {
   id        String   @id @default(cuid())
@@ -171,6 +204,11 @@ model Article {
   comments  Comment[]         @relation("ArticleComments")
   reactions ArticleReaction[] @relation("ArticleReactions")
   reposts   Repost[]
+
+  // RAG / Indexing
+  isIndexed       Boolean         @default(false)
+
+  chunks          KnowledgeChunk[]
 
   @@index([authorId])
   @@index([categoryId])
@@ -427,4 +465,17 @@ enum SourceBias {
   FAR_RIGHT
   SATIRE
   UNKNOWN
+}
+
+// -----------------------------------------------------------------------------
+// RAG: KNOWLEDGE CHUNKS
+// -----------------------------------------------------------------------------
+model KnowledgeChunk {
+  id        String                 @id @default(uuid())
+  content   String
+  embedding Unsupported("vector(1536)")?
+  articleId String
+  article   Article                @relation(fields: [articleId], references: [id], onDelete: Cascade)
+
+  @@index([embedding])
 }
