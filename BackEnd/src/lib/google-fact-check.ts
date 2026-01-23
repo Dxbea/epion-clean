@@ -1,4 +1,6 @@
 
+import { logger } from "./logger";
+
 export interface FactCheckResult {
     failureCount: number;
     recentFailures: boolean;
@@ -7,7 +9,7 @@ export interface FactCheckResult {
 export async function checkMediaReputation(domain: string): Promise<FactCheckResult> {
     const apiKey = process.env.GOOGLE_FACT_CHECK_KEY;
     if (!apiKey) {
-        console.error('[GoogleFactCheck] ❌ CRITICAL ERROR: No API Key found in env (GOOGLE_FACT_CHECK_KEY). Audit will be skipped.');
+        logger.error('CRITICAL ERROR: No API Key found in env (GOOGLE_FACT_CHECK_KEY). Audit will be skipped.', { module: 'GoogleFactCheck' });
         return { failureCount: 0, recentFailures: false };
     }
 
@@ -15,12 +17,12 @@ export async function checkMediaReputation(domain: string): Promise<FactCheckRes
         const query = `site:${domain}`;
         const url = `https://factchecktools.googleapis.com/v1alpha1/claims:search?key=${apiKey}&query=${encodeURIComponent(query)}&pageSize=15`;
 
-        console.log(`[GoogleFactCheck] 📡 Appel Google API pour : ${domain}`);
+        logger.debug('Calling Google API', { module: 'GoogleFactCheck', domain });
         const response = await fetch(url);
-        console.log(`[GoogleFactCheck] 🔄 Status HTTP: ${response.status}`);
+        logger.debug('HTTP Status', { module: 'GoogleFactCheck', status: response.status });
 
         if (!response.ok) {
-            console.error(`[GoogleFactCheck] API Error ${response.status}: ${response.statusText}`);
+            logger.error('API Error', { module: 'GoogleFactCheck', status: response.status, statusText: response.statusText });
             return { failureCount: 0, recentFailures: false };
         }
 
@@ -34,11 +36,11 @@ export async function checkMediaReputation(domain: string): Promise<FactCheckRes
         const data = await response.json() as GoogleResponse;
 
         if (!data.claims || !Array.isArray(data.claims)) {
-            console.log(`[GoogleFactCheck] 📊 Claims trouvés : 0 (Pas de données)`);
+            logger.info('No claims found', { module: 'GoogleFactCheck', count: 0 });
             return { failureCount: 0, recentFailures: false };
         }
 
-        console.log(`[GoogleFactCheck] 📊 Claims trouvés : ${data.claims.length}`);
+        logger.info('Claims found', { module: 'GoogleFactCheck', count: data.claims.length });
 
         const negativeKeywords = [
             "False", "Faux", "Fake", "Incorrect", "Misleading", "Trompeur",
@@ -65,7 +67,7 @@ export async function checkMediaReputation(domain: string): Promise<FactCheckRes
             }
         }
 
-        console.log(`[GoogleFactCheck] 🚩 Claims négatifs retenus : ${count}`);
+        logger.info('Negative claims identified', { module: 'GoogleFactCheck', negativeCount: count });
 
         return {
             failureCount: count,
@@ -73,7 +75,7 @@ export async function checkMediaReputation(domain: string): Promise<FactCheckRes
         };
 
     } catch (error) {
-        console.error('[GoogleFactCheck] Critical failure:', error);
+        logger.error('Critical failure', { module: 'GoogleFactCheck', error });
         return { failureCount: 0, recentFailures: false };
     }
 }

@@ -1,5 +1,6 @@
 // src/components/account/AccountProfileForm.tsx
 import * as React from 'react'
+import { Link } from 'react-router-dom'
 import { useForm } from 'react-hook-form'
 import { z } from 'zod'
 import { zodResolver } from '@hookform/resolvers/zod'
@@ -220,7 +221,7 @@ export default function AccountProfileForm() {
           description={t('profile_info_desc')}
           footer={
             <div className="flex items-center gap-3">
-              <Button as="a" href="/settings#account" variant="primary">
+              <Button as={Link} to="/settings#account" variant="primary">
                 Sign in
               </Button>
             </div>
@@ -344,12 +345,20 @@ export default function AccountProfileForm() {
                 </label>
                 <input
                   id="username"
-                  onBlur={(e) => checkUsername(e.target.value)}
+                  {...(() => {
+                    const { onBlur, ...rest } = register('username')
+                    return {
+                      ...rest,
+                      onBlur: (e: React.FocusEvent<HTMLInputElement>) => {
+                        onBlur(e)
+                        checkUsername(e.target.value)
+                      }
+                    }
+                  })()}
                   className={`w-full rounded-xl border px-3 py-2 text-sm outline-none focus:ring-2 focus:ring-brand-blue ${errors.username
-                      ? 'border-red-500 bg-white dark:bg-neutral-950'
-                      : 'border-surface-200 bg-white dark:border-neutral-800 dark:bg-neutral-950'
+                    ? 'border-red-500 bg-white dark:bg-neutral-950'
+                    : 'border-surface-200 bg-white dark:border-neutral-800 dark:bg-neutral-950'
                     }`}
-                  {...register('username')}
                 />
                 {checkingU && (
                   <p className="mt-1 text-xs opacity-70">Checking…</p>

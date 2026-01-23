@@ -1,9 +1,12 @@
 import React, { JSX } from 'react';
+import { Link } from 'react-router-dom';
 import { H1, H2, H3, Body, Lead, Button } from '@/components/ui';
 import { useI18n } from '@/i18n/I18nContext';
 import { getEpionBrandGradient, getGradientTextStyle } from '@/lib/color-utils';
 
-// TODO: small change to trigger Vercel build
+
+
+import { useRef } from 'react';
 
 const Section: React.FC<React.PropsWithChildren<{ id?: string; className?: string }>> = ({ id, className = '', children }) => (
   <section id={id} className={`mx-auto w-full max-w-7xl px-4 sm:px-6 lg:px-8 ${className}`}>{children}</section>
@@ -11,6 +14,23 @@ const Section: React.FC<React.PropsWithChildren<{ id?: string; className?: strin
 
 export default function Home(): JSX.Element {
   const { t } = useI18n();
+
+  // Prefetch logic
+  const prefetchChat = () => import('./Chat'); // Adapte si Chat/ChatSession est ailleurs
+  const prefetchArticles = () => import('./Actuality'); // ou Article / CategoryIndex
+
+  // Auto-prefetch après délai (pour les connexions lentes)
+  const prefetchedRef = useRef(false);
+  React.useEffect(() => {
+    if (prefetchedRef.current) return;
+    const timer = setTimeout(() => {
+      prefetchChat();
+      prefetchArticles();
+      prefetchedRef.current = true;
+    }, 2000); // 2s delay
+    return () => clearTimeout(timer);
+  }, []);
+
   return (
     <div className="min-h-screen space-y-16 sm:space-y-24">
       {/* HERO (centered) */}
@@ -19,8 +39,22 @@ export default function Home(): JSX.Element {
           <H1>{t('home_title').split('\n').map((line, i) => (<span key={i}>{line}{i === 0 && <br />}</span>))}</H1>
           <Lead className="mt-4">{t('home_lead')}</Lead>
           <div className="mt-6 grid gap-3 sm:grid-cols-2 sm:max-w-md mx-auto">
-            <Button as="a" href="/chat" variant="primary">{t('cta_chat')}</Button>
-            <Button as="a" href="/actuality" variant="ghost">{t('cta_articles')}</Button>
+            <Button
+              as={Link}
+              to="/chat"
+              variant="primary"
+              onMouseEnter={prefetchChat}
+            >
+              {t('cta_chat')}
+            </Button>
+            <Button
+              as={Link}
+              to="/actuality"
+              variant="ghost"
+              onMouseEnter={prefetchArticles}
+            >
+              {t('cta_articles')}
+            </Button>
           </div>
         </div>
       </Section>

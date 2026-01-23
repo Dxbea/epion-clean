@@ -1,5 +1,6 @@
 // BackEnd/src/lib/mailer.ts
 import nodemailer from 'nodemailer';
+import { logger } from './logger';
 
 const {
   SMTP_HOST,
@@ -36,7 +37,7 @@ if (hasSmtp) {
     },
   });
 } else {
-  console.log('[mailer] No SMTP config, using console logger only');
+  logger.warn('No SMTP config, using console logger only', { module: 'Mailer' });
 }
 
 // ---------- Helper générique ----------
@@ -50,12 +51,13 @@ type MailOpts = {
 export async function sendMail(opts: MailOpts) {
   // Dev / pas de SMTP configuré → on log juste
   if (!transporter) {
-    console.log('==== DEV EMAIL (NO TRANSPORT) ====');
-    console.log('To:', opts.to);
-    console.log('Subject:', opts.subject);
-    console.log('Text:', opts.text);
-    console.log('HTML:', opts.html);
-    console.log('==================================');
+    logger.warn('DEV EMAIL (NO TRANSPORT SENDER)', {
+      module: 'Mailer',
+      to: opts.to,
+      subject: opts.subject,
+      text: opts.text,
+      // html is usually too large to log fully in structured logs, maybe keep it out or truncate
+    });
     return;
   }
 
@@ -67,9 +69,9 @@ export async function sendMail(opts: MailOpts) {
       text: opts.text,
       html: opts.html,
     });
-    console.log('[mailer] Email sent via SMTP:', JSON.stringify(info, null, 2));
-  } catch (err) {
-    console.error('[mailer] Error while sending email:', err);
+    logger.info('Email sent via SMTP', { module: 'Mailer', messageId: info.messageId, response: info.response });
+  } catch (err: any) {
+    logger.error('Error while sending email', { module: 'Mailer', error: err.message });
     throw err; // important: on remonte l’erreur → le front verra un 500
   }
 }

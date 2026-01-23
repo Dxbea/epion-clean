@@ -5,6 +5,7 @@ import { inject } from '@vercel/analytics';
 inject();
 
 import '@/styles/theme.css'
+import './i18n/i18n'
 import { I18nProvider } from '@/i18n/I18nContext'
 
 import { BrowserRouter } from 'react-router-dom'

@@ -13,6 +13,7 @@ import {
 } from '../lib/session';
 import { sendMail, APP_URL } from '../lib/mailer';
 import { getCurrentUserId } from '../lib/currentUser';
+import { logger } from '../lib/logger';
 
 
 
@@ -102,11 +103,11 @@ router.post('/auth/login', loginLimiter, async (req, res, next) => {
 
     // 3️⃣ Vérification du mot de passe
     const ok = await bcrypt.compare(input.password, user.passwordHash);
-    console.log('✅ LOGIN OK for user', user.id);
     if (!ok) {
+      logger.warn(`[AUTH] Failed login attempt`, { email });
       return res.status(401).json({ error: 'INVALID_CREDENTIALS' });
-
     }
+    logger.info(`[AUTH] Login success`, { userId: user.id });
 
 
     // 4️⃣ Création de la session DB
@@ -437,7 +438,7 @@ router.post('/auth/email/verification-link', async (req, res, next) => {
 
     return res.status(204).end();
   } catch (e) {
-    console.error('[verify-email-link] error:', e);
+    logger.error('[AUTH] Email verification error', { error: (e as any).message });
     return res.status(500).json({ error: 'INTERNAL_ERROR' });
   }
 });

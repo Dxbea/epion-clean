@@ -1,5 +1,20 @@
 import axios from 'axios';
+import axiosRetry from 'axios-retry';
 import { ChatOptions } from '../types/chat';
+import { logger } from './logger';
+
+// Configure axios retry for resilience against transient errors
+axiosRetry(axios, {
+    retries: 3, // Maximum 3 retry attempts
+    retryDelay: axiosRetry.exponentialDelay, // 1s, 2s, 4s
+    retryCondition: (error) => {
+        // Retry on 5xx server errors or network timeouts
+        return (
+            axiosRetry.isNetworkOrIdempotentRequestError(error) ||
+            (error.response?.status !== undefined && error.response.status >= 500)
+        );
+    },
+});
 
 // Interface pour les messages
 export interface PerplexityMessage {
@@ -176,7 +191,7 @@ function sanitizeMessages(messages: PerplexityMessage[]): PerplexityMessage[] {
 
 export async function callPerplexity(
     messages: PerplexityMessage[],
-    model: string = 'sonar' // ou 'sonar-pro' selon ta config
+    model: string = 'sonar'
 ): Promise<{ answer: string; citations: string[]; choices?: any }> {
 
     const apiKey = process.env.PERPLEXITY_API_KEY;
@@ -186,10 +201,7 @@ export async function callPerplexity(
     const cleanMessages = sanitizeMessages(messages);
 
     try {
-        console.log(`[Perplexity] Envoi de ${cleanMessages.length} messages... (Timeout: 100s)`);
-        if (cleanMessages.length > 0) {
-            console.log(`[Perplexity] Dernier message envoyé :`, JSON.stringify(cleanMessages[cleanMessages.length - 1], null, 2));
-        }
+        logger.info(`Sending ${cleanMessages.length} messages...`, { module: 'Perplexity', model });
 
         const response = await axios.post(
             'https://api.perplexity.ai/chat/completions',
@@ -223,7 +235,13 @@ export async function callPerplexity(
         };
 
     } catch (error: any) {
-        console.error("[Perplexity Error]", error.response?.data || error.message);
+        logger.error("API Error", {
+            module: 'Perplexity',
+            message: error.message,
+            response: error.response?.data,
+            model,
+            messageCount: cleanMessages.length
+        });
 
         // Gestion spécifique du Timeout
         if (error.code === 'ECONNABORTED') {

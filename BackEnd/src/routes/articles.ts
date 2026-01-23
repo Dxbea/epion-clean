@@ -10,6 +10,7 @@ import { checkAndIncrement } from '../lib/rateLimiter';
 import { checkArticleQuota } from '../lib/billing-service';
 import { ingestArticle } from '../lib/rag-service';
 import { sanitizeArticleHtml } from '../lib/sanitizeHtml';
+import { logger } from '../lib/logger';
 
 
 export const router = Router();
@@ -111,7 +112,7 @@ router.put('/:id', async (req, res, next) => {
 
     // 🧠 RAG: Fire-and-forget re-ingestion (non-blocking)
     ingestArticle(updated.id).catch(err =>
-      console.error('⚠️ Background Re-Ingestion Failed:', err)
+      logger.error('Background Re-Ingestion Failed', { module: 'Articles', articleId: updated.id, error: err })
     );
 
     res.json(updated);
@@ -641,9 +642,12 @@ router.get('/slug/:slug', async (req, res, next) => {
     }
 
     // --- DEBUG CRITIQUE ---
-    console.log(`--- DEBUG GET ARTICLE (${a.slug}) ---`);
-    console.log("FactCheckData field:", a.factCheckData ? "Present" : "Missing");
-    if (a.factCheckData) console.log("FactCheckData sample:", JSON.stringify(a.factCheckData).slice(0, 100));
+    logger.debug('Get Article Debug', {
+      module: 'Articles',
+      slug: a.slug,
+      hasFactCheckData: !!a.factCheckData,
+      factCheckDataSample: a.factCheckData ? JSON.stringify(a.factCheckData).slice(0, 100) : null
+    });
 
     // Mapping de sécurité pour le frontend (garantit que .sources existe)
     const responseData = {

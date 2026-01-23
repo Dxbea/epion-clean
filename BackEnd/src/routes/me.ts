@@ -3,6 +3,7 @@ import { Router } from 'express';
 import { prisma } from '../lib/db';
 import { requireSession } from '../lib/session';
 import { checkAndIncrement } from '../lib/rateLimiter';
+import { logger } from '../lib/logger';
 
 export const router = Router();
 
@@ -68,7 +69,7 @@ router.put('/', async (req, res, next) => {
 
     const { displayName, username, phone, avatarUrl, bio } = req.body ?? {};
 
-    console.log(`[PUT /api/me] User ${sess.userId} updating profile:`, { displayName, username });
+    logger.info(`[ME] User ${sess.userId} updating profile`, { displayName, username });
 
     const dn = String(displayName ?? '').trim();
     const un = String(username ?? '').trim();
@@ -114,7 +115,7 @@ router.put('/', async (req, res, next) => {
       },
     });
 
-    console.log(`[PUT /api/me] User ${sess.userId} updated successfully.`); // Success log
+    logger.info(`[ME] User ${sess.userId} updated successfully`);
 
     return res.json({
       id: updated.id,
@@ -130,7 +131,7 @@ router.put('/', async (req, res, next) => {
       followingCount: updated.followingCount ?? 0,
     });
   } catch (e) {
-    console.error(`[PUT /api/me] Error:`, e);
+    logger.error(`[ME] Update error`, { userId: (req as any).user?.id, error: (e as any).message });
     next(e);
   }
 });
@@ -175,6 +176,8 @@ router.post('/avatar', async (req, res, next) => {
       data: { avatarUrl: dataUrl },
       select: { id: true, avatarUrl: true },
     });
+
+    logger.info(`[ME] Avatar updated`, { userId: sess.userId });
 
     res.json({ ok: true, avatarUrl: updated.avatarUrl });
   } catch (e) {
@@ -238,7 +241,7 @@ router.post('/banner', async (req, res, next) => {
 
     res.json({ ok: true, bannerUrl: updated.bannerUrl });
   } catch (e) {
-    console.error('[POST /api/me/banner] Error:', e);
+    logger.error('[ME] Banner update error', { userId: (req as any).user?.id, error: (e as any).message });
     next(e);
   }
 });

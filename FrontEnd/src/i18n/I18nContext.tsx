@@ -1,32 +1,30 @@
 import React from 'react'
-import { DICT } from './dict' // .js OK grâce à allowJs
+import { useTranslation } from 'react-i18next'
 
 type Locale = 'fr' | 'en'
 type Ctx = {
   locale: Locale
   t: (key: string) => string
-  setLocale: (l: Locale) => void   // ✅ exposé dans le type
+  setLocale: (l: Locale) => void
 }
 
 const I18nContext = React.createContext<Ctx | undefined>(undefined)
 
 export function I18nProvider({ children }: { children: React.ReactNode }) {
-  const [locale, setLocale] = React.useState<Locale>(() => {
-    const stored = localStorage.getItem('lang') as Locale | null
-    return stored ?? 'fr'
-  })
+  const { t, i18n } = useTranslation()
 
-  // persistance + re-render auto
-  React.useEffect(() => {
-    localStorage.setItem('lang', locale)
-  }, [locale])
+  const locale = (i18n.language.startsWith('en') ? 'en' : 'fr') as Locale
 
-  const t = React.useCallback((key: string) => {
-    // fallback: fr -> en -> clé
-    return (DICT as any)[locale]?.[key] ?? (DICT as any).en?.[key] ?? key
-  }, [locale])
+  const setLocale = React.useCallback((l: Locale) => {
+    i18n.changeLanguage(l)
+  }, [i18n])
 
-  const value = React.useMemo<Ctx>(() => ({ locale, t, setLocale }), [locale, t])
+  const value = React.useMemo<Ctx>(() => ({
+    locale,
+    t: (keyPath: string) => t(keyPath),
+    setLocale
+  }), [locale, t, setLocale])
+
   return <I18nContext.Provider value={value}>{children}</I18nContext.Provider>
 }
 

@@ -477,5 +477,5 @@ model KnowledgeChunk {
   articleId String
   article   Article                @relation(fields: [articleId], references: [id], onDelete: Cascade)
 
-  @@index([embedding])
+  @@index([embedding], name: "embedding_index", type: Hnsw(ops: VectorCosineOps))
 }

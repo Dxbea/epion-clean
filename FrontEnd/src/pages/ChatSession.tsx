@@ -183,8 +183,12 @@ export default function ChatSession() {
   const [neutralityForced, setNeutralityForced] = React.useState(true);
   const [timeRecent, setTimeRecent] = React.useState(false); // Default false = Archives + Temps Réel
 
+  // NOUVEAU: Response Style (remplace l'usage direct de Rigor pour le mode)
+  // On garde 'normal' ~ 'balanced' par défaut
+  const [responseStyle, setResponseStyle] = React.useState<'concise' | 'normal' | 'detailed'>('normal');
+
   // ENVOI DU MESSAGE : garde d’auth + cas guest
-  const handleSend = async (text: string, attachments?: UploadedFile[], model?: string) => {
+  const handleSend = async (text: string, attachments?: UploadedFile[], modelId?: string) => {
     if (!id) return;
 
     const isGuestSession = id === 'guest';
@@ -215,7 +219,8 @@ export default function ChatSession() {
     // 3) connecté + vérifié mais URL = /chat/guest → on bascule sur une vraie session
     if (isGuestSession) {
       try {
-        const newId = await createSession(undefined, rigor);
+        // On crée la session avec un mode par défaut (balanced)
+        const newId = await createSession(undefined, 'balanced');
         nav(`/chat/${newId}`, { replace: true });
       } catch (err: any) {
         console.error('createSession error (from guest)', err);
@@ -228,12 +233,30 @@ export default function ChatSession() {
       return;
     }
 
+    // Mapping UI Model ID -> API Params
+    let apiMode: Rigor = 'balanced'; // Default to balanced (Web Standard)
+    let apiModel: string | undefined = undefined;
+
+    if (modelId === 'rag') {
+      apiMode = 'fast';
+    } else if (modelId === 'web-sonar') {
+      apiMode = 'balanced'; // Maps to Web Standard in Backend
+      apiModel = 'sonar';
+    } else if (modelId === 'web-sonar-pro') {
+      apiMode = 'balanced'; // Maps to Web (backend checks plan/modelname)
+      apiModel = 'sonar-pro';
+    }
+
+    // NOTE: Si on veut utiliser 'web' comme mode explicitement, il faudrait mettre à jour le type Rigor et le backend.
+    // Pour l'instant, 'balanced' déclenche le fallback Web côté backend, ce qui est le comportement voulu pour Sonar.
+
     // 4) cas normal : session existante + user vérifié
     try {
-      await sendMessage(id, text, model, rigor, {
+      await sendMessage(id, text, apiModel, apiMode, {
         sourceRestricted,
         neutralityForced,
         timeRecent,
+        responseStyle, // Send style preference
         attachedContext: messages.length === 0 ? attachedContext : undefined // Attach only on first message
       });
     } catch (err: any) {
@@ -262,22 +285,20 @@ export default function ChatSession() {
   };
 
 
-
   // Charge le mode stocké en DB quand on ouvre une session (sauf "guest")
   React.useEffect(() => {
     if (!id || isGuestSession) return;
-
     setRigorLoaded(false);
-
     getSession(id)
       .then((s) => {
         if (s.mode) {
           setRigor(s.mode);
+          // Note: On ne restore pas le "Model" (Sonar/RAG) ici car il est local au ChatInput pour l'instant
+          // Mais on pourrait mapper s.mode -> default model si on voulait.
         }
       })
       .catch((err: any) => {
         if (err?.status === 404 || err?.status === 403) {
-          // id invalide → retour vers /chat qui gère la suite
           nav('/chat', { replace: true });
           return;
         }
@@ -289,10 +310,14 @@ export default function ChatSession() {
   }, [id, isGuestSession, getSession, nav]);
 
   // Sync du mode vers le backend (sauf "guest")
+  // Désactivé ou restreint car on mixe responseStyle et model désormais
+  // On laisse le backend gérer le 'mode' stocké via sendMessage ou on ne le sync plus en temps réel
+  /*
   React.useEffect(() => {
     if (!id || isGuestSession || !rigorLoaded) return;
     setSessionMode(id, rigor).catch(() => { });
   }, [id, isGuestSession, rigor, rigorLoaded, setSessionMode]);
+  */
 
   const empty = !messages.length;
 
@@ -307,6 +332,7 @@ export default function ChatSession() {
       >
         {/* Sidebar */}
         <ChatSidebar
+          // ... (props unchanged)
           open
           collapsed={collapsed}
           onCollapseToggle={() => setCollapsed((c) => !c)}
@@ -405,8 +431,8 @@ export default function ChatSession() {
             )}
             <div className="mx-auto w-full max-w-3xl px-4 py-3">
               <ChatInput
-                rigor={rigor}
-                setRigor={setRigor}
+                responseStyle={responseStyle}
+                setResponseStyle={setResponseStyle}
                 onSend={(t, att, m) => handleSend(t, att, m)}
                 onOpenTransparency={() => setTransparencyOpen(true)}
               />

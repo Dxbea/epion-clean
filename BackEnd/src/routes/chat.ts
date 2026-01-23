@@ -8,13 +8,19 @@ import {
   type PlanId,
   type ChatLimits,
 } from '../config/chatLimits';
-import { checkAndChargeUser, COSTS } from '../lib/billing-service';
+import { checkAndChargeUser, hasSufficientCredits, chargeUser, COSTS } from '../lib/billing-service';
 import { PlanType } from '@prisma/client';
 import { callPerplexity, type PerplexityMessage, generateSystemPrompt } from '../lib/perplexity';
 import { getRichTrustScore } from '../lib/trust-score';
-import { analyzeOutputQuality } from '../lib/semantic-scanner'; // AJOUT
+import { analyzeOutputQuality } from '../lib/semantic-scanner';
 import { AI_MODELS } from '../config/ai-models';
 import { ChatOptions } from '../types/chat';
+import OpenAI from 'openai';
+import { searchSimilarChunks, type SearchResult } from '../lib/rag-service';
+import { logger } from '../lib/logger';
+
+// OpenAI Client for RAG mode (fast)
+const openai = new OpenAI({ apiKey: process.env.OPENAI_API_KEY });
 
 
 // ————————————————————————————————————————————————————————————————
@@ -27,7 +33,8 @@ import { ChatOptions } from '../types/chat';
 // Helpers limites / plan
 
 function getPlanForUser(_userId: string): PlanId {
-  // TODO: plus tard, récupérer le vrai plan dans la DB
+  // Currently, everyone is on the FREE plan by default.
+  // This will be connected to the User.subscriptionTier field in the future.
   return DEFAULT_PLAN;
 }
 
@@ -415,11 +422,11 @@ router.post('/sessions/:id/messages', async (req, res, next) => {
         content: m.content,
       }));
 
-    console.log(`[CHAT_DEBUG] User Content received: "${content}"`);
-    console.log(`[CHAT_DEBUG] History length (before system): ${history.length}`);
-    if (history.length > 0) {
-      console.log(`[CHAT_DEBUG] History last item:`, JSON.stringify(history[history.length - 1], null, 2));
-    }
+    logger.debug(`User Content received: "${content.substring(0, 100)}..."`, {
+      module: 'Chat',
+      historyLength: history.length,
+      sessionId
+    });
 
     // 0) Récupération du mode (Priorité : Body > Session > Default 'web')
     const sessionData = await prisma.chatSession.findUnique({
@@ -446,135 +453,195 @@ router.post('/sessions/:id/messages', async (req, res, next) => {
       // Mode WEB
       if (userPlan === PlanType.PREMIUM) {
         actionType = 'CHAT_WEB_DEEP';
-        modelName = 'llama-3.1-sonar-large-128k-online';
+        modelName = 'sonar-pro';
       } else {
         actionType = 'CHAT_WEB_STANDARD';
-        modelName = 'llama-3.1-sonar-small-128k-online';
+        modelName = 'sonar';
       }
     }
 
-    // 💰 BILLING CHECK
-    try {
-      await checkAndChargeUser(userId, actionType);
-    } catch (error: any) {
-      if (error.message === 'INSUFFICIENT_FUNDS_WEB') {
+    // 💰 BILLING CHECK (NEW: Read-only check, no charge yet)
+    const hasCredits = await hasSufficientCredits(userId, actionType);
+    if (!hasCredits) {
+      const cost = COSTS[actionType];
+      if (actionType.includes('WEB')) {
         return res.status(402).json({
           error: "Quota Web épuisé. Passez en mode Eco.",
           code: "QUOTA_WEB",
           fallbackMode: "fast"
         });
       }
-      if (error.message === 'INSUFFICIENT_FUNDS_TOTAL') {
-        return res.status(402).json({
-          error: "Crédits épuisés pour aujourd'hui.",
-          code: "QUOTA_TOTAL"
-        });
-      }
-      throw error; // Other errors
+      return res.status(402).json({
+        error: "Crédits épuisés pour aujourd'hui.",
+        code: "QUOTA_TOTAL"
+      });
     }
 
-    // 6) Injection du System Prompt Dynamique
-    const chatOptions: ChatOptions = {
-      filterSources: req.body.sourceRestricted || false,
-      forceNeutrality: req.body.neutralityForced || false,
-      recentEvents: req.body.timeRecent || false
-    };
-
-    // Use effective mode for prompt generation (can map 'web' to 'balanced' or 'precise' if needed)
-    // For now, assuming generateSystemPrompt handles 'fast' and others.
-    // If generateSystemPrompt expects 'balanced'/'precise', we map 'web' -> 'balanced'
-    const promptMode = (mode === 'fast') ? 'fast' : 'balanced';
-    const systemInstruction = generateSystemPrompt(promptMode as any, chatOptions);
-
-    // CRUCIAL FIX: Inject System Prompt at the beginning of history
-    history.unshift({ role: 'system', content: systemInstruction });
-
-    // 7) Call Perplexity with determined model
-    const perplexityResponse = await callPerplexity(history, modelName);
-
-    // DEBUG: Check what API returns
-    console.log('[CHAT_DEBUG] Perplexity Response keys:', Object.keys(perplexityResponse));
-    console.log('[CHAT_DEBUG] Citations:', (perplexityResponse as any).citations);
-
-    const rawAnswer = perplexityResponse.choices[0].message.content;
-    const citations = (perplexityResponse as any).citations || [];
-
-    // Map citations to Source objects with DB Lookup (V5 Engine)
-    const sources = await Promise.all(citations.map(async (url: string, idx: number) => {
-      let domain = '';
-      try { domain = new URL(url).hostname.replace('www.', ''); } catch { }
-
-      console.log(`[TrustScore] Fetching score for: ${domain}`);
-
-      // 1. Calcul du TrustScore V2 (Moteur Centralisé)
-      const richScore = await getRichTrustScore(domain);
-
-      return {
-        id: idx + 1,
-        // Identify
-        name: richScore.metadata.name,
-        url: url,
-        domain: domain,
-        logo: `https://logo.clearbit.com/${domain}`,
-
-        // Reliability (V5 - Matrix Risk)
-        score: richScore.globalScore,
-        type: richScore.metadata.type,
-
-        // New V5 Data for UI
-        confidence: richScore.confidenceLevel,
-        justification: richScore.metadata.justification,
-        description: richScore.metadata.description, // AJOUT CORRECTIF
-
-        // Flags & Metrics
-        metrics: richScore.details, // { transparency, editorial... }
-        flags: richScore.flags      // { isClickbait, ... }
-      };
-    }));
-
-    // --- ZERO TRUST VERIFICATION ENGINE ---
-
-    // 1. Source Reliability (Source Mean)
-    const validScores = sources.filter(s => s.score > 0).map(s => s.score);
-    const sourcesMean = validScores.length > 0
-      ? Math.round(validScores.reduce((a, b) => a + b, 0) / validScores.length)
-      : (sources.length > 0 ? 50 : 0);
-
-    // 2. Output Quality Check (The 'Tone Analyzer')
-    const outputAnalysis = analyzeOutputQuality(rawAnswer);
-    const outputScore = outputAnalysis.score;
-    // { score, isClickbait, biasLevel, details: { capsRatio... } }
-
-    // 3. Diversity Penalty
-    // Ex: 3 sources from 'bfmtv.com' out of 4 total -> Penalty.
-    const domains = sources.map(s => s.domain).filter(d => !!d);
+    // 6) Variables pour stocker la réponse
+    let rawAnswer: string;
+    let sources: any[] = [];
+    let finalGlobalScore = 0;
+    let outputAnalysis: any = null;
+    let sourcesMean = 0;
+    let outputScore = 0;
     let diversityPenalty = 0;
 
-    // Calculate diversity only if we have at least 3 sources
-    if (domains.length >= 3) {
-      const counts: Record<string, number> = {};
-      domains.forEach(d => { counts[d] = (counts[d] || 0) + 1; });
+    // =========================================================================
+    // CAS 1: MODE FAST (RAG + OpenAI GPT-4o-mini)
+    // =========================================================================
+    if (mode === 'fast') {
+      logger.info('Mode FAST active', { module: 'Chat', strategy: 'RAG+OpenAI', userId, sessionId });
 
-      const maxCount = Math.max(...Object.values(counts));
-      const dominanceRatio = maxCount / domains.length;
+      // 1. Récupérer le contexte RAG (Maintenant SearchResult[])
+      const contextChunks = await searchSimilarChunks(content, 5);
+      logger.debug(`RAG Context found`, { module: 'Chat', count: contextChunks.length });
 
-      if (dominanceRatio > 0.5) {
-        // Flat 5 point penalty for > 50%, 10 points for > 75%
-        diversityPenalty = dominanceRatio > 0.75 ? 10 : 5;
+      // 2. Construire le System Prompt avec contexte structuré
+      const contextString = contextChunks.map((chunk, index) => `
+[SOURCE ${index + 1}]
+Titre: "${chunk.articleTitle}"
+Slug: "${chunk.articleSlug}"
+Contenu: ${chunk.content}
+`).join('\n\n');
+
+      const systemPrompt = `Tu es Epion, un assistant expert en analyse d'information et fact-checking.
+Utilise le CONTEXTE suivant provenant de la base de connaissances interne pour répondre.
+
+--- CONTEXTE INTERNE START ---
+${contextChunks.length > 0 ? contextString : '(Aucun contexte pertinent trouvé dans la base de connaissances)'}
+--- CONTEXTE INTERNE END ---
+
+CONSIGNES DE RÉPONSE :
+1. Réponds UNIQUEMENT sur la base des SOURCES fournies ci-dessus.
+2. Si la réponse n'est pas dans le contexte, dis-le poliment et propose une recherche web (mode 'Web').
+3. CITATIONS OBLIGATOIRES : À chaque fois que tu utilises une information, tu DOIS citer la source à la fin de la phrase en utilisant le format Markdown suivant :
+   **[Titre de l'article](/article/slug-de-l-article)**
+4. Ne cite jamais de sources externes, cite uniquement les articles Epion fournis en contexte.
+5. Sois concis et structuré.`;
+
+      // 3. Construire les messages pour OpenAI
+      const openaiMessages: Array<{ role: 'system' | 'user' | 'assistant'; content: string }> = [
+        { role: 'system', content: systemPrompt },
+        ...history.filter(m => m.role !== 'system').map(m => ({
+          role: m.role as 'user' | 'assistant',
+          content: m.content
+        }))
+      ];
+
+      // 4. Appel OpenAI (NOT Perplexity!)
+      const openaiResponse = await openai.chat.completions.create({
+        model: 'gpt-4o-mini',
+        messages: openaiMessages,
+        temperature: 0.5, // Reduced for faithfulness
+        max_tokens: 2048,
+      });
+
+      rawAnswer = openaiResponse.choices[0].message.content || '';
+
+      // Mode RAG: output quality check
+      outputAnalysis = analyzeOutputQuality(rawAnswer);
+      outputScore = outputAnalysis.score;
+      finalGlobalScore = contextChunks.length > 0 ? outputScore : Math.min(outputScore, 70);
+
+      // Sources = Deduplicated internal sources used in context
+      const uniqueSources = new Map();
+      contextChunks.forEach((chunk) => {
+        if (!uniqueSources.has(chunk.articleSlug)) {
+          uniqueSources.set(chunk.articleSlug, {
+            id: uniqueSources.size + 1,
+            name: chunk.articleTitle,
+            domain: 'epion.io', // Internal signature
+            url: `/article/${chunk.articleSlug}`,
+            type: 'KNOWLEDGE_BASE',
+            score: 95,
+            confidence: 'HIGH',
+            justification: 'Source interne vérifiée.',
+            description: 'Article de la base de connaissances Epion.',
+            chunksUsed: 1
+          });
+        }
+      });
+      sources = Array.from(uniqueSources.values());
+
+      // =========================================================================
+      // CAS 2: MODE WEB (Perplexity avec recherche web)
+      // =========================================================================
+    } else {
+      logger.info('Mode WEB active', { module: 'Chat', strategy: 'Perplexity', userId, sessionId, modelName });
+
+      const chatOptions: ChatOptions = {
+        filterSources: req.body.sourceRestricted || false,
+        forceNeutrality: req.body.neutralityForced || false,
+        recentEvents: req.body.timeRecent || false
+      };
+
+      const systemInstruction = generateSystemPrompt('balanced', chatOptions);
+      history.unshift({ role: 'system', content: systemInstruction });
+
+      // Appel Perplexity
+      const perplexityResponse = await callPerplexity(history, modelName);
+
+      logger.debug('Perplexity response received', {
+        module: 'Chat',
+        citationCount: ((perplexityResponse as any).citations || []).length
+      });
+
+      rawAnswer = perplexityResponse.choices[0].message.content;
+      const citations = (perplexityResponse as any).citations || [];
+
+      // Map citations to Source objects with DB Lookup (V5 Engine)
+      sources = await Promise.all(citations.map(async (url: string, idx: number) => {
+        let domain = '';
+        try { domain = new URL(url).hostname.replace('www.', ''); } catch { }
+
+        logger.debug(`Fetching TrustScore`, { module: 'Chat', domain });
+        const richScore = await getRichTrustScore(domain);
+
+        return {
+          id: idx + 1,
+          name: richScore.metadata.name,
+          url: url,
+          domain: domain,
+          logo: `https://logo.clearbit.com/${domain}`,
+          score: richScore.globalScore,
+          type: richScore.metadata.type,
+          confidence: richScore.confidenceLevel,
+          justification: richScore.metadata.justification,
+          description: richScore.metadata.description,
+          metrics: richScore.details,
+          flags: richScore.flags
+        };
+      }));
+
+      // --- ZERO TRUST VERIFICATION ENGINE ---
+      const validScores = sources.filter(s => s.score > 0).map(s => s.score);
+      sourcesMean = validScores.length > 0
+        ? Math.round(validScores.reduce((a, b) => a + b, 0) / validScores.length)
+        : (sources.length > 0 ? 50 : 0);
+
+      outputAnalysis = analyzeOutputQuality(rawAnswer);
+      outputScore = outputAnalysis.score;
+
+      const domains = sources.map(s => s.domain).filter(d => !!d);
+      diversityPenalty = 0;
+
+      if (domains.length >= 3) {
+        const counts: Record<string, number> = {};
+        domains.forEach(d => { counts[d] = (counts[d] || 0) + 1; });
+        const maxCount = Math.max(...Object.values(counts));
+        const dominanceRatio = maxCount / domains.length;
+        if (dominanceRatio > 0.5) {
+          diversityPenalty = dominanceRatio > 0.75 ? 10 : 5;
+        }
       }
+
+      let calculatedScore = (sourcesMean * 0.75) + (outputScore * 0.25) - diversityPenalty;
+      finalGlobalScore = Math.min(100, Math.max(0, Math.round(calculatedScore)));
     }
 
-    // 4. Final Global Score Calculation
-    // Formula: (Sources * 0.75) + (Output * 0.25) - DiversityPenalty
-    let calculatedScore = (sourcesMean * 0.75) + (outputScore * 0.25);
-    calculatedScore = calculatedScore - diversityPenalty;
-
-    // Bounds check [0, 100]
-    const finalGlobalScore = Math.min(100, Math.max(0, Math.round(calculatedScore)));
-
-    // Create structured content
-    // NOUVEAU: On sauvegarde le texte brut dans `content`
-    // et les métadonnées dans `sources` et `metadata`.
+    // =========================================================================
+    // SAUVEGARDE COMMUNE (les deux modes)
+    // =========================================================================
     const aiMsg = await prisma.chatMessage.create({
       data: {
         sessionId,
@@ -583,19 +650,36 @@ router.post('/sessions/:id/messages', async (req, res, next) => {
         sources: sources,
         metadata: {
           factScore: finalGlobalScore,
-
-          // Debug / Transparency Data
+          mode: mode,
           calculation: {
             sourcesMean,
             outputScore,
             diversityPenalty,
-            formula: "(sources * 0.75) + (output * 0.25) - diversity"
+            formula: mode === 'fast'
+              ? 'RAG context quality score'
+              : '(sources * 0.75) + (output * 0.25) - diversity'
           },
           outputAnalysis: outputAnalysis
         }
       } as any,
       select: { id: true, content: true, sources: true, metadata: true, createdAt: true } as any,
     }) as any;
+
+    // 💰 CHARGE USER (After successful AI response)
+    try {
+      await chargeUser(userId, actionType);
+      logger.info('User charged successfully', { userId, action: actionType, cost: COSTS[actionType] });
+    } catch (error: any) {
+      // CRITICAL: AI response delivered but charge failed (log for manual investigation)
+      logger.error('CRITICAL: Charge failed after AI delivery', {
+        userId,
+        sessionId,
+        action: actionType,
+        cost: COSTS[actionType],
+        error: error.message
+      });
+      // Don't fail the request - user already got the response
+    }
 
     /*
     // 7) UPDATE QUOTA (Incrémenter dailyQueryCount)

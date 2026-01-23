@@ -39,7 +39,7 @@ export default function HeroArticle({ article }: { article: Article | null }) {
       <div className="flex flex-1 flex-col justify-between">
         <div>
           <h2 className="text-2xl font-bold">
-            <Link to={article.url}>{article.title}</Link>
+            <Link to={article.url || '#'}>{article.title}</Link>
           </h2>
           <div className="mt-1 text-sm opacity-70">
             {article.category} •{' '}

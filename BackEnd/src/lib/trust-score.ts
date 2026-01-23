@@ -1,5 +1,6 @@
 // BackEnd/src/lib/trust-score.ts
 import { prisma } from "./db"; // Assure-toi que le chemin vers db est bon
+import { logger } from "./logger";
 import { analyzeAdsTxt } from "./ads-scanner";
 import { analyzeUX } from "./ux-scanner";
 import { analyzeSemantics } from "./semantic-scanner";
@@ -57,7 +58,7 @@ export async function getRichTrustScore(domain: string): Promise<RichTrustScore>
         let cachedDescription = source.description;
 
         if (!cachedDescription) {
-            console.log(`⚡ [TrustScore] Cache HIT mais Bio manquante. Génération auto...`);
+            logger.info('Cache HIT but Bio missing. Auto-generating...', { module: 'TrustScore', domain });
             cachedDescription = await generateSourceDescription(domain);
             // On met à jour sans bloquer si possible, mais ici on attend pour l'affichage
             if (cachedDescription) {
@@ -68,7 +69,7 @@ export async function getRichTrustScore(domain: string): Promise<RichTrustScore>
             }
         }
 
-        console.log(`⚡ [TrustScore] Cache HIT pour : ${domain}`);
+        logger.info('Cache HIT', { module: 'TrustScore', domain });
         return {
             globalScore: source.trustScore,
             confidenceLevel: 'HIGH',
@@ -102,7 +103,7 @@ export async function getRichTrustScore(domain: string): Promise<RichTrustScore>
     let isClickbait = false;
 
     // 3. Logique d'Audit "Zero Trust" (Si nouvelle source OU audit trop vieux)
-    console.log(`⚡ [TrustScore] Audit complet lancé pour : ${domain}`);
+    logger.info('Starting full audit', { module: 'TrustScore', domain });
 
     // --- PARALLEL AUDITS (Scan technique + Description IA) ---
     const [auditResult, adsResult, uxResult, semanticResult, aiDescription] = await Promise.all([
@@ -249,7 +250,12 @@ export async function getRichTrustScore(domain: string): Promise<RichTrustScore>
         }
     });
 
-    console.log(`[TrustScore] 💾 Sauvegarde terminée. Score: ${finalTrustScore} (Bio: ${aiDescription ? 'OK' : 'N/A'})`);
+    logger.info('Audit saved', {
+        module: 'TrustScore',
+        domain,
+        score: finalTrustScore,
+        hasBio: !!aiDescription
+    });
 
 
     // 4. Formatage de l'objet de retour pour le Frontend (Rafraiîchi)

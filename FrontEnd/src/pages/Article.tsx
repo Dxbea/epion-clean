@@ -491,7 +491,7 @@ export default function Article() {
                           setIsEditOpen(false);
                           if (!confirm('Delete this article?')) return;
                           await fetch(`${API_BASE}/api/articles/${article.id}`, { method: 'DELETE', credentials: 'include' });
-                          window.location.href = '/actuality';
+                          navigate('/actuality');
                         }}
                       >
                         Delete

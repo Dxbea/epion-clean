@@ -1,4 +1,5 @@
 // BackEnd/src/server.ts
+import * as Sentry from '@sentry/node';
 import path from 'path';
 import './env';
 import express from 'express';
@@ -13,6 +14,7 @@ import { env } from './env';
 import type { Request, Response, NextFunction } from 'express';
 
 import { router as apiRouter } from './routes';
+import { logger } from './lib/logger';
 import { router as favoritesRouter } from './routes/favorite';
 import { router as authRouter } from './routes/auth';
 import { router as adminRouter } from './routes/admin';
@@ -23,6 +25,7 @@ import { router as aiRouter } from './routes/ai';
 import { router as debugRouter } from './routes/debug-checks';
 import { router as socialRouter } from './routes/social';
 import { router as usersRouter } from './routes/users';
+import { router as healthRouter } from './routes/health';
 import { initializeCron } from './cron/dailyReset';
 
 // ... (existing code)
@@ -93,7 +96,32 @@ app.use(cookieParser());
 
 // Logs HTTP
 if (process.env.NODE_ENV !== 'test') {
-  app.use(morgan('dev'));
+  // ----------------------------
+  //  🔍 Sentry Context & Request Logging
+  // ----------------------------
+  app.use((req: Request, _res: Response, next: NextFunction) => {
+    // If user is authenticated, set context in Sentry
+    if ((req as any).user) {
+      Sentry.setUser({
+        id: (req as any).user.id,
+        email: (req as any).user.email,
+      });
+    }
+    next();
+  });
+
+  // Logging requests
+  if (process.env.NODE_ENV === 'production') {
+    app.use((req: Request, _res: Response, next: NextFunction) => {
+      logger.info(`HTTP ${req.method} ${req.url}`, {
+        ip: req.ip,
+        userAgent: req.get('user-agent'),
+      });
+      next();
+    });
+  } else {
+    app.use(morgan('dev'));
+  }
 }
 
 // ----------------------------
@@ -103,6 +131,7 @@ app.get('/', (_req, res) => res.type('text').send('epion-api up'));
 app.get('/api/ping', (_req, res) => res.json({ pong: true, now: Date.now() }));
 app.get('/api/healthz', (_req, res) => res.json({ ok: true, service: 'epion-api' }));
 app.get('/api/version', (_req, res) => res.json({ name: 'epion-api', version: '0.1.0' }));
+app.use('/api/health', healthRouter);
 
 // ----------------------------
 //  🔑 Auth en premier
@@ -141,14 +170,24 @@ app.use((_req: Request, res: Response) => {
 });
 
 // ----------------------------
+//  🚨 Sentry Error Handler (Must be before custom handlers)
+// ----------------------------
+Sentry.setupExpressErrorHandler(app);
+
+// ----------------------------
 //  🚨 Error handler global
 // ----------------------------
 app.use(
-  (err: unknown, _req: Request, res: Response, _next: NextFunction) => {
-    console.error('[API ERROR]', err);
+  (err: any, _req: Request, res: Response, _next: NextFunction) => {
+    logger.error('[API ERROR]', {
+      message: err.message,
+      stack: err.stack,
+      ...err
+    });
 
-    return res.status(500).json({
-      error: 'INTERNAL_ERROR',
+    return res.status(err.status || 500).json({
+      error: err.code || 'INTERNAL_ERROR',
+      message: process.env.NODE_ENV === 'development' ? err.message : undefined,
     });
   },
 );
@@ -187,9 +226,9 @@ import { prisma } from './lib/db';
       create: { name: cat.name, slug: cat.slug },
     });
   }
-  console.log('✅ Categories seeded/verified');
+  logger.info('✅ Categories seeded/verified');
 
   app.listen(PORT, '0.0.0.0', () => {
-    console.log(`API listening on http://localhost:${PORT}`);
+    logger.info(`🚀 API listening on http://localhost:${PORT} [${process.env.NODE_ENV || 'development'}]`);
   });
 })();

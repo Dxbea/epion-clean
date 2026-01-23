@@ -1,11 +1,12 @@
 // src/components/chat/ChatInput.tsx
 import React from 'react';
 import {
-  FiPlus, FiMic, FiX, FiFileText, FiZap, FiMoreHorizontal, FiTarget,
-  FiShield, FiArrowUpRight, FiCpu, FiChevronDown, FiImage, FiLink, FiLayers, FiDatabase
+  FiPlus, FiMic, FiX, FiFileText, FiZap, FiTarget, FiMoreHorizontal,
+  FiCpu, FiChevronDown, FiImage, FiLink, FiDatabase, FiAlignLeft
 } from 'react-icons/fi';
-import type { Rigor } from '@/utils/rigorLevels';
 import { AI_MODELS, MODEL_DETAILS } from '@/constants/ai-models';
+
+export type ResponseStyle = 'concise' | 'normal' | 'detailed';
 
 export type UploadedFile = {
   id: string;
@@ -17,22 +18,21 @@ export type UploadedFile = {
 };
 
 type Props = {
-  rigor: Rigor;
-  setRigor: (r: Rigor) => void;
-  onSend: (text: string, attachments?: UploadedFile[], model?: string) => Promise<any> | void;
+  responseStyle: ResponseStyle;
+  setResponseStyle: (s: ResponseStyle) => void;
+  onSend: (text: string, attachments?: UploadedFile[], modelId?: string) => Promise<any> | void;
   onOpenTransparency?: () => void;
-  // onOpenSources removed
 };
 
 export default function ChatInput({
-  rigor, setRigor, onSend, onOpenTransparency
+  responseStyle, setResponseStyle, onSend, onOpenTransparency
 }: Props) {
   const [value, setValue] = React.useState('');
   const [attachments, setAttachments] = React.useState<UploadedFile[]>([]);
   const [submitting, setSubmitting] = React.useState(false);
 
   // New UI states
-  const [model, setModel] = React.useState<string>(AI_MODELS.STANDARD);
+  const [model, setModel] = React.useState<string>(AI_MODELS.SONAR);
   const [showModelMenu, setShowModelMenu] = React.useState(false);
   const [showImportMenu, setShowImportMenu] = React.useState(false);
 
@@ -122,6 +122,7 @@ export default function ChatInput({
     if (!v && attachments.length === 0) return;
     setSubmitting(true);
     try {
+      // Pass the selected model ID and let parent handle logic
       await onSend(v.slice(0, MAX_CHARS), attachments, model);
       // cleanup
       attachments.forEach(a => URL.revokeObjectURL(a.url));
@@ -151,8 +152,6 @@ export default function ChatInput({
   };
 
   const handleImportClick = (type: 'doc' | 'image' | 'url') => {
-    // For now, doc and image just open file dialog
-    // URL could open a prompt in future
     if (type === 'doc' || type === 'image') {
       fileRef.current?.click();
     }
@@ -170,8 +169,8 @@ export default function ChatInput({
     <div
       className={[
         'relative mx-auto w-full max-w-3xl rounded-[24px]',
-        'border border-surface-200 bg-white/80 backdrop-blur-xl shadow-lg',
-        'dark:border-white/5 dark:bg-[#121212]/90',
+        'border border-surface-200 bg-white shadow-lg', // Opaque bg
+        'dark:border-white/5 dark:bg-[#121212]',
         'px-4 py-4'
       ].join(' ')}
       onDragOver={(e) => e.preventDefault()}
@@ -189,48 +188,44 @@ export default function ChatInput({
             onClick={(e) => { e.stopPropagation(); setShowModelMenu(!showModelMenu); }}
             className="flex items-center gap-1.5 rounded-lg px-2 py-1.5 text-sm font-medium text-gray-500 hover:bg-black/5 hover:text-gray-900 dark:text-gray-400 dark:hover:bg-white/10 dark:hover:text-white transition-colors"
           >
-            <FiCpu className="text-base" />
+            {model === AI_MODELS.RAG ? <FiDatabase className="text-base text-emerald-500" /> :
+              model === AI_MODELS.SONAR_PRO ? <FiCpu className="text-base text-purple-600" /> :
+                <FiZap className="text-base text-amber-500" />}
+
             <span>{MODEL_DETAILS[model as keyof typeof MODEL_DETAILS]?.label || 'Model'}</span>
             <FiChevronDown className={`text-xs transition-transform ${showModelMenu ? 'rotate-180' : ''}`} />
           </button>
 
           {showModelMenu && (
-            <div className="absolute top-full left-0 mt-2 w-64 overflow-hidden rounded-xl bg-white dark:bg-[#1a1a1a] border border-gray-200 dark:border-gray-800 shadow-xl z-50 animate-in fade-in zoom-in-95 duration-100">
-              {Object.entries(MODEL_DETAILS).map(([key, detail]) => (
-                <button
-                  key={key}
-                  onClick={() => { setModel(key); setShowModelMenu(false); }}
-                  className={`flex w-full items-center gap-3 rounded-none px-4 py-2.5 text-left text-sm transition-colors ${model === key
-                    ? 'bg-black/5 font-medium text-gray-900 dark:bg-white/10 dark:text-white'
-                    : 'text-gray-600 hover:bg-black/5 dark:text-gray-400 dark:hover:bg-white/5'
-                    }`}
-                >
-                  <span className="text-base">
-                    {detail.label.includes('Pro') ? <FiCpu className="text-purple-600" /> :
-                      detail.label.includes('Reasoning') ? <FiLayers className="text-emerald-500" /> :
-                        detail.label.includes('Deep') ? <FiDatabase className="text-red-500" /> :
-                          <FiZap className="text-amber-500" />}
-                  </span>
-                  <div className="flex flex-col items-start">
-                    <span className="flex items-center gap-2">
-                      {detail.label}
-                      {detail.tier === 'premium' && (
-                        <span className="rounded-full bg-gradient-to-r from-amber-200 to-yellow-400 px-1.5 py-0.5 text-[10px] font-bold text-black shadow-sm">
-                          PRO
-                        </span>
-                      )}
-                    </span>
-                    <span className="text-xs opacity-60">{detail.description}</span>
-                  </div>
-                </button>
-              ))}
+            <div className="absolute bottom-full left-0 mb-2 w-64 overflow-hidden rounded-xl bg-white dark:bg-[#1a1a1a] border border-gray-200 dark:border-gray-700 shadow-xl z-50 animate-in fade-in zoom-in-95 duration-100">
+              {/* 
+                 Updated Model List: 
+                 1. Sonar (web-sonar)
+                 2. Sonar Pro (web-sonar-pro)
+                 3. Base Epion (rag)
+               */}
+              <ModelOption
+                id={AI_MODELS.SONAR}
+                current={model}
+                onSelect={(id) => { setModel(id); setShowModelMenu(false); }}
+              />
+              <ModelOption
+                id={AI_MODELS.SONAR_PRO}
+                current={model}
+                onSelect={(id) => { setModel(id); setShowModelMenu(false); }}
+              />
+              <div className="my-1 h-px bg-gray-100 dark:bg-white/5" />
+              <ModelOption
+                id={AI_MODELS.RAG}
+                current={model}
+                onSelect={(id) => { setModel(id); setShowModelMenu(false); }}
+              />
             </div>
           )}
         </div>
       </div>
 
       {/* Main Input Area */}
-      {/* Retrait du bg-gray-50 et border lourd */}
       <div className="relative flex items-end gap-3 p-1">
 
         {/* Import Button */}
@@ -312,7 +307,7 @@ export default function ChatInput({
           aria-label={hasText || attachments.length ? 'Send' : 'Voice input'}
         >
           {(hasText || attachments.length) ? (
-            <FiArrowUpRight className="h-5 w-5" />
+            <FiZap className="h-5 w-5" />
           ) : (
             <FiMic className="h-5 w-5" />
           )}
@@ -347,24 +342,23 @@ export default function ChatInput({
         </div>
       )}
 
-      {/* Footer: Rigor & Tools */}
+      {/* Footer: Response Style & Tools */}
       <div className="mt-3 flex items-center justify-between px-1">
-        {/* Rigor Selector */}
-        <RigorIcons rigor={rigor} onChange={setRigor} disabled={submitting} />
+        {/* Style Selector (formerly Rigor) */}
+        <ResponseStyleIcons style={responseStyle} onChange={setResponseStyle} disabled={submitting} />
 
-        {/* Discreet Tools - Sources removed */}
+        {/* Discreet Tools */}
         <div className="flex items-center gap-3">
           <button
             onClick={onOpenTransparency}
             className="group flex items-center gap-1.5 rounded-md py-1.5 px-2 text-xs font-medium text-gray-400 hover:bg-black/5 hover:text-gray-600 dark:hover:bg-white/5 dark:hover:text-gray-300 transition-all"
           >
-            <FiShield className="text-sm" />
+            {/* <FiShield className="text-sm" /> */}
             <span className="opacity-70 group-hover:opacity-100">Transparence</span>
           </button>
         </div>
       </div>
 
-      {/* input file caché */}
       <input
         ref={fileRef}
         type="file"
@@ -379,19 +373,51 @@ export default function ChatInput({
 
 /* ================= UI bits ================= */
 
-function RigorIcons({
-  rigor,
+function ModelOption({ id, current, onSelect }: { id: string, current: string, onSelect: (id: string) => void }) {
+  const detail = MODEL_DETAILS[id as keyof typeof MODEL_DETAILS];
+  if (!detail) return null;
+
+  return (
+    <button
+      onClick={() => onSelect(id)}
+      className={`flex w-full items-center gap-3 rounded-none px-4 py-2.5 text-left text-sm transition-colors ${current === id
+        ? 'bg-black/5 font-medium text-gray-900 dark:bg-white/10 dark:text-white'
+        : 'text-gray-600 hover:bg-black/5 dark:text-gray-400 dark:hover:bg-white/5'
+        }`}
+    >
+      <span className="text-base">
+        {id === AI_MODELS.SONAR_PRO ? <FiCpu className="text-purple-600" /> :
+          id === AI_MODELS.RAG ? <FiDatabase className="text-emerald-500" /> :
+            <FiZap className="text-amber-500" />}
+      </span>
+      <div className="flex flex-col items-start">
+        <span className="flex items-center gap-2">
+          {detail.label}
+          {detail.tier === 'premium' && (
+            <span className="rounded-full bg-gradient-to-r from-amber-200 to-yellow-400 px-1.5 py-0.5 text-[10px] font-bold text-black shadow-sm">
+              PRO
+            </span>
+          )}
+        </span>
+        <span className="text-xs opacity-60">{detail.description}</span>
+      </div>
+    </button>
+  );
+}
+
+function ResponseStyleIcons({
+  style,
   onChange,
   disabled,
 }: {
-  rigor: Rigor;
-  onChange: (v: Rigor) => void;
+  style: ResponseStyle;
+  onChange: (v: ResponseStyle) => void;
   disabled?: boolean;
 }) {
-  const opts: Array<{ key: Rigor; label: string; icon: React.ReactNode }> = [
-    { key: 'fast', label: 'Vitesse', icon: <FiZap /> },
-    { key: 'balanced', label: 'Standard', icon: <FiMoreHorizontal /> },
-    { key: 'precise', label: 'Expert', icon: <FiTarget /> },
+  const opts: Array<{ key: ResponseStyle; label: string; icon: React.ReactNode }> = [
+    { key: 'concise', label: 'Concis', icon: <FiZap /> },
+    { key: 'normal', label: 'Standard', icon: <FiMoreHorizontal /> },
+    { key: 'detailed', label: 'Détaillé', icon: <FiTarget /> },
   ];
 
   return (
@@ -399,7 +425,7 @@ function RigorIcons({
       className="flex items-center gap-1 rounded-lg border border-black/5 bg-gray-50/50 p-1 dark:border-white/5 dark:bg-white/5"
     >
       {opts.map(({ key, label, icon }) => {
-        const active = rigor === key;
+        const active = style === key;
         return (
           <button
             key={key}
@@ -416,6 +442,7 @@ function RigorIcons({
             ].join(' ')}
           >
             <span className="text-sm">{icon}</span>
+            {/* Only show label for active or all? User said "Boutons de Style", maybe labels are good */}
             {active && <span>{label}</span>}
           </button>
         );

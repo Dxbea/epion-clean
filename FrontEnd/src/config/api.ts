@@ -38,7 +38,7 @@ export async function api<T>(path: string, init?: RequestInit): Promise<T> {
   if (res.ok) {
     // si pas de body (204, delete, etc.)
     if (res.status === 204) {
-      return null;
+      return null as unknown as T;
     }
     return res.json() as Promise<T>;
   }

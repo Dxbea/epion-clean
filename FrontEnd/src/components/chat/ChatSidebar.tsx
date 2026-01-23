@@ -104,7 +104,7 @@ async function updateSessionTitle(sessionId: string, title: string): Promise<voi
 
 function IconBtn({
   children, onClick, title, size = 'md',
-}: { children: React.ReactNode; onClick?: () => void; title?: string; size?: 'sm'|'md' }) {
+}: { children: React.ReactNode; onClick?: () => void; title?: string; size?: 'sm' | 'md' }) {
   const cls = size === 'sm' ? 'h-9 w-9 rounded-md' : 'h-10 w-10 rounded-md';
   return (
     <button
@@ -145,7 +145,7 @@ function SecondaryAction({ onClick, icon, label }: { onClick?: () => void; icon:
 /* -------- menu ancré utilitaire -------- */
 function useSmartMenuPosition(
   anchor: HTMLElement | null,
-  menuRef: React.RefObject<HTMLDivElement>,
+  menuRef: React.RefObject<HTMLDivElement | null>,
   width = 300
 ) {
   const [style, setStyle] = React.useState<React.CSSProperties>({
@@ -352,7 +352,7 @@ function QuickMenu({
 /* ======================= Component ======================= */
 export default function ChatSidebar(props: Props) {
   const { open, collapsed, onCollapseToggle, conversations, currentId,
-          onSelect, onNewChat, onDelete, onSearch, onOpenSettings } = props;
+    onSelect, onNewChat, onDelete, onSearch, onOpenSettings } = props;
 
   const nav = useNavigate();
 
@@ -362,15 +362,15 @@ export default function ChatSidebar(props: Props) {
   const [hideAppHeader, setHideAppHeader] = React.useState(false);
   const [hideAppFooter, setHideAppFooter] = React.useState(false);
   React.useEffect(() => {
-  document.body.classList.toggle('chat-hide-app-header', hideAppHeader);
-  document.body.classList.toggle('chat-hide-app-footer', hideAppFooter);
+    document.body.classList.toggle('chat-hide-app-header', hideAppHeader);
+    document.body.classList.toggle('chat-hide-app-footer', hideAppFooter);
 
-  return () => {
-    // garanti que ça ne "fuitera" pas en dehors de la page chat
-    document.body.classList.remove('chat-hide-app-header');
-    document.body.classList.remove('chat-hide-app-footer');
-  };
-}, [hideAppHeader, hideAppFooter]);
+    return () => {
+      // garanti que ça ne "fuitera" pas en dehors de la page chat
+      document.body.classList.remove('chat-hide-app-header');
+      document.body.classList.remove('chat-hide-app-footer');
+    };
+  }, [hideAppHeader, hideAppFooter]);
 
   const [moveMenu, setMoveMenu] = React.useState<{
     chatId: string;
@@ -391,7 +391,7 @@ export default function ChatSidebar(props: Props) {
   const [showNewFolder, setShowNewFolder] = React.useState(false);
 
   // menu contextuel (dossier/chat)
-  const [menu, setMenu] = React.useState<{ kind: 'folder'|'chat'; id: string; anchor: HTMLElement | null } | null>(null);
+  const [menu, setMenu] = React.useState<{ kind: 'folder' | 'chat'; id: string; anchor: HTMLElement | null } | null>(null);
 
   const [renaming, setRenaming] = React.useState<{ id: string; current: string; kind: 'chat' | 'folder' } | null>(null);
 
@@ -625,24 +625,24 @@ export default function ChatSidebar(props: Props) {
                 ) : (
                   <ul className="mt-2 space-y-2">
                     {visibleFolders.map((f) => {
-                      const opened  = !!openMap[f.id];
-                      const items   = folderItems[f.id]?.items ?? [];
+                      const opened = !!openMap[f.id];
+                      const items = folderItems[f.id]?.items ?? [];
                       const loading = folderItems[f.id]?.loading;
                       return (
                         <li key={f.id} className="relative">
                           <div
-  role="button"
-  aria-expanded={opened}
-  onClick={() => props.onOpenFolder(f.id)}   // ⬅️ Ouvrir la « page dossier » dans le panneau droit
-  className={`group flex items-center gap-2 rounded-xl px-3 py-2 text-sm transition cursor-pointer ${opened ? 'bg-black/5 dark:bg-white/10' : 'hover:bg-black/5 dark:hover:bg-white/10'}`}
->
-  <Chevron
-    className={`h-4 w-4 transition-transform ${opened ? 'rotate-90' : ''}`}
-    onClick={(e) => { e.stopPropagation(); toggleFolder(f.id); }} // ⬅️ ne fait QUE plier/déplier
-    title={opened ? 'Replier' : 'Dérouler'}
-  />
-  <FiFolder className="h-4 w-4 opacity-80" />
-  <span className="min-w-0 flex-1 truncate">{f.name?.trim() || '(Sans nom)'}</span>
+                            role="button"
+                            aria-expanded={opened}
+                            onClick={() => props.onOpenFolder(f.id)}   // ⬅️ Ouvrir la « page dossier » dans le panneau droit
+                            className={`group flex items-center gap-2 rounded-xl px-3 py-2 text-sm transition cursor-pointer ${opened ? 'bg-black/5 dark:bg-white/10' : 'hover:bg-black/5 dark:hover:bg-white/10'}`}
+                          >
+                            <Chevron
+                              className={`h-4 w-4 transition-transform ${opened ? 'rotate-90' : ''}`}
+                              onClick={(e) => { e.stopPropagation(); toggleFolder(f.id); }} // ⬅️ ne fait QUE plier/déplier
+                              title={opened ? 'Replier' : 'Dérouler'}
+                            />
+                            <FiFolder className="h-4 w-4 opacity-80" />
+                            <span className="min-w-0 flex-1 truncate">{f.name?.trim() || '(Sans nom)'}</span>
                             <button
                               className="ml-1 flex h-8 w-8 items-center justify-center rounded-md border border-surface-200 hover:bg-black/5 dark:border-neutral-800 dark:hover:bg-white/10 opacity-0 group-hover:opacity-100 focus:opacity-100 transition-opacity"
                               onClick={(e) => { e.stopPropagation(); setMenu({ kind: 'folder', id: f.id, anchor: e.currentTarget }); }}
@@ -690,40 +690,39 @@ export default function ChatSidebar(props: Props) {
           {/* Chats */}
           <div className="mt-5 text-sm font-medium text-black/70 dark:text-white/70">Chats</div>
           <ul className="mt-2 space-y-2">
-  {conversations.map((c) => {
-    const isActive = c.id === currentId;   // ⬅️ AJOUT
+            {conversations.map((c) => {
+              const isActive = c.id === currentId;   // ⬅️ AJOUT
 
-    return (
-      <li
-        key={c.id}
-        className={`group flex items-center gap-2 rounded-lg px-2 py-1 text-sm
+              return (
+                <li
+                  key={c.id}
+                  className={`group flex items-center gap-2 rounded-lg px-2 py-1 text-sm
                     ${isActive ? 'bg-black/5 dark:bg-white/10' : 'hover:bg-black/5 dark:hover:bg-white/10'}`}
-      >
-        <button
-          className={`min-w-0 flex-1 text-left truncate ${
-  isActive ? 'text-black/70 dark:text-white/70 font-medium' : ''
-}`}
+                >
+                  <button
+                    className={`min-w-0 flex-1 text-left truncate ${isActive ? 'text-black/70 dark:text-white/70 font-medium' : ''
+                      }`}
 
-          onClick={() => onSelect(c.id)}
-          title={c.title}
-          aria-current={isActive ? 'page' : undefined}
-        >
-          {c.title || 'Sans titre'}
-        </button>
+                    onClick={() => onSelect(c.id)}
+                    title={c.title}
+                    aria-current={isActive ? 'page' : undefined}
+                  >
+                    {c.title || 'Sans titre'}
+                  </button>
 
-        <button
-          className={`flex h-7 w-7 items-center justify-center rounded-md border border-surface-200
+                  <button
+                    className={`flex h-7 w-7 items-center justify-center rounded-md border border-surface-200
                       ${isActive ? 'opacity-40' : 'opacity-0 group-hover:opacity-100 focus:opacity-100'}
                       dark:border-neutral-800 dark:hover:bg-white/10 transition-opacity`}
-          onClick={(e) => { e.stopPropagation(); setMenu({ kind: 'chat', id: c.id, anchor: e.currentTarget }); }}
-          aria-label="Menu du chat"
-        >
-          <FiMoreHorizontal className="h-4 w-4" />
-        </button>
-      </li>
-    );
-  })}
-</ul>
+                    onClick={(e) => { e.stopPropagation(); setMenu({ kind: 'chat', id: c.id, anchor: e.currentTarget }); }}
+                    aria-label="Menu du chat"
+                  >
+                    <FiMoreHorizontal className="h-4 w-4" />
+                  </button>
+                </li>
+              );
+            })}
+          </ul>
 
           {/* Footer dans la zone scroll */}
           <div className="mt-6 text-[11px] text-black/60 dark:text-white/60">© 2025 Epion</div>
@@ -773,47 +772,47 @@ export default function ChatSidebar(props: Props) {
         />
 
         {/* Dialog rename (chat ou dossier) */}
-{createPortal(
-  renaming ? (
-    <RenameDialog
-      title={renaming.kind === 'folder' ? 'Renommer le dossier' : 'Renommer le chat'}
-      initialValue={renaming.current}
-      open={true}
-      onCancel={() => setRenaming(null)}
-      onSubmit={async (value) => {
-        if (!renaming) return;
-        try {
-          if (renaming.kind === 'folder') {
-            await renameFolder(renaming.id, value);
-            setFolders((arr) => arr.map(f => f.id === renaming.id ? { ...f, name: value } : f));
-            pushToast('Dossier renommé');
-          } else {
-            await updateSessionTitle(renaming.id, value);
-            setFolderItems((map) => {
-            const copy = { ...map } as typeof map;
-            for (const fid of Object.keys(copy)) {
-              copy[fid] = {
-                ...copy[fid],
-                items: (copy[fid]?.items ?? []).map(c => (c.id === renaming.id ? { ...c, title: value } : c)),
-              } as any;
-            }
-            return copy;
-          });
-          props.onRename?.(renaming.id, value);
-            pushToast('Chat renommé');
-            
-          }
-        } catch (e) {
-          console.error(e);
-          pushToast('Erreur: impossible de renommer');
-        } finally {
-          setRenaming(null);
-        }
-      }}
-    />
-  ) : null,
-  document.body
-)}
+        {createPortal(
+          renaming ? (
+            <RenameDialog
+              title={renaming.kind === 'folder' ? 'Renommer le dossier' : 'Renommer le chat'}
+              initialValue={renaming.current}
+              open={true}
+              onCancel={() => setRenaming(null)}
+              onSubmit={async (value) => {
+                if (!renaming) return;
+                try {
+                  if (renaming.kind === 'folder') {
+                    await renameFolder(renaming.id, value);
+                    setFolders((arr) => arr.map(f => f.id === renaming.id ? { ...f, name: value } : f));
+                    pushToast('Dossier renommé');
+                  } else {
+                    await updateSessionTitle(renaming.id, value);
+                    setFolderItems((map) => {
+                      const copy = { ...map } as typeof map;
+                      for (const fid of Object.keys(copy)) {
+                        copy[fid] = {
+                          ...copy[fid],
+                          items: (copy[fid]?.items ?? []).map(c => (c.id === renaming.id ? { ...c, title: value } : c)),
+                        } as any;
+                      }
+                      return copy;
+                    });
+                    props.onRename?.(renaming.id, value);
+                    pushToast('Chat renommé');
+
+                  }
+                } catch (e) {
+                  console.error(e);
+                  pushToast('Erreur: impossible de renommer');
+                } finally {
+                  setRenaming(null);
+                }
+              }}
+            />
+          ) : null,
+          document.body
+        )}
 
         {/* Modal Tous les dossiers */}
         {showAllFolders && createPortal(
@@ -826,18 +825,18 @@ export default function ChatSidebar(props: Props) {
               <ul className="max-h-[60vh] overflow-y-auto thin-scroll space-y-2">
                 {folders.map((f) => (
                   <li key={f.id}>
-    <button
-      onClick={() => {
-        props.onOpenFolder?.(f.id);   // ouvre le panel dossier dans la page chat
-        setShowAllFolders(false);     // ferme le modal
-      }}
-      className="flex w-full items-center gap-2 rounded-lg px-2 py-2 text-left hover:bg-black/5 dark:hover:bg-white/10"
-      title={f.name}
-    >
-      <FiFolder className="opacity-80" />
-      <span className="truncate">{f.name}</span>
-    </button>
-  </li>
+                    <button
+                      onClick={() => {
+                        props.onOpenFolder?.(f.id);   // ouvre le panel dossier dans la page chat
+                        setShowAllFolders(false);     // ferme le modal
+                      }}
+                      className="flex w-full items-center gap-2 rounded-lg px-2 py-2 text-left hover:bg-black/5 dark:hover:bg-white/10"
+                      title={f.name}
+                    >
+                      <FiFolder className="opacity-80" />
+                      <span className="truncate">{f.name}</span>
+                    </button>
+                  </li>
                 ))}
               </ul>
             </div>

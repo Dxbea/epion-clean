@@ -3,6 +3,8 @@ import { Request, Response } from 'express';
 import jwt from 'jsonwebtoken';
 import { prisma } from './db';
 import { env } from '../env';
+import { logger } from './logger';
+import { redis } from './redis';
 
 const COOKIE_NAME = env.COOKIE_NAME || 'epion_session';
 
@@ -45,7 +47,7 @@ export async function requireSession(
   res: Response,
 ): Promise<{ userId: string; sessionId: string } | null> {
   const raw = req.cookies?.[COOKIE_NAME];
-  console.log(`[Session] Checking cookie ${COOKIE_NAME}:`, raw ? 'FOUND' : 'MISSING', raw ? `(Len: ${raw.length})` : '');
+  logger.debug(`Checking session cookie`, { module: 'Session', found: !!raw, length: raw?.length });
 
   if (!raw) {
     // si pas de cookie → on s’assure qu’il n’en reste pas
@@ -58,6 +60,20 @@ export async function requireSession(
       sub: string;
       sid: string;
     };
+
+    const cacheKey = `session:${decoded.sid}`;
+
+    // 1. Try Redis
+    try {
+      const cached = await redis.get(cacheKey);
+      if (cached) {
+        const session = JSON.parse(cached);
+        return { userId: session.userId, sessionId: session.id };
+      }
+    } catch (err) {
+      logger.warn('Redis read failed', { module: 'Session', error: err });
+      // Fallback to DB
+    }
 
     const sess = await prisma.session.findUnique({
       where: { id: decoded.sid },
@@ -77,6 +93,14 @@ export async function requireSession(
     ) {
       clearSessionCookie(res);
       return null;
+    }
+
+
+    // 3. Cache result
+    try {
+      await redis.set(cacheKey, JSON.stringify({ id: sess.id, userId: sess.userId }), 'EX', 600); // 10 mins
+    } catch (err) {
+      logger.warn('Redis set failed', { module: 'Session', error: err });
     }
 
     return { userId: decoded.sub, sessionId: decoded.sid };

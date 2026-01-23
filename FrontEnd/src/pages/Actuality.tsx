@@ -6,7 +6,7 @@ import SectionHeader from '@/components/SectionHeader';
 import type { Article } from '@/types/article';
 import { usePaginatedArticles } from '@/hooks/usePaginatedArticles';
 import TopOfWeekRow from '@/components/articles/TOTW';
-import { useLocation } from 'react-router-dom';
+import { useLocation, Link, useNavigate } from 'react-router-dom';
 import { useMe } from '@/contexts/MeContext';
 import { api } from '@/config/api';
 
@@ -76,6 +76,7 @@ function groupBy<T, K extends string | number>(arr: T[], key: (x: T) => K) {
 const since24h = (iso: string) => Date.now() - new Date(iso).getTime() <= 24 * 3600 * 1000;
 
 export default function Actuality() {
+  const navigate = useNavigate();
   const { me } = useMe();
   // 🔗 Récupère les articles paginés depuis l’API
   const { items, hasMore, loadMore } = usePaginatedArticles({ take: 24 });
@@ -198,12 +199,12 @@ export default function Actuality() {
           Here is the place you will find daily news on the world, you can browse, and ask AI to resume, explain, or create.
         </p>
         <div className="mt-4">
-          <a
-            href="/create"
+          <Link
+            to="/create"
             className="rounded-xl bg-black px-4 py-2 text-white hover:opacity-90 dark:bg-white dark:text-black"
           >
             Ask AI to create an article
-          </a>
+          </Link>
         </div>
       </header>
 
@@ -273,17 +274,17 @@ export default function Actuality() {
             onKeyDown={(e) => {
               if (e.key === 'Enter') {
                 const q = (e.target as HTMLInputElement).value.trim();
-                if (q) window.location.href = `/actuality/search?q=${encodeURIComponent(q)}`;
+                if (q) navigate(`/actuality/search?q=${encodeURIComponent(q)}`);
               }
             }}
           />
           <div className="flex items-center gap-2">
-            <a
-              href="/actuality/categories"
+            <Link
+              to="/actuality/categories"
               className="rounded-xl border px-4 py-2 text-sm hover:bg-black/5 dark:border-white/10"
             >
               Find articles by category
-            </a>
+            </Link>
 
           </div>
         </div>

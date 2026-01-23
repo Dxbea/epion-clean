@@ -1,19 +1,31 @@
-// DEBUT BLOC (remplace tout ce qui est entre ce commentaire et "FIN BLOC")
 import 'dotenv/config';
+import { z } from 'zod';
 
-const required = (name: string, fallback?: string) => {
-  const v = process.env[name] ?? fallback;
-  if (v === undefined) throw new Error(`Missing env var ${name}`);
-  return v;
-};
+const envSchema = z.object({
+  NODE_ENV: z.enum(['development', 'production', 'test']).default('development'),
+  PORT: z.coerce.number().default(5175),
+  DATABASE_URL: z.string().url().min(1),
+  FRONTEND_ORIGIN: z.string().url().default('http://localhost:5173'),
+  JWT_SECRET: z.string().min(1),
+  COOKIE_NAME: z.string().default('epion_session'),
+  BCRYPT_ROUNDS: z.coerce.number().default(12),
+  OPENAI_API_KEY: z.string().optional(),
+  PERPLEXITY_API_KEY: z.string().optional(),
+  SENTRY_DSN: z.string().optional(),
+});
 
-export const env = {
-  NODE_ENV: process.env.NODE_ENV ?? 'development',
-  PORT: Number(process.env.PORT ?? 5175),
-  FRONTEND_ORIGIN: required('FRONTEND_ORIGIN', 'http://localhost:5173'),
-  JWT_SECRET: required('JWT_SECRET', 'replace_me_with_a_long_random_secret'),
-  COOKIE_NAME: process.env.COOKIE_NAME ?? 'epion_session',
-  BCRYPT_ROUNDS: Number(process.env.BCRYPT_ROUNDS ?? 12),
-  OPENAI_API_KEY: process.env.OPENAI_API_KEY,
-};
-// FIN BLOC
+type Env = z.infer<typeof envSchema>;
+
+let parsedEnv: Env;
+
+try {
+  parsedEnv = envSchema.parse(process.env);
+} catch (error) {
+  if (error instanceof z.ZodError) {
+    console.error('❌ Invalid environment variables:', JSON.stringify(error.format(), null, 2));
+    process.exit(1);
+  }
+  throw error;
+}
+
+export const env = parsedEnv;

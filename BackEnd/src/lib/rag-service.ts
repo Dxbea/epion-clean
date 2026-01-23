@@ -6,6 +6,7 @@
 import OpenAI from 'openai';
 import { prisma } from './db';
 import { Prisma } from '@prisma/client';
+import { logger } from './logger';
 
 // -----------------------------------------------------------------------------
 // Configuration
@@ -113,7 +114,7 @@ function splitBrutally(text: string, maxLen: number): string[] {
  * Ingests an article: chunks its content, generates embeddings, stores in DB.
  */
 export async function ingestArticle(articleId: string): Promise<void> {
-    console.log(`[RAG] 🚀 Starting ingestion for article: ${articleId}`);
+    logger.info(`Starting ingestion`, { module: 'RAG', articleId });
 
     // 1. Fetch article
     const article = await prisma.article.findUnique({
@@ -127,12 +128,12 @@ export async function ingestArticle(articleId: string): Promise<void> {
     });
 
     if (!article) {
-        console.log(`[RAG] ❌ Article not found: ${articleId}`);
+        logger.error(`Article not found`, { module: 'RAG', articleId });
         return;
     }
 
     if (!article.content || article.content.trim().length === 0) {
-        console.log(`[RAG] ⚠️ Article has no content, skipping: ${articleId}`);
+        logger.warn(`Article has no content, skipping`, { module: 'RAG', articleId });
         return;
     }
 
@@ -141,7 +142,7 @@ export async function ingestArticle(articleId: string): Promise<void> {
         where: { articleId },
     });
     if (deletedCount.count > 0) {
-        console.log(`[RAG] 🧹 Deleted ${deletedCount.count} existing chunks`);
+        logger.debug(`Deleted existing chunks`, { module: 'RAG', count: deletedCount.count });
     }
 
     // 3. Chunk the content
@@ -150,22 +151,22 @@ export async function ingestArticle(articleId: string): Promise<void> {
     const textChunks = chunkText(fullText);
 
     if (textChunks.length === 0) {
-        console.log(`[RAG] ⚠️ No valid chunks generated, skipping`);
+        logger.warn(`[RAG] No valid chunks generated, skipping article ${articleId}`);
         return;
     }
 
-    console.log(`[RAG] 📦 Generated ${textChunks.length} chunks`);
+    logger.info(`[RAG] Generated ${textChunks.length} chunks`);
 
     // 4. Generate embeddings (batch)
     const embeddings = await generateEmbeddings(textChunks);
 
     if (embeddings.length !== textChunks.length) {
-        console.log(`[RAG] ❌ Embedding count mismatch!`);
+        logger.error(`[RAG] Embedding count mismatch!`, { articleId });
         return;
     }
 
     // 5. Store chunks with embeddings (using raw SQL for vector type)
-    console.log(`[RAG] 💾 Storing chunks in database...`);
+    logger.debug(`[RAG] 💾 Storing chunks in database...`);
 
     for (let i = 0; i < textChunks.length; i++) {
         const content = textChunks[i];
@@ -190,7 +191,7 @@ export async function ingestArticle(articleId: string): Promise<void> {
         data: { isIndexed: true },
     });
 
-    console.log(`[RAG] ✅ Article indexed successfully: ${article.title}`);
+    logger.info(`[RAG] Article indexed successfully: ${article.title}`);
 }
 
 // -----------------------------------------------------------------------------
@@ -200,7 +201,7 @@ export async function ingestArticle(articleId: string): Promise<void> {
  * Generates embeddings for multiple text chunks using OpenAI API.
  */
 async function generateEmbeddings(texts: string[]): Promise<number[][]> {
-    console.log(`[RAG] 🧠 Generating embeddings for ${texts.length} chunks...`);
+    logger.debug(`[RAG] Generating embeddings for ${texts.length} chunks...`);
 
     try {
         const response = await openai.embeddings.create({
@@ -213,10 +214,10 @@ async function generateEmbeddings(texts: string[]): Promise<number[][]> {
             .sort((a, b) => a.index - b.index)
             .map(item => item.embedding);
 
-        console.log(`[RAG] ✅ Embeddings generated (${embeddings[0].length} dimensions)`);
+        logger.debug(`Embeddings generated`, { module: 'RAG', dimensions: embeddings[0].length });
         return embeddings;
     } catch (error: any) {
-        console.error(`[RAG] ❌ Embedding API error:`, error.message);
+        logger.error(`Embedding API error`, { module: 'RAG', error: error.message });
         throw error;
     }
 }
@@ -236,15 +237,75 @@ export async function ingestAllPendingArticles(): Promise<void> {
         select: { id: true, title: true },
     });
 
-    console.log(`[RAG] 📚 Found ${pending.length} articles to ingest`);
+    logger.info(`Found pending articles to ingest`, { module: 'RAG', count: pending.length });
 
     for (const article of pending) {
         try {
             await ingestArticle(article.id);
         } catch (error: any) {
-            console.error(`[RAG] ❌ Failed to ingest "${article.title}":`, error.message);
+            logger.error(`Failed to ingest article`, { module: 'RAG', title: article.title, error: error.message });
         }
     }
 
-    console.log(`[RAG] 🎉 Bulk ingestion complete`);
+    logger.info(`[RAG] Bulk ingestion complete`, { count: pending.length });
+}
+
+// -----------------------------------------------------------------------------
+// Search: Find Similar Chunks (RAG Query)
+// -----------------------------------------------------------------------------
+
+export type SearchResult = {
+    content: string;
+    articleTitle: string;
+    articleSlug: string;
+    similarity: number;
+};
+
+/**
+ * Searches for knowledge chunks similar to the user's query.
+ * Uses cosine similarity on vector embeddings.
+ * 
+ * @param query - The user's question/search query
+ * @param limit - Maximum number of chunks to return (default: 5)
+ * @returns Array of relevant text chunks with metadata
+ */
+export async function searchSimilarChunks(query: string, limit: number = 5): Promise<SearchResult[]> {
+    if (!query || query.trim().length === 0) {
+        return [];
+    }
+
+    logger.debug(`[RAG] Searching for: "${query.substring(0, 50)}..."`);
+
+    try {
+        // 1. Generate embedding for the query
+        const response = await openai.embeddings.create({
+            model: EMBEDDING_MODEL,
+            input: query,
+        });
+
+        const queryEmbedding = response.data[0].embedding;
+        const embeddingStr = `[${queryEmbedding.join(',')}]`;
+
+        // 2. Search for similar chunks using cosine similarity
+        // JOIN with Article table to get title and slug
+        const results = await prisma.$queryRaw<SearchResult[]>`
+            SELECT 
+                kc.content,
+                a.title as "articleTitle",
+                a.slug as "articleSlug",
+                1 - (kc.embedding <=> ${embeddingStr}::vector) as similarity
+            FROM "KnowledgeChunk" kc
+            JOIN "Article" a ON kc."articleId" = a.id
+            WHERE kc.embedding IS NOT NULL
+            ORDER BY kc.embedding <=> ${embeddingStr}::vector
+            LIMIT ${limit}
+        `;
+
+        logger.info(`[RAG] Search complete`, { query: query.substring(0, 50), results: results.length });
+
+        return results;
+    } catch (error: any) {
+        logger.error(`Search error`, { module: 'RAG', error: error.message });
+        return [];
+    }
 }

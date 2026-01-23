@@ -63,6 +63,7 @@ export const DICT = {
     my_account_lead: "Manage your profile and information.",
     profile_info: "Profile",
     profile_info_desc: "Name, handle, phone and photo.",
+    phone: "Phone number",
     email: "Email",
     verified: "Verified",
     unverified: "Unverified",
@@ -213,10 +214,10 @@ export const DICT = {
     cookies_stub: "We use only essential cookies at this stage.",
 
 
-    
+
   },
 
-  
+
 
   fr: {
     // ───────────────── NAV
@@ -281,6 +282,7 @@ export const DICT = {
     my_account_lead: "Gérez votre profil et vos informations.",
     profile_info: "Profil",
     profile_info_desc: "Nom, pseudo, téléphone et photo.",
+    phone: "Numéro de téléphone",
     email: "E-mail",
     verified: "Vérifié",
     unverified: "Non vérifié",

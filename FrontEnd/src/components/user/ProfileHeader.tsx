@@ -1,4 +1,5 @@
 import React, { useRef } from 'react';
+import { Link } from 'react-router-dom';
 import { PiCalendarBlank, PiUsers, PiCamera } from 'react-icons/pi';
 import FollowButton from '@/components/social/FollowButton';
 import { useMe } from '@/contexts/MeContext';
@@ -195,12 +196,12 @@ export default function ProfileHeader({ user, isOwnProfile = false, initialIsFol
 
                     <div className="mb-1 z-20">
                         {isOwnProfile ? (
-                            <a
-                                href="/settings#account"
+                            <Link
+                                to="/settings#account"
                                 className="inline-flex h-10 items-center justify-center rounded-full border border-neutral-200 bg-white px-5 text-sm font-medium transition hover:bg-neutral-50 dark:border-neutral-700 dark:bg-neutral-900 dark:hover:bg-neutral-800"
                             >
                                 Edit profile
-                            </a>
+                            </Link>
                         ) : (
                             <FollowButton
                                 targetUserId={user.id}
