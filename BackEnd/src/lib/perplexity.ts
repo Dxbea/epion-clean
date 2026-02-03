@@ -193,11 +193,10 @@ export async function callPerplexity(
     messages: PerplexityMessage[],
     model: string = 'sonar'
 ): Promise<{ answer: string; citations: string[]; choices?: any }> {
-
+    // Legacy Implementation (Waiting for full response)
     const apiKey = process.env.PERPLEXITY_API_KEY;
     if (!apiKey) throw new Error("PERPLEXITY_API_KEY manquante");
 
-    // 1. Nettoyage de l'historique avant envoi
     const cleanMessages = sanitizeMessages(messages);
 
     try {
@@ -209,49 +208,140 @@ export async function callPerplexity(
                 model: model,
                 messages: cleanMessages,
                 temperature: 0.2,
-                // return_citations: true, // Décommenter si supporté par l'API officielle
             },
             {
                 headers: {
                     'Authorization': `Bearer ${apiKey}`,
                     'Content-Type': 'application/json',
                 },
-                timeout: 100000 // <--- AUGMENTATION DU TIMEOUT ICI (100 secondes)
+                timeout: 100000 // 100s timeout
             }
         );
 
-        // Log pour debug
-        // console.log("[Perplexity] Réponse brute:", JSON.stringify(response.data, null, 2));
-
         const choice = response.data.choices[0];
         const answer = choice.message.content;
-        const citations = response.data.citations || []; // Perplexity renvoie souvent les citations à la racine
+        const citations = response.data.citations || [];
 
         return {
             answer,
             citations,
-            // Compatibility layer for chat.ts
             choices: [{ message: { content: answer } }]
         };
 
     } catch (error: any) {
-        logger.error("API Error", {
-            module: 'Perplexity',
-            message: error.message,
-            response: error.response?.data,
-            model,
-            messageCount: cleanMessages.length
-        });
-
-        // Gestion spécifique du Timeout
-        if (error.code === 'ECONNABORTED') {
-            throw new Error("Le service IA met trop de temps à répondre (Timeout). Réessayez.");
-        }
-        // Gestion erreur 400 (Historique invalide malgré le nettoyage)
-        if (error.response?.status === 400) {
-            throw new Error("Erreur de format de conversation avec l'IA.");
-        }
-
+        logger.error("API Error", { module: 'Perplexity', message: error.message });
         throw error;
     }
+}
+
+/**
+ * Nouveau : Stream Perplexity (Async Generator)
+ * Yields chunks of text.
+ */
+export async function* streamPerplexity(
+    messages: PerplexityMessage[],
+    model: string = 'sonar'
+): AsyncGenerator<string, void, unknown> {
+    const apiKey = process.env.PERPLEXITY_API_KEY;
+    if (!apiKey) throw new Error("PERPLEXITY_API_KEY manquante");
+
+    const cleanMessages = sanitizeMessages(messages);
+
+    const MAX_RETRIES = 3;
+    let lastError: any;
+
+    for (let attempt = 1; attempt <= MAX_RETRIES; attempt++) {
+        try {
+            logger.info(`Starting Stream (Attempt ${attempt}/${MAX_RETRIES}) ${cleanMessages.length} messages...`, { module: 'PerplexityStream', model });
+
+            const response = await fetch('https://api.perplexity.ai/chat/completions', {
+                method: 'POST',
+                headers: {
+                    'Authorization': `Bearer ${apiKey}`,
+                    'Content-Type': 'application/json'
+                },
+                body: JSON.stringify({
+                    model: model,
+                    messages: cleanMessages,
+                    stream: true // CRUCIAL
+                })
+            });
+
+            // If success, proceed to stream reading
+            if (response.ok && response.body) {
+                const reader = response.body.getReader();
+                const decoder = new TextDecoder("utf-8");
+                let buffer = "";
+
+                while (true) {
+                    const { done, value } = await reader.read();
+                    if (done) break;
+
+                    const chunk = decoder.decode(value, { stream: true });
+
+                    // DEBUG: Log raw chunk to see what Perplexity is sending
+                    if (chunk.trim()) {
+                        // logger.info("Raw Stream Chunk", { module: "PerplexityDebug", chunkStart: chunk.slice(0, 50), length: chunk.length });
+                    }
+
+                    buffer += chunk;
+                    const lines = buffer.split("\n");
+                    buffer = lines.pop() || "";
+
+                    for (const line of lines) {
+                        const trimmed = line.trim();
+                        if (!trimmed) continue;
+                        if (trimmed.startsWith("data:")) {
+                            const dataStr = trimmed.slice(5).trim();
+                            if (dataStr === "[DONE]") continue;
+                            try {
+                                const json = JSON.parse(dataStr);
+                                const content = json.choices[0]?.delta?.content || '';
+                                if (content) yield content;
+                            } catch (e) {
+                                logger.warn('Stream parse error', { line: trimmed, error: (e as Error).message });
+                            }
+                        } else if (trimmed.startsWith("{")) {
+                            try {
+                                const json = JSON.parse(trimmed);
+                                if (json.error) throw new Error(`Perplexity Error: ${JSON.stringify(json.error)}`);
+                            } catch (e) { }
+                        }
+                    }
+                }
+                // Success: return (break loop and generator)
+                return;
+            }
+
+            // Handle HTTP Errors
+            const errorText = await response.text();
+            logger.warn(`Perplexity attempt ${attempt} failed`, { status: response.status, error: errorText });
+
+            // Retryable errors: 5xx, 429
+            if (response.status >= 500 || response.status === 429) {
+                if (attempt === MAX_RETRIES) throw new Error(`Perplexity API Error: ${response.status} - ${errorText}`);
+                const delay = 1000 * Math.pow(2, attempt - 1);
+                logger.info(`Retrying in ${delay}ms...`);
+                await new Promise(resolve => setTimeout(resolve, delay));
+                continue; // Retry loop
+            }
+
+            // Fatal error (400, 401...)
+            throw new Error(`Perplexity Fatal Error: ${response.status} - ${errorText}`);
+
+        } catch (error: any) {
+            lastError = error;
+            // Network errors are also retryable
+            if (attempt < MAX_RETRIES) {
+                const delay = 1000 * Math.pow(2, attempt - 1);
+                logger.warn(`Network error, retrying in ${delay}ms`, { error: error.message });
+                await new Promise(resolve => setTimeout(resolve, delay));
+                continue;
+            }
+        }
+    }
+
+    // If we're here, all retries failed
+    logger.error("Stream failed after max retries", { module: "PerplexityStream", error: lastError?.message });
+    throw lastError;
 }

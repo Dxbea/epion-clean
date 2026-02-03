@@ -3,6 +3,7 @@ import { Router } from 'express';
 import { prisma } from '../lib/db';
 import { getCurrentUserId } from '../lib/currentUser';
 import { checkAndIncrement } from '../lib/rateLimiter';
+import { logger } from '../lib/logger';
 
 export const router = Router();
 
@@ -58,11 +59,11 @@ router.get('/', async (req, res, next) => {
   try {
     let userId: string;
     try {
-      console.log('[Favorites] Checking user session...');
+      // logger.debug('[Favorites] Checking user session...');
       userId = await getCurrentUserId(req, res);
-      console.log('[Favorites] User ID:', userId);
+      // logger.debug('[Favorites] User ID:', { userId });
     } catch (err: any) {
-      console.error('[Favorites] Auth failed:', err?.message);
+      logger.warn('[Favorites] Auth failed', { error: err?.message });
       return res.status(401).json({ error: 'NO_SESSION' });
     }
 

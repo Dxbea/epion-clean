@@ -1,0 +1,16 @@
+
+AUDIT REPORT
+Total Sources: 8774
+Valid Domains: 8056
+Missing Domains: 18
+Weird Domains: 700
+
+Weird Samples (First 20):
+350.org/canada
+350.org/de
+350.org/fr
+350.org/id
+350.org/pacific
+
+Metadata:
+- Has URL (u): 8767

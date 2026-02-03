@@ -81,6 +81,12 @@ export async function hasSufficientCredits(
 }
 
 /**
+ * Alias requested for "Check -> Service -> Settlement" pattern.
+ * Checks funds without charging (Read-Only).
+ */
+export const hasSufficientFunds = hasSufficientCredits;
+
+/**
  * NEW: Débite l'utilisateur APRÈS succès du stream.
  * Suppose que hasSufficientCredits a déjà été appelé.
  */

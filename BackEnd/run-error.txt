@@ -1,0 +1,28 @@
+node.exe : C:\epion\epionweb\BackEnd\src\servic
+es\consensus-ingestion.ts:367
+Au caract?re C:\Program 
+Files\nodejs\npx.ps1:29 : 3
++   & $NODE_EXE $NPX_CLI_JS $args
++   ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+    + CategoryInfo          : NotSpecified: 
+(C:\    epion\epionw...ngestion.ts:367:String) 
+[], R    emoteException
+    + FullyQualifiedErrorId : 
+NativeCommandError
+ 
+if (require.main === module) {
+^
+
+
+ReferenceError: require is not defined in ES 
+module scope, you can use import instead
+    at <anonymous> (C:\epion\epionweb\BackEnd\s
+rc\services\consensus-ingestion.ts:367:1)
+    at ModuleJob.run 
+(node:internal/modules/esm/module_job:271:25)
+    at async onImport.tracePromise.__proto__ 
+(node:internal/modules/esm/loader:547:26)
+    at async asyncRunEntryPointWithESMLoader 
+(node:internal/modules/run_main:116:5)
+
+Node.js v22.13.0

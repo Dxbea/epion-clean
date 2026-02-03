@@ -1,7 +1,11 @@
 import { JSDOM } from 'jsdom';
 
-const TRIGGER_WORDS = ['choc', 'incroyable', 'secret', 'honteux', 'scandale', 'censuré',
-    'miracle', 'urgent', 'virus', 'complot', 'découvrez', 'bientôt', 'exclusif'];
+const TRIGGER_WORDS = [
+    'choc', 'incroyable', 'secret', 'honteux', 'scandale', 'censuré',
+    'miracle', 'urgent', 'virus', 'complot', 'découvrez', 'bientôt', 'exclusif',
+    'tu ne devineras jamais', 'hallucinant', 'banni', 'détestent', 'scandaleux',
+    'partagez avant suppression', 'mind-blowing', 'shocking', "you won't believe"
+];
 
 function countSyllables(word: string): number {
     word = word.toLowerCase();
@@ -128,11 +132,22 @@ export async function analyzeSemantics(domain: string) {
         const document = dom.window.document;
 
         // Extraction
-        const title = document.title || "";
+        const title = (document.title || "").toLowerCase();
         const h1s = Array.from(document.querySelectorAll('h1')).map(h => h.textContent || "").join(" ");
         const textSample = (title + " " + h1s + " " + (document.body.textContent?.slice(0, 1000) || "")).trim();
 
-        return analyzeTextQuality(textSample);
+        const qualityResult = analyzeTextQuality(textSample);
+
+        // --- HARDENING CLICKBAIT (Sur le Titre) ---
+        // Si le titre contient plus de 1 mot déclencheur, c'est du clickbait forcé
+        const titleTriggerCount = TRIGGER_WORDS.filter(w => title.includes(w)).length;
+        if (titleTriggerCount > 1) {
+            qualityResult.isClickbait = true;
+            qualityResult.score = Math.min(qualityResult.score, 40); // Penalty max
+            qualityResult.biasLevel = 'SENSATIONALIST';
+        }
+
+        return qualityResult;
 
     } catch (error) {
         return {

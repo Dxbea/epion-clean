@@ -1,164 +1,149 @@
-[
-  {
-    "id": "cmkir78u50001u3vct7sa87k3",
-    "slug": "monde",
-    "name": "Monde",
-    "createdAt": "2026-01-17T20:22:15.677Z",
-    "_count": {
-      "articles": 5
-    }
+{
+  "cnn": {
+    "id": "536a6969-bd48-4ba1-bb1f-1276c8101fff",
+    "domain": "cnn.com",
+    "name": "Cnn.com",
+    "trustScore": 50,
+    "transparencyScore": 0,
+    "isAdsTxtValid": false,
+    "isOwnerPublic": false,
+    "editorialScore": 0,
+    "hasFactCheckFailures": false,
+    "factCheckFailCount": 0,
+    "hasCorrectionPolicy": false,
+    "semanticScore": 0,
+    "politicalBias": "CENTER_LEFT",
+    "biasScore": -44,
+    "reliability": "HIGH",
+    "detectedCountry": "US",
+    "isClickbait": false,
+    "uxScore": 0,
+    "adDensity": "LOW",
+    "hasDarkPatterns": false,
+    "type": "GENERAL",
+    "justification": null,
+    "description": null,
+    "metadata": {
+      "mbfcData": {
+        "rel": "MF",
+        "code": "LC",
+        "original": {
+          "P": 98,
+          "a": "H",
+          "b": "LC",
+          "c": "M",
+          "d": "cnn.com",
+          "f": "cnn",
+          "n": "CNN",
+          "q": [],
+          "r": "MF",
+          "t": "CNN",
+          "u": "https://mediabiasfactcheck.com/cnn/"
+        }
+      },
+      "consensus": {
+        "score": -45,
+        "source": "AllSides_Only",
+        "timestamp": "2026-02-01T14:32:27.531Z",
+        "raw_rating": "Left"
+      },
+      "importedFrom": "AllSides+MBFC"
+    },
+    "lastAuditDate": null,
+    "mbfcRating": "LC",
+    "allSidesRating": "Left",
+    "adFontesScore": null,
+    "isConsensusVerified": true,
+    "createdAt": "2026-02-01T13:45:16.550Z",
+    "updatedAt": "2026-02-01T17:36:16.034Z"
   },
-  {
-    "id": "cmkir78vq000cu3vcgda0xgtx",
-    "slug": "insolite",
-    "name": "Insolite",
-    "createdAt": "2026-01-17T20:22:15.735Z",
-    "_count": {
-      "articles": 0
-    }
+  "nyt": {
+    "id": "926e14ef-8713-4ffb-b923-70bbff5533c9",
+    "domain": "nytimes.com",
+    "name": "Nytimes.com",
+    "trustScore": 50,
+    "transparencyScore": 0,
+    "isAdsTxtValid": false,
+    "isOwnerPublic": false,
+    "editorialScore": 0,
+    "hasFactCheckFailures": false,
+    "factCheckFailCount": 0,
+    "hasCorrectionPolicy": false,
+    "semanticScore": 0,
+    "politicalBias": "CENTER_LEFT",
+    "biasScore": -30,
+    "reliability": "HIGH",
+    "detectedCountry": "US",
+    "isClickbait": false,
+    "uxScore": 0,
+    "adDensity": "LOW",
+    "hasDarkPatterns": false,
+    "type": "GENERAL",
+    "justification": null,
+    "description": null,
+    "metadata": {
+      "mbfcData": {
+        "rel": "H",
+        "code": "LC",
+        "original": {
+          "P": 98,
+          "a": "H",
+          "b": "LC",
+          "c": "H",
+          "d": "nytimes.com",
+          "n": "New York Times",
+          "q": [],
+          "r": "H",
+          "u": "https://mediabiasfactcheck.com/new-york-times/"
+        }
+      },
+      "importedFrom": "AllSides+MBFC"
+    },
+    "lastAuditDate": null,
+    "mbfcRating": "LC",
+    "allSidesRating": null,
+    "adFontesScore": null,
+    "isConsensusVerified": false,
+    "createdAt": "2026-02-01T13:45:16.553Z",
+    "updatedAt": "2026-02-01T17:36:26.181Z"
   },
-  {
-    "id": "cmkis0qnb0003u3m8zbxxydvv",
-    "slug": "science",
-    "name": "Science",
-    "createdAt": "2026-01-17T20:45:11.783Z",
-    "_count": {
-      "articles": 0
-    }
-  },
-  {
-    "id": "cmki7hs480006u364is8jnwwz",
-    "slug": "sport",
-    "name": "Sport",
-    "createdAt": "2026-01-17T11:10:34.904Z",
-    "_count": {
-      "articles": 0
-    }
-  },
-  {
-    "id": "cmkis0qnf0004u3m8gpuqmg01",
-    "slug": "business",
-    "name": "Business",
-    "createdAt": "2026-01-17T20:45:11.788Z",
-    "_count": {
-      "articles": 0
-    }
-  },
-  {
-    "id": "cmkir78ve0009u3vcqodmaom0",
-    "slug": "culture",
-    "name": "Culture",
-    "createdAt": "2026-01-17T20:22:15.722Z",
-    "_count": {
-      "articles": 0
-    }
-  },
-  {
-    "id": "cmkir78vm000bu3vcq73xhmyv",
-    "slug": "lifestyle",
-    "name": "Lifestyle",
-    "createdAt": "2026-01-17T20:22:15.730Z",
-    "_count": {
-      "articles": 0
-    }
-  },
-  {
-    "id": "cmkir78uo0004u3vcpx5s3yg7",
-    "slug": "societe",
-    "name": "Société",
-    "createdAt": "2026-01-17T20:22:15.696Z",
-    "_count": {
-      "articles": 0
-    }
-  },
-  {
-    "id": "cmkis0qn10001u3m8v2j5oucq",
-    "slug": "other",
-    "name": "Other",
-    "createdAt": "2026-01-17T20:45:11.774Z",
-    "_count": {
-      "articles": 0
-    }
-  },
-  {
-    "id": "cmkis0qns0007u3m8x6e3wjnu",
-    "slug": "world",
-    "name": "World",
-    "createdAt": "2026-01-17T20:45:11.800Z",
-    "_count": {
-      "articles": 0
-    }
-  },
-  {
-    "id": "cmkir78uy0006u3vcqwgy23t6",
-    "slug": "sciences",
-    "name": "Sciences",
-    "createdAt": "2026-01-17T20:22:15.706Z",
-    "_count": {
-      "articles": 0
-    }
-  },
-  {
-    "id": "cmkir78ui0003u3vc4rovq3m4",
-    "slug": "economie",
-    "name": "Économie",
-    "createdAt": "2026-01-17T20:22:15.690Z",
-    "_count": {
-      "articles": 0
-    }
-  },
-  {
-    "id": "cmkir78v90008u3vcx4mvqb0a",
-    "slug": "environnement",
-    "name": "Environnement",
-    "createdAt": "2026-01-17T20:22:15.717Z",
-    "_count": {
-      "articles": 0
-    }
-  },
-  {
-    "id": "cmkis0qms0000u3m8xyholdk4",
-    "slug": "news",
-    "name": "News",
-    "createdAt": "2026-01-17T20:45:11.765Z",
-    "_count": {
-      "articles": 0
-    }
-  },
-  {
-    "id": "cmkir78ud0002u3vcoqacoa7a",
-    "slug": "politique",
-    "name": "Politique",
-    "createdAt": "2026-01-17T20:22:15.685Z",
-    "_count": {
-      "articles": 0
-    }
-  },
-  {
-    "id": "cmkis0qnk0005u3m8q6e8j8lw",
-    "slug": "politics",
-    "name": "Politics",
-    "createdAt": "2026-01-17T20:45:11.792Z",
-    "_count": {
-      "articles": 0
-    }
-  },
-  {
-    "id": "cmki80dwt0002u36cu9ecid9a",
-    "slug": "sante",
-    "name": "Santé",
-    "createdAt": "2026-01-17T11:25:02.957Z",
-    "_count": {
-      "articles": 0
-    }
-  },
-  {
-    "id": "cmki7hs3l0002u364yezhdsb0",
-    "slug": "tech",
-    "name": "Tech",
-    "createdAt": "2026-01-17T11:10:34.881Z",
-    "_count": {
-      "articles": 0
-    }
+  "fox": {
+    "id": "144cab13-d477-44ae-9907-a2c6a5544752",
+    "domain": "foxnews.com",
+    "name": "Foxnews.com",
+    "trustScore": 50,
+    "transparencyScore": 0,
+    "isAdsTxtValid": false,
+    "isOwnerPublic": false,
+    "editorialScore": 0,
+    "hasFactCheckFailures": false,
+    "factCheckFailCount": 0,
+    "hasCorrectionPolicy": false,
+    "semanticScore": 0,
+    "politicalBias": "RIGHT",
+    "biasScore": 60,
+    "reliability": "MIXED",
+    "detectedCountry": "US",
+    "isClickbait": false,
+    "uxScore": 0,
+    "adDensity": "LOW",
+    "hasDarkPatterns": false,
+    "type": "GENERAL",
+    "justification": null,
+    "description": null,
+    "metadata": {
+      "mbfcData": {
+        "bias": "right",
+        "factual": "mixed"
+      },
+      "importedFrom": "AllSides+MBFC"
+    },
+    "lastAuditDate": null,
+    "mbfcRating": "right",
+    "allSidesRating": null,
+    "adFontesScore": null,
+    "isConsensusVerified": false,
+    "createdAt": "2026-02-01T13:45:16.559Z",
+    "updatedAt": "2026-02-01T17:20:59.643Z"
   }
-]
+}

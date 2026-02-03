@@ -67,6 +67,15 @@ export default function ChatMessage({ message }: { message: Msg }) {
     const scores = extractedSources.map(s => s.score || 50);
     const avgSourceScore = scores.length > 0 ? Math.round(scores.reduce((a, b) => a + b, 0) / scores.length) : 0;
 
+    // NORMALIZATION (Flatten Metadata for UI)
+    const normalizedSources = extractedSources.map(s => ({
+      ...s,
+      country: s.metadata?.country || s.country || "FR",
+      politicalBias: s.metadata?.politicalBias || s.politicalBias || "UNKNOWN",
+      explanation: s.explanation || s.metadata?.explanation || undefined,
+      description: s.description || s.metadata?.description || null
+    }));
+
     let finalEffectiveScore = extractedScore;
     let rawSourceMean = avgSourceScore;
 
@@ -87,7 +96,7 @@ export default function ChatMessage({ message }: { message: Msg }) {
 
     return {
       answer: extractedAnswer,
-      sources: extractedSources,
+      sources: normalizedSources,
       factScore: finalEffectiveScore || 0,
       rawSourceScore: rawSourceMean,
       scoreBreakdown: dynamicBreakdown,
@@ -470,9 +479,14 @@ export default function ChatMessage({ message }: { message: Msg }) {
                     details: transparencyData.sources[0]?.metrics || { transparency: 0, editorial: 0, semantic: 0, ux: 0 },
                     flags: transparencyData.sources[0]?.flags || { isPlatform: false, hasFactCheckFailures: false, isAdsTxtValid: false },
                     metadata: {
-                      name: "Analyse Agrégée",
-                      justification: transparencyData.sources.map((s: any) => s.justification).filter(Boolean).join(' ') || "Analyse basée sur les sources citées.",
-                      biasLevel: transparencyData.sources[0]?.biasLevel || 'UNKNOWN'
+                      name: transparencyData.sources[0]?.name || "Analyse Agrégée",
+                      justification: transparencyData.sources[0]?.justification || transparencyData.sources.map((s: any) => s.justification).filter(Boolean).join(' ') || "Analyse basée sur les sources citées.",
+                      description: transparencyData.sources[0]?.description || null,
+                      country: transparencyData.sources[0]?.metadata?.country || transparencyData.sources[0]?.country,
+                      politicalBias: transparencyData.sources[0]?.politicalBias || transparencyData.sources[0]?.metadata?.politicalBias || 'UNKNOWN',
+                      explanation: transparencyData.sources[0]?.metadata?.explanation || undefined,
+                      biasScore: transparencyData.sources[0]?.biasScore || transparencyData.sources[0]?.metadata?.biasScore,
+                      reliability: transparencyData.sources[0]?.reliability || transparencyData.sources[0]?.metadata?.reliability
                     },
                     sourceCount: transparencyData.sources.length,
                     outputScore: transparencyData.outputScore

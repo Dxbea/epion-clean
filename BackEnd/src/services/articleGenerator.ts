@@ -15,6 +15,10 @@ interface GeneratedArticle {
     factScore: number;
     sources: any[];
     imagePrompt?: string; // AJOUT
+    metadata?: {          // AJOUT: Pour passer des infos au worker
+        outputScore?: number;
+        citationUrls?: string[];
+    };
 }
 
 export async function generateArticleContent(request: GenerateArticleRequest): Promise<GeneratedArticle> {
@@ -63,61 +67,41 @@ export async function generateArticleContent(request: GenerateArticleRequest): P
             throw new Error("Le contenu généré est incomplet (titre ou content manquant).");
         }
 
-        // 4. Calcul du Trust Score Global (Réutilisation logique chat.ts et trust-score.ts)
-        // Map citations to domains
+        // 4. Préparation des sources (SANS analyse bloquante)
         console.log('Raw sources from AI (JSON):', parsedArticle.detectedSources);
 
         // Stratégie : Priorité aux citations natives Perplexity (grounding)
-        // Mais si vide (cas fréquent avec certains modèles), fallback sur le JSON
         let citationUrls = rawCitations;
         if (!citationUrls || citationUrls.length === 0) {
             citationUrls = parsedArticle.detectedSources || [];
         }
 
-        const sources = await Promise.all(citationUrls.map(async (url: string, idx: number) => {
+        // On ne fait PLUS d'analyse synchrone (getRichTrustScore).
+        // On retourne des objets sources "en attente" pour l'UI.
+        const sources = citationUrls.map((url: string, idx: number) => {
             let domain = '';
             try { domain = new URL(url).hostname.replace('www.', ''); } catch { }
 
-            // Audit via Trust Engine
-            const richScore = await getRichTrustScore(domain);
-
             return {
                 id: idx + 1,
-                name: richScore.metadata.name,
+                name: domain || 'Source inconnue',
                 url: url,
                 domain: domain,
-                trustScore: richScore.globalScore, // Score individuel
-                flags: richScore.flags,
-                type: richScore.metadata.type,
-                // UI Helpers
+                trustScore: null, // Sera rempli par le Worker
+                flags: null,
+                type: 'PENDING',
                 logo: `https://logo.clearbit.com/${domain}`,
-                description: richScore.metadata.description,
-                metrics: richScore.details
+                description: 'Analyse en cours...',
+                metrics: null
             };
-        }));
+        });
 
-        // Calcul Moyenne Sources (75% du score)
-        const validScores = sources.filter(s => s.trustScore > 0).map(s => s.trustScore);
-        const sourcesMean = validScores.length > 0
-            ? Math.round(validScores.reduce((a, b) => a + b, 0) / validScores.length)
-            : 50; // Défaut si pas de source qualifiée
-
-        // Note Output : Analyse réelle de la qualité du texte généré
+        // Note Output : Analyse rapide de la qualité du texte (Non bloquant, pur CPU)
         const outputAnalysis = analyzeOutputQuality(parsedArticle.content);
         const outputScore = outputAnalysis.score;
 
-        // Diversité
-        const domains = sources.map(s => s.domain).filter(d => !!d);
-        let diversityPenalty = 0;
-        if (domains.length >= 3) {
-            const counts: Record<string, number> = {};
-            domains.forEach(d => { counts[d] = (counts[d] || 0) + 1; });
-            const maxCount = Math.max(...Object.values(counts));
-            if ((maxCount / domains.length) > 0.5) diversityPenalty = 10;
-        }
-
-        const calculatedScore = Math.round((sourcesMean * 0.75) + (outputScore * 0.25) - diversityPenalty);
-        const finalFactScore = Math.min(100, Math.max(0, calculatedScore));
+        // Score temporaire : 50 (Neutre) en attendant l'enrichissement
+        const finalFactScore = 50;
 
         // Estimation temps de lecture (200 mots/min)
         const wordCount = parsedArticle.content.split(/\s+/).length;
@@ -132,15 +116,19 @@ export async function generateArticleContent(request: GenerateArticleRequest): P
             category: parsedArticle.category || request.category || "Général",
             estimatedReadTime: readTime,
             factScore: finalFactScore,
-            sources: sources,
-            imagePrompt: parsedArticle.imagePrompt // Peut être null
+            sources: sources, // Liste d'URLs non enrichies
+            imagePrompt: parsedArticle.imagePrompt,
+            // Métadonnées cachées pour le worker ou le contrôleur
+            metadata: {
+                outputScore,
+                citationUrls
+            }
         };
 
     } catch (error) {
         console.error("[ArticleGenerator] Error:", error);
         throw error;
     }
-
 }
 
 export async function transformTextWithAI(instruction: string, content: string, field: string = 'text'): Promise<string> {
