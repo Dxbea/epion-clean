@@ -3,8 +3,7 @@ import Modal from '@/components/ui/Modal';
 import { ShieldAlert } from 'lucide-react';
 import { getScoreGradient } from '@/lib/color-utils';
 import { SourceIdentityCard } from './trust-score-ui/SourceIdentityCard';
-import { TrustPillars } from './trust-score-ui/TrustPillars';
-import { ScoreTransparency } from './trust-score-ui/ScoreTransparency';
+import { UnifiedTrustCard } from './trust-score-ui/UnifiedTrustCard';
 
 export interface TrustData {
     globalScore: number;
@@ -106,26 +105,24 @@ export function TrustScoreModal({ isOpen, onClose, trustData }: TrustScoreModalP
                     </div>
                 </div>
 
-                {/* 2. PILLARS */}
+                {/* 2. Unified Trust Card */}
                 <div>
-                    <h3 className="text-xs font-bold uppercase text-gray-400 mb-4 px-1">Détail des 4 Piliers</h3>
-                    <TrustPillars
+                    <UnifiedTrustCard
                         details={details}
-                        flags={flags}
-                        livePenalties={metadata.explanation?.livePenalties}
+                        flags={{
+                            ...flags,
+                            isAdsTxtValid: flags.isAdsTxtValid,
+                            adDensity: flags.adDensity
+                        }}
+                        metadata={{
+                            name: metadata.name,
+                            country: metadata.country,
+                            politicalBias: metadata.politicalBias,
+                            explanation: metadata.explanation,
+                            reliability: metadata.reliability,
+                            justification: metadata.justification
+                        }}
                     />
-                </div>
-
-                {/* 3. TRANSPARENCY & CALCULATION */}
-                <div>
-                    <h3 className="text-xs font-bold uppercase text-gray-400 mb-4 px-1 mt-2">Transparence du Calcul</h3>
-                    {metadata.explanation ? (
-                        <ScoreTransparency explanation={metadata.explanation} />
-                    ) : (
-                        <p className="text-sm text-gray-500 italic text-center py-4 bg-gray-50 rounded-lg">
-                            Détails du calcul non disponibles pour cette source.
-                        </p>
-                    )}
                 </div>
 
             </div>

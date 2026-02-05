@@ -1,8 +1,7 @@
 import React, { useState } from 'react';
 import { ChevronDown, ShieldAlert, CheckCircle, Server } from 'lucide-react';
 import { SourceIdentityCard } from './trust-score-ui/SourceIdentityCard';
-import { TrustPillars } from './trust-score-ui/TrustPillars';
-import { ScoreTransparency } from './trust-score-ui/ScoreTransparency';
+import { UnifiedTrustCard } from './trust-score-ui/UnifiedTrustCard';
 import { getScoreGradient, getBadgeStyle } from '@/lib/color-utils';
 
 export interface SourceCriteria {
@@ -199,31 +198,23 @@ export default function SourceCard({ source, isFocused }: SourceCardProps) {
                             compact={true}
                         />
 
-                        {/* 2. Pillars */}
+                        {/* 2. Unified Trust Analysis (Replacement for Pillars + Transparency) */}
                         {source.metrics && (
-                            <div>
-                                <h5 className="mb-3 text-xs font-bold uppercase tracking-wide text-gray-500 dark:text-gray-400">
-                                    Détail du Score
-                                </h5>
-                                <TrustPillars
-                                    details={source.metrics}
-                                    flags={{
-                                        ...source.flags,
-                                        isAdsTxtValid: source.flags?.isAdsTxtValid ?? true
-                                    }}
-                                    livePenalties={source.explanation?.livePenalties}
-                                />
-                            </div>
-                        )}
-
-                        {/* 3. Transparency & Calculation */}
-                        {source.explanation && (
-                            <div>
-                                <h5 className="mb-3 text-xs font-bold uppercase tracking-wide text-gray-500 dark:text-gray-400">
-                                    Transparence
-                                </h5>
-                                <ScoreTransparency explanation={source.explanation} />
-                            </div>
+                            <UnifiedTrustCard
+                                details={source.metrics}
+                                flags={{
+                                    ...source.flags,
+                                    isAdsTxtValid: source.flags?.isAdsTxtValid ?? true
+                                }}
+                                metadata={{
+                                    name: source.name,
+                                    country: source.country,
+                                    politicalBias: source.politicalBias,
+                                    explanation: source.explanation,
+                                    reliability: source.reliability,
+                                    justification: source.justification
+                                }}
+                            />
                         )}
 
                         {/* Fallback Justification if no explanation */}

@@ -43,9 +43,9 @@ export function ScoreTransparency({ explanation }: ScoreTransparencyProps) {
     const isHybrid = formula.includes('70%');
 
     return (
-        <div className="bg-gray-50 dark:bg-white/5 rounded-xl border border-gray-100 dark:border-white/5 overflow-hidden">
+        <div className="bg-white dark:bg-slate-900 rounded-xl border border-gray-100 dark:border-white/5 shadow-sm overflow-hidden">
             {/* Header: The Equation */}
-            <div className="bg-gray-100 dark:bg-white/10 px-4 py-2 text-center border-b border-gray-200 dark:border-white/5">
+            <div className="bg-gray-50 dark:bg-white/5 px-4 py-2 text-center border-b border-gray-100 dark:border-white/5">
                 <p className="text-xs font-mono text-gray-600 dark:text-gray-300">
                     <span className="font-bold">Formule :</span> {formula}
                 </p>

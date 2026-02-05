@@ -94,6 +94,16 @@ export default function Article() {
       const domainVal = s.domain || s.name || (s.url ? new URL(s.url).hostname : "Source inconnue");
       const valCheck = (typeof s.trustScore === 'number') ? s.trustScore : s.score;
       const scoreVal = (valCheck === undefined || valCheck === null) ? null : valCheck;
+
+      // Fallback: Generate explanation if missing (Legacy Data Support)
+      const hasExplanation = s.explanation || s.metadata?.explanation;
+      const finalExplanation = hasExplanation || {
+        formula: "70% Base de données + 30% Analyse Live",
+        sources: ["Audit Epion (Legacy)"],
+        livePenalties: [],
+        pillarWeights: { transparency: "20%", editorial: "30%", semantic: "30%", ux: "20%" }
+      };
+
       return {
         ...s,
         domain: domainVal,
@@ -109,7 +119,7 @@ export default function Article() {
         country: s.metadata?.country || s.country || "FR",
         politicalBias: s.metadata?.politicalBias || s.politicalBias || "UNKNOWN",
         metric: s.metrics || s.metric,
-        explanation: s.explanation || s.metadata?.explanation || undefined
+        explanation: finalExplanation
       };
     });
 
