@@ -1,0 +1,53 @@
+import { Queue } from 'bullmq';
+import { env } from '../env';
+import { logger } from './logger';
+
+const redisUrl = process.env.REDIS_URL || 'redis://localhost:6379';
+
+// Parse redis URL to fit BullMQ connection options if needed, 
+// strictly speaking BullMQ accepts a connection object or URL, but ioredis instance is preferred for reuse
+// Here we will use the connection object approach for simplicity and robustness
+import IORedis from 'ioredis';
+
+const connection = new IORedis(redisUrl, {
+    maxRetriesPerRequest: null, // Required by BullMQ
+});
+
+export const embeddingQueue = new Queue('embedding-queue', {
+    connection,
+    defaultJobOptions: {
+        attempts: 3,
+        backoff: {
+            type: 'exponential',
+            delay: 1000,
+        },
+        removeOnComplete: true, // Keep redis clean
+        removeOnFail: 100,      // Keep last 100 failed jobs for debugging
+    },
+});
+
+embeddingQueue.on('error', (err) => {
+    logger.error('Queue connection error', { module: 'Queue', error: err.message });
+});
+
+logger.info('Embedding Queue initialized', { module: 'Queue' });
+
+// Source Enrichment Queue (TrustScore Analysis)
+export const sourceEnrichmentQueue = new Queue('source-enrichment-queue', {
+    connection,
+    defaultJobOptions: {
+        attempts: 3,
+        backoff: {
+            type: 'exponential',
+            delay: 2000, // 2s, 4s, 8s
+        },
+        removeOnComplete: true,
+        removeOnFail: 100,
+    },
+});
+
+sourceEnrichmentQueue.on('error', (err) => {
+    logger.error('Source Enrichment Queue error', { module: 'Queue', error: err.message });
+});
+
+logger.info('Source Enrichment Queue initialized', { module: 'Queue' });

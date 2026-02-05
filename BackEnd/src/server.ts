@@ -27,6 +27,7 @@ import { router as socialRouter } from './routes/social';
 import { router as usersRouter } from './routes/users';
 import { router as healthRouter } from './routes/health';
 import { initializeCron } from './cron/dailyReset';
+import './workers/embedding.worker'; // 🧠 Initialize Worker
 
 // ... (existing code)
 

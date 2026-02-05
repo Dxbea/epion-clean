@@ -419,7 +419,12 @@ model Source {
   
   // --- PILIER 3 : SÉMANTIQUE (Contenu) ---
   semanticScore     Int @default(0)
-  biasLevel         String  @default("NEUTRAL") // LEFT, RIGHT, CENTER...
+  // biasLevel REMOVED in favor of 2-Axis System
+  politicalBias     PoliticalBias @default(UNKNOWN)
+  biasScore         Int           @default(0) // -100 (Left) to +100 (Right)
+  reliability       Reliability   @default(UNKNOWN)
+  detectedCountry   String?       @default("FR")
+  
   isClickbait       Boolean @default(false)     // Titre trompeur vs contenu
   
   // --- PILIER 4 : UX & RÉPUTATION ---
@@ -434,8 +439,37 @@ model Source {
   metadata        Json?    // Métadonnées étendues (ex: owners, headquarters...)
   lastAuditDate   DateTime?
   
+  // --- EXTENSION CONSENSUS PROTOCOL ---
+  // Données brutes pour la transparence
+  mbfcRating       String?   // ex: "Left-Center", "Right"
+  allSidesRating   String?   // ex: "Lean Left", "Center"
+  adFontesScore    Float?    // Score numérique
+
+  // Flag de validation humaine/consensus
+  isConsensusVerified Boolean @default(false)
+
   createdAt       DateTime @default(now())
   updatedAt       DateTime @updatedAt
+}
+
+enum PoliticalBias {
+  EXTREME_LEFT
+  LEFT
+  CENTER_LEFT
+  CENTER
+  CENTER_RIGHT
+  RIGHT
+  EXTREME_RIGHT
+  SATIRE
+  UNKNOWN
+}
+
+enum Reliability {
+  HIGH
+  MIXED
+  LOW
+  PROPAGANDA
+  UNKNOWN
 }
 
 enum ConfidenceLevel {
@@ -477,5 +511,6 @@ model KnowledgeChunk {
   articleId String
   article   Article                @relation(fields: [articleId], references: [id], onDelete: Cascade)
 
-  @@index([embedding], name: "embedding_index", type: Hnsw(ops: VectorCosineOps))
+  // TODO: Fix Hnsw index syntax. Currently causing validation error P1012.
+  // @@index([embedding], name: "embedding_index", type: Hnsw)
 }

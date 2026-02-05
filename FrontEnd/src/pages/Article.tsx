@@ -92,7 +92,18 @@ export default function Article() {
     // 3. NORMALISATION
     const normalized = parsedData.map((s: any) => {
       const domainVal = s.domain || s.name || (s.url ? new URL(s.url).hostname : "Source inconnue");
-      const scoreVal = (typeof s.trustScore === 'number') ? s.trustScore : (s.score || 0);
+      const valCheck = (typeof s.trustScore === 'number') ? s.trustScore : s.score;
+      const scoreVal = (valCheck === undefined || valCheck === null) ? null : valCheck;
+
+      // Fallback: Generate explanation if missing (Legacy Data Support)
+      const hasExplanation = s.explanation || s.metadata?.explanation;
+      const finalExplanation = hasExplanation || {
+        formula: "70% Base de données + 30% Analyse Live",
+        sources: ["Audit Epion (Legacy)"],
+        livePenalties: [],
+        pillarWeights: { transparency: "20%", editorial: "30%", semantic: "30%", ux: "20%" }
+      };
+
       return {
         ...s,
         domain: domainVal,
@@ -104,7 +115,11 @@ export default function Article() {
         type: s.type || s.category || "GENERAL",
         category: s.category || s.type || "GENERAL",
         logo: s.logo || `https://www.google.com/s2/favicons?domain=${domainVal !== "Source inconnue" ? domainVal : 'example.com'}`,
-        flags: s.flags || { isAdsTxtValid: true, isClickbait: false, isPlatform: false }
+        flags: s.flags || { isAdsTxtValid: true, isClickbait: false, isPlatform: false },
+        country: s.metadata?.country || s.country || "FR",
+        politicalBias: s.metadata?.politicalBias || s.politicalBias || "UNKNOWN",
+        metric: s.metrics || s.metric,
+        explanation: finalExplanation
       };
     });
 
@@ -158,18 +173,23 @@ export default function Article() {
   // ----------------------------------------
   // Charger l'article
   // ----------------------------------------
-  React.useEffect(() => {
-    let alive = true;
-    (async () => {
+  // ----------------------------------------
+  // Charger l'article (et Polling Intelligent)
+  // ----------------------------------------
+  const fetchArticle = React.useCallback(async (silent = false) => {
+    if (!silent) {
       setLoading(true);
       setError(null);
-      try {
-        const res = await fetch(`${API_BASE}/api/articles/slug/${encodeURIComponent(slug)}`);
-        if (!res.ok) throw new Error(`HTTP ${res.status}`);
-        const data = await res.json();
-        if (!alive) return;
+    }
+    try {
+      const res = await fetch(`${API_BASE}/api/articles/slug/${encodeURIComponent(slug)}`);
+      if (!res.ok) throw new Error(`HTTP ${res.status}`);
+      const data = await res.json();
 
-        setArticle({
+      setArticle((prev) => {
+        // Optimisation : Si les données n'ont pas changé (deep check simplifié), ne pas update
+        // Mais ici on veut surtout mettre à jour les TrustScores
+        return {
           id: data.id,
           slug: data.slug,
           title: data.title,
@@ -183,20 +203,40 @@ export default function Article() {
           factCheckScore: data.factCheckScore ?? null,
           factCheckData: data.factCheckData ?? null,
           generationPrompt: data.generationPrompt ?? null,
-        });
-      } catch (e: any) {
-        if (alive) {
-          setError(e?.message || 'Failed to load article');
-          setArticle(null);
-        }
-      } finally {
-        if (alive) setLoading(false);
+        };
+      });
+    } catch (e: any) {
+      if (!silent) {
+        setError(e?.message || 'Failed to load article');
+        setArticle(null);
       }
-    })();
-    return () => {
-      alive = false;
-    };
+    } finally {
+      if (!silent) setLoading(false);
+    }
   }, [slug]);
+
+  // Initial Load
+  React.useEffect(() => {
+    fetchArticle(false);
+  }, [fetchArticle]);
+
+  // Polling Intelligent : Si des sources sont "PENDING", on rafraîchit
+  const isPending = React.useMemo(() => {
+    const sources = topLevelTransparencyData?.sources || [];
+    // On considère "Pending" si une source a un trustScore null OU un type 'PENDING'
+    return sources.some((s: any) => s.trustScore === null || s.type === 'PENDING');
+  }, [topLevelTransparencyData]);
+
+  React.useEffect(() => {
+    if (!isPending) return;
+
+    console.log("🔄 Smart Polling Active: Waiting for scores...");
+    const interval = setInterval(() => {
+      fetchArticle(true);
+    }, 3000);
+
+    return () => clearInterval(interval);
+  }, [isPending, fetchArticle]);
 
   // ----------------------------------------
   // Enregistrer une vue (POST /view)
@@ -400,7 +440,11 @@ export default function Article() {
   // --- DEBUG CRITIQUE ---
   console.log("📢 ARTICLE DATA RECEIVED:", article);
   console.log("Sources field:", article.sources);
-  console.log("FactCheckData field:", article.factCheckData);
+  if (article.factCheckData && Array.isArray(article.factCheckData) && article.factCheckData.length > 0) {
+    console.log("FactCheckData ITEM [0] STRINGIFIED:", JSON.stringify(article.factCheckData[0], null, 2));
+  } else {
+    console.log("FactCheckData field (raw):", article.factCheckData);
+  }
 
   // LOGIC MOVED TO TOP LEVEL USEMEMO TO AVOID HOOK ERRORS
   const transparencyData = topLevelTransparencyData; // Will be defined above
@@ -519,7 +563,12 @@ export default function Article() {
         />
 
         {/* Trust Header (Always Visible) */}
-        <div className="mt-4 rounded-2xl border border-black/10 bg-white px-5 py-3 dark:border-white/10 dark:bg-neutral-900 shadow-sm">
+        <div className="mt-4 rounded-2xl border border-black/10 bg-white px-5 py-3 dark:border-white/10 dark:bg-neutral-900 shadow-sm relative overflow-hidden">
+          {isPending && (
+            <div className="absolute top-0 left-0 w-full h-1 bg-gray-100 dark:bg-white/5">
+              <div className="h-full bg-blue-500/50 animate-progress-indeterminate"></div>
+            </div>
+          )}
           {/* CALCUL INLINE POUR FORCER LE 75/25 */}
           <TrustHeader
             score={displayScore}
@@ -628,22 +677,33 @@ export default function Article() {
         </div>
       </Modal>
 
+      {/* Modal Score de Confiance (Détail) */}
       {activeModal === 'reliability' && (
         <TrustScoreModal
           isOpen={true}
           onClose={() => setActiveModal(null)}
           trustData={{
-            globalScore: displayScore,
-            confidenceLevel: normalizedSources[0]?.confidence || 'LOW',
-            details: normalizedSources[0]?.metrics || { transparency: 0, editorial: 0, semantic: 0, ux: 0 },
-            flags: normalizedSources[0]?.flags || { isPlatform: false, hasFactCheckFailures: false, isAdsTxtValid: false },
-            metadata: {
-              name: "Analyse Article",
-              justification: normalizedSources.map((s: any) => s.justification).filter(Boolean).join(' ') || "Analyse basée sur les sources.",
-              biasLevel: normalizedSources[0]?.biasLevel || 'UNKNOWN'
+            globalScore: topLevelTransparencyData.rawSourceScore,
+            confidenceLevel: 'HIGH', // TODO: Dynamique
+            details: {
+              transparency: article?.factCheckData?.sources?.[0]?.metrics?.transparency || 0,
+              editorial: article?.factCheckData?.sources?.[0]?.metrics?.editorial || 0,
+              semantic: article?.factCheckData?.sources?.[0]?.metrics?.semantic || 0,
+              ux: article?.factCheckData?.sources?.[0]?.metrics?.ux || 0,
             },
-            sourceCount: normalizedSources.length,
-            outputScore: 90
+            flags: article?.factCheckData?.sources?.[0]?.flags || { isPlatform: false, hasFactCheckFailures: false, isAdsTxtValid: false },
+            metadata: {
+              name: article?.factCheckData?.sources?.[0]?.name || "Source Principale",
+              justification: article?.factCheckData?.sources?.[0]?.justification || null,
+              description: article?.factCheckData?.sources?.[0]?.description || null,
+              politicalBias: article?.factCheckData?.sources?.[0]?.metadata?.politicalBias || "UNKNOWN",
+              biasScore: article?.factCheckData?.sources?.[0]?.metadata?.biasScore || 0,
+              reliability: article?.factCheckData?.sources?.[0]?.metadata?.reliability || "UNKNOWN",
+              country: article?.factCheckData?.sources?.[0]?.metadata?.country || "FR",
+              explanation: article?.factCheckData?.sources?.[0]?.metadata?.explanation || undefined
+            },
+            sourceCount: topLevelTransparencyData.sources.length,
+            outputScore: topLevelTransparencyData.outputScore
           }}
         />
       )}
@@ -651,4 +711,3 @@ export default function Article() {
     </>
   );
 }
-

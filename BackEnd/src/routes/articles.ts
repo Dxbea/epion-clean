@@ -11,9 +11,13 @@ import { checkArticleQuota } from '../lib/billing-service';
 import { ingestArticle } from '../lib/rag-service';
 import { sanitizeArticleHtml } from '../lib/sanitizeHtml';
 import { logger } from '../lib/logger';
+import { embeddingQueue } from '../lib/queue';
 
+
+import { env } from '../env';
 
 export const router = Router();
+const COOKIE_NAME = env.COOKIE_NAME || 'epion_session';
 
 // --- PUT /api/articles/:id  (update) ---------------------------------
 // --- PUT /api/articles/:id  (update) ---------------------------------
@@ -110,9 +114,10 @@ router.put('/:id', async (req, res, next) => {
       select: { id: true, slug: true },
     });
 
-    // 🧠 RAG: Fire-and-forget re-ingestion (non-blocking)
-    ingestArticle(updated.id).catch(err =>
-      logger.error('Background Re-Ingestion Failed', { module: 'Articles', articleId: updated.id, error: err })
+    // 🧠 RAG: Async Queue (BullMQ)
+    // On met à jour l'article, donc on demande de refaire l'embedding
+    embeddingQueue.add('generate-vector', { articleId: updated.id }).catch(err =>
+      logger.error('Queue Add Failed', { error: err.message })
     );
 
     res.json(updated);
@@ -215,6 +220,12 @@ async function getDefaultAuthorId(): Promise<string> {
 // DEBUT BLOC (remplace seulement ce handler GET /top)
 router.get('/top', async (req, res, next) => {
   try {
+    // CACHE: 5min si anonyme
+    if (!req.cookies?.[COOKIE_NAME]) {
+      res.set('Cache-Control', 'public, max-age=300');
+      res.set('Vary', 'Cookie');
+    }
+
     // --- petit rate-limit sur les tops ---
     let key = `ip:${req.ip}`;
     try {
@@ -380,6 +391,13 @@ router.get('/top', async (req, res, next) => {
 // DEBUT BLOC (remplace seulement ce handler GET /)
 router.get('/', async (req, res, next) => {
   try {
+    // CACHE: 60s si anonyme (+stale 30s)
+    // On ne cache pas si status=ALL (car admin) mais le check cookie couvre déjà ça (admin = connecté)
+    if (!req.cookies?.[COOKIE_NAME]) {
+      res.set('Cache-Control', 'public, max-age=60, stale-while-revalidate=30');
+      res.set('Vary', 'Cookie');
+    }
+
     const rawTake = Number(req.query.take ?? 20);
     const take = Math.min(
       Math.max(Number.isFinite(rawTake) ? rawTake : 20, 1),
@@ -560,6 +578,17 @@ router.get('/slug/:slug', async (req, res, next) => {
   try {
     const { slug } = req.params;
 
+    // ATTENTION : On ne peut pas mettre le cache tout de suite
+    // car on ne sait pas encore si l'article est PUBLISHED.
+    // Mais si pas de cookie, on est anonyme, donc on ne verra QUE du published.
+    // Donc Safe de mettre le header, car si 404/403, le cache ne s'appliquera pas pareil (ou on s'en fiche).
+    // => On met le cache conditionnel, et si on renvoie une erreur, Express/Client gérera.
+
+    if (!req.cookies?.[COOKIE_NAME]) {
+      res.set('Cache-Control', 'public, max-age=3600, stale-while-revalidate=600');
+      res.set('Vary', 'Cookie');
+    }
+
     // 1) essai exact
     let a = await prisma.article.findUnique({
       where: { slug },
@@ -609,6 +638,19 @@ router.get('/slug/:slug', async (req, res, next) => {
         },
       });
     }
+
+    // FORCE NO CACHE DEBUG
+    res.set('Cache-Control', 'no-store');
+
+    if (a) {
+      console.log(`[GET /slug/${slug}] Found via primary lookup. FactCheckScore:`, a.factCheckScore);
+      if (a.factCheckData) {
+        const fcd: any = a.factCheckData;
+        const sources = Array.isArray(fcd) ? fcd : (fcd.sources || []);
+        console.log(`[GET /slug/${slug}] Sources sample:`, sources.map((s: any) => ({ domain: s.domain, score: s.trustScore || s.score })));
+      }
+    }
+
 
     // 3) fallback ancien lien par id
     if (!a) {
@@ -802,6 +844,12 @@ router.get('/search', async (req, res, next) => {
 // DEBUT BLOC (remplace seulement ce handler GET /:id)
 router.get('/:id', async (req, res, next) => {
   try {
+    // CACHE: 1h si anonyme
+    if (!req.cookies?.[COOKIE_NAME]) {
+      res.set('Cache-Control', 'public, max-age=3600, stale-while-revalidate=600');
+      res.set('Vary', 'Cookie');
+    }
+
     const { id } = req.params;
 
     const item = await prisma.article.findUnique({
@@ -1009,9 +1057,14 @@ router.post('/', async (req, res, next) => {
       },
     });
 
-    // 🧠 RAG: Fire-and-forget ingestion (non-blocking)
-    ingestArticle(created.id).catch(err =>
-      console.error('⚠️ Background Ingestion Failed:', err)
+    // 🧠 RAG: Async Queue (BullMQ)
+    // On délègue le travail lourd au worker
+    embeddingQueue.add('generate-vector', {
+      articleId: created.id,
+      // Le content est passé pour info/debug dans le job, mais le worker refetchera la DB pour être sûr
+      contentSize: safeContent?.length
+    }).catch(err =>
+      logger.error('Queue Add Failed', { error: err.message })
     );
 
     res.status(201).json(created);

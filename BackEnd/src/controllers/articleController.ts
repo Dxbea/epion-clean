@@ -88,6 +88,26 @@ export async function createAIArticle(req: Request, res: Response, next: NextFun
             }
         });
 
+        // 4. Background Job: Enrichissement des sources
+        // On récupère les URLs brutes passées via les métadonnées (ou on re-parse si nécessaire, mais metadata est plus sûr)
+        const sourcesToEnrich = generatedData.metadata?.citationUrls || [];
+
+        if (sourcesToEnrich.length > 0) {
+            console.log(`[Controller] Dispatching source enrichment for article ${newArticle.id} (${sourcesToEnrich.length} sources)`);
+
+            // Pas de await ici (fire and forget) pour ne pas bloquer la réponse
+            // Mais on catch l'erreur pour ne pas faire crasher le process
+            import('../lib/queue').then(({ sourceEnrichmentQueue }) => {
+                sourceEnrichmentQueue.add('enrich', {
+                    articleId: newArticle.id,
+                    sources: sourcesToEnrich
+                }, {
+                    removeOnComplete: true,
+                    attempts: 2
+                }).catch(err => console.error('[Controller] Queue dispatch failed:', err));
+            });
+        }
+
         // 4. Return to Frontend
         return res.status(201).json({
             article: newArticle,

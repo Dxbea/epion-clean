@@ -1,5 +1,8 @@
 import React, { useState } from 'react';
 import { ChevronDown, ShieldAlert, CheckCircle, Server } from 'lucide-react';
+import { SourceIdentityCard } from './trust-score-ui/SourceIdentityCard';
+import { UnifiedTrustCard } from './trust-score-ui/UnifiedTrustCard';
+import { getScoreGradient, getBadgeStyle } from '@/lib/color-utils';
 
 export interface SourceCriteria {
     label: string;
@@ -25,15 +28,26 @@ export interface SourceData {
     id: number;
     name: string;
     domain: string;
-    url?: string; // AJOUT
+    url?: string;
     logo: string;
     category: string;
     score: number;
-    description?: string;
+    description?: string | null;
     criteria?: SourceCriteria[];
     metrics?: SourceMetrics;
     flags?: SourceFlags;
     justification?: string;
+    // New Fields
+    country?: string;
+    politicalBias?: string;
+    biasScore?: number;
+    reliability?: string;
+    explanation?: {
+        formula: string;
+        sources: string[];
+        livePenalties: string[];
+        pillarWeights: { [key: string]: string };
+    };
 }
 
 interface SourceCardProps {
@@ -51,12 +65,18 @@ function getCategoryStyle(category: string) {
     return `${base} bg-gray-100 text-gray-900 dark:bg-neutral-800 dark:text-white border-gray-200`;
 }
 
-import { getScoreColor, getScoreColorWithOpacity, getScoreGradient, createGlossyGradient, getBadgeStyle } from '@/lib/color-utils';
-
-function ScoreBadge({ score }: { score: number }) {
-    // Styles Standardisés (Vibrant - Texte Blanc)
+function ScoreBadge({ score }: { score: number | null }) {
+    if (score === null) {
+        return (
+            <div className="flex items-center gap-2 rounded-full px-2 py-1 bg-gray-100 dark:bg-white/10 border border-gray-200 dark:border-white/5 animate-pulse">
+                <span className="text-[10px] font-bold uppercase tracking-wider text-gray-400 dark:text-gray-500">
+                    Analyse...
+                </span>
+                <div className="h-5 w-5 rounded-full bg-gray-200 dark:bg-white/20" />
+            </div>
+        );
+    }
     const badgeStyle = getBadgeStyle(score);
-
     return (
         <div
             className="flex items-center gap-2 rounded-full px-2 py-1 transition-all duration-300"
@@ -78,25 +98,10 @@ function ScoreBadge({ score }: { score: number }) {
     );
 }
 
-// Mini Jauge pour la grille 2x2
-const MiniGauge = ({ label, score, colorHex, bgClass }: { label: string, score: number, colorHex: string, bgClass: string }) => (
-    <div className="flex flex-col gap-1">
-        <div className="flex justify-between items-end">
-            <span className="text-[10px] font-bold text-gray-900 dark:text-gray-100 uppercase">{label}</span>
-            <span className="text-xs font-bold" style={{ color: colorHex }}>{score}/100</span>
-        </div>
-        <div className={`h-1.5 w-full rounded-full overflow-hidden ${bgClass}`}>
-            <div
-                className="h-full rounded-full transition-all duration-500"
-                style={{ width: `${score}%`, backgroundImage: createGlossyGradient(colorHex) }}
-            />
-        </div>
-    </div>
-);
-
 export default function SourceCard({ source, isFocused }: SourceCardProps) {
     const [isExpanded, setIsExpanded] = useState(false);
     const cardRef = React.useRef<HTMLDivElement>(null);
+    const isPending = source.score === null;
 
     React.useEffect(() => {
         if (isFocused && cardRef.current) {
@@ -109,7 +114,6 @@ export default function SourceCard({ source, isFocused }: SourceCardProps) {
         ? "border-2 border-[#00dc82] ring-1 ring-[#00dc82] shadow-lg bg-white dark:bg-neutral-900 transition-all duration-300"
         : "border border-gray-200 bg-white dark:border-white/10 dark:bg-neutral-900";
 
-    // Contenu interne (Logo + Texte)
     const InternalContent = () => (
         <div className="flex items-center gap-3 overflow-hidden">
             <div className="h-8 w-8 shrink-0 overflow-hidden rounded bg-white border border-gray-100 dark:bg-neutral-800 dark:border-neutral-700">
@@ -130,23 +134,10 @@ export default function SourceCard({ source, isFocused }: SourceCardProps) {
                     <span className={`rounded px-1.5 py-0.5 text-[10px] font-medium shrink-0 ${getCategoryStyle(source.category)}`}>
                         {source.category}
                     </span>
-
                     {source.flags?.hasFactCheckFailures && (
                         <span className="flex items-center gap-1 rounded px-1.5 py-0.5 text-[10px] font-bold bg-red-100 text-red-900 dark:bg-red-900/30 dark:text-red-200 shrink-0">
                             <ShieldAlert className="w-3 h-3" />
                             Alertes
-                        </span>
-                    )}
-                    {source.flags?.isAdsTxtValid && (
-                        <span className="hidden sm:flex items-center gap-1 rounded px-1.5 py-0.5 text-[10px] font-medium bg-emerald-100 text-emerald-900 dark:bg-emerald-900/30 dark:text-emerald-200 shrink-0">
-                            <CheckCircle className="w-3 h-3" />
-                            Ads.txt OK
-                        </span>
-                    )}
-                    {source.flags?.isPlatform && (
-                        <span className="hidden sm:flex items-center gap-1 rounded px-1.5 py-0.5 text-[10px] font-medium bg-gray-100 text-gray-900 dark:bg-gray-800 dark:text-gray-200 shrink-0">
-                            <Server className="w-3 h-3" />
-                            Hébergeur
                         </span>
                     )}
                 </div>
@@ -160,14 +151,12 @@ export default function SourceCard({ source, isFocused }: SourceCardProps) {
     return (
         <div
             ref={cardRef}
-            className={`w-full rounded-lg transition-all hover:shadow-md ${containerStyle}`}
+            className={`w-full rounded-lg transition-all hover:shadow-md ${containerStyle} ${isPending ? 'opacity-90' : ''}`}
         >
-            {/* Header (Toujours visible) */}
             <div
                 className="flex cursor-pointer items-center justify-between p-4"
-                onClick={() => setIsExpanded(!isExpanded)}
+                onClick={() => !isPending && setIsExpanded(!isExpanded)}
             >
-                {/* Gauche : Logo + Infos (Cliquable si URL) */}
                 {source.url ? (
                     <a
                         href={source.url}
@@ -185,85 +174,58 @@ export default function SourceCard({ source, isFocused }: SourceCardProps) {
                     </div>
                 )}
 
-                {/* Droite : Score Badge + Chevron */}
                 <div className="flex items-center gap-3 shrink-0">
                     <ScoreBadge score={source.score} />
-                    <ChevronDown
-                        className={`h-5 w-5 text-gray-600 transition-transform duration-200 ${isExpanded ? 'rotate-180' : ''}`}
-                    />
+                    {!isPending && (
+                        <ChevronDown
+                            className={`h-5 w-5 text-gray-600 transition-transform duration-200 ${isExpanded ? 'rotate-180' : ''}`}
+                        />
+                    )}
                 </div>
             </div>
 
-            {/* Corps (Expandable) */}
-            {isExpanded && (
-                <div className="animate-in slide-in-from-top-2 fade-in duration-200 border-t border-gray-100 p-4 bg-white dark:bg-white/5 dark:border-white/5">
-                    {source.description && (
-                        <p className="mb-4 text-sm text-gray-900 dark:text-gray-300 italic font-medium">
-                            "{source.description}"
-                        </p>
-                    )}
+            {/* EXPANDED VIEW: COMPLETE TRANSPARENCY UI */}
+            {isExpanded && !isPending && (
+                <div className="animate-in slide-in-from-top-2 fade-in duration-200 border-t border-gray-100 p-4 bg-gray-50/50 dark:bg-white/5 dark:border-white/5">
 
-                    <div className="rounded-lg bg-white p-4 border border-gray-200 dark:bg-neutral-800 dark:border-white/5 transition-all shadow-sm">
-                        <h5 className="mb-4 text-xs font-bold uppercase tracking-wide text-gray-900 dark:text-gray-100 flex justify-between items-center">
-                            Détail du Score
-                            <span className="text-[10px] font-normal text-gray-500">Score V2</span>
-                        </h5>
+                    <div className="space-y-6">
+                        {/* 1. Identity & Description */}
+                        <SourceIdentityCard
+                            name={source.name}
+                            description={source.description}
+                            country={source.country}
+                            politicalBias={source.politicalBias}
+                            compact={true}
+                        />
 
-                        {/* Grille des 4 Piliers */}
-                        {source.metrics ? (
-                            <div className="grid grid-cols-2 gap-x-6 gap-y-4 mb-4">
-                                <MiniGauge
-                                    label="Transparence"
-                                    score={source.metrics.transparency}
-                                    colorHex="#3B82F6"
-                                    bgClass="bg-blue-100 dark:bg-blue-900/20"
-                                />
-                                <MiniGauge
-                                    label="Processus Éditorial"
-                                    score={source.metrics.editorial}
-                                    colorHex="#10B981"
-                                    bgClass="bg-emerald-100 dark:bg-emerald-900/20"
-                                />
-                                <MiniGauge
-                                    label="Sémantique"
-                                    score={source.metrics.semantic}
-                                    colorHex="#8B5CF6"
-                                    bgClass="bg-purple-100 dark:bg-purple-900/20"
-                                />
-                                <MiniGauge
-                                    label="Qualité UX"
-                                    score={source.metrics.ux}
-                                    colorHex="#F97316"
-                                    bgClass="bg-orange-100 dark:bg-orange-900/20"
-                                />
-                            </div>
-                        ) : (
-                            // Fallback ancien système (Criteria) ou Vide
-                            source.criteria && source.criteria.length > 0 ? (
-                                <div className="grid grid-cols-2 gap-2 sm:grid-cols-3">
-                                    {source.criteria.map((c, idx) => (
-                                        <div key={idx} className="flex flex-col rounded-md bg-gray-50 p-2 text-center border border-gray-200 dark:bg-neutral-900 dark:border-white/5">
-                                            <span className="text-[10px] uppercase text-gray-600 dark:text-gray-400 mb-0.5">{c.label}</span>
-                                            <span className="text-xs font-bold text-gray-900 dark:text-white">{c.value}</span>
-                                        </div>
-                                    ))}
-                                </div>
-                            ) : (
-                                <div className="py-2 text-center">
-                                    <p className="text-xs text-gray-500 italic">Détails métriques non disponibles pour cette source.</p>
-                                </div>
-                            )
+                        {/* 2. Unified Trust Analysis (Replacement for Pillars + Transparency) */}
+                        {source.metrics && (
+                            <UnifiedTrustCard
+                                details={source.metrics}
+                                flags={{
+                                    ...source.flags,
+                                    isAdsTxtValid: source.flags?.isAdsTxtValid ?? true
+                                }}
+                                metadata={{
+                                    name: source.name,
+                                    country: source.country,
+                                    politicalBias: source.politicalBias,
+                                    explanation: source.explanation,
+                                    reliability: source.reliability,
+                                    justification: source.justification
+                                }}
+                            />
                         )}
 
-                        {/* Justification Footer */}
-                        {(source.justification || (source.criteria && source.criteria.length > 0)) && (
-                            <div className="mt-2 pt-3 border-t border-gray-100 dark:border-white/5">
-                                <p className="text-xs text-gray-900 dark:text-emerald-400 font-medium leading-relaxed">
-                                    {source.justification ? source.justification :
-                                        "Cette source est classée selon nos critères de fiabilité V1."}
+                        {/* Fallback Justification if no explanation */}
+                        {!source.explanation && source.justification && (
+                            <div className="pt-2 border-t border-gray-200 dark:border-white/5">
+                                <p className="text-xs text-gray-600 dark:text-gray-400 italic">
+                                    "{source.justification}"
                                 </p>
                             </div>
                         )}
+
                     </div>
                 </div>
             )}

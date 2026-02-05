@@ -2,6 +2,7 @@
 import * as React from 'react';
 import { API_BASE } from '@/config/api';
 import { withCsrf } from '@/lib/csrf';
+import { useMe } from '@/contexts/MeContext';
 
 export type Rigor = 'fast' | 'balanced' | 'precise';
 
@@ -73,6 +74,7 @@ export function useChatSession(sessionId?: string) {
   const [messages, setMessages] = React.useState<ChatMessageItem[]>([]);
   const [loading, setLoading] = React.useState(false);
   const [thinking, setThinking] = React.useState(false);
+  const { me } = useMe();
 
   // ------ Sessions
 
@@ -240,7 +242,39 @@ export function useChatSession(sessionId?: string) {
     ) => {
       setThinking(true);
 
-      // auto-titre optimiste si la session est encore "New chat"
+      if (!me) {
+        setThinking(false);
+        // throw new Error("User not authenticated"); 
+        // OR implicitly let backend handle it, but UI might crash if using 'me' ID.
+        // The error "Cannot read properties of null (reading 'user')" likely comes from optimistic logic or backend response.
+        // Let's ensure we don't proceed without 'me' if logic depends on it.
+        // For now, let's just create a guard.
+        return;
+      }
+
+      // 1. Optimistic Updates
+      const tempUserId = me?.id || `guest-${Date.now()}`;
+      const tempAiId = `temp-ai-${Date.now()}`;
+      const now = new Date().toISOString();
+
+      const userMsg: ChatMessageItem = {
+        id: tempUserId,
+        role: 'user',
+        content,
+        createdAt: now,
+      };
+
+      const aiMsg: ChatMessageItem = {
+        id: tempAiId,
+        role: 'assistant',
+        content: '',
+        createdAt: now,
+      };
+
+      // Optimistic set
+      setMessages((prev) => [...prev, userMsg, aiMsg]);
+
+      // Optimize title logic
       const sess = sessions.find((s) => s.id === id);
       if (sess && (sess.title === 'New chat' || !sess.title?.trim())) {
         const optimistic = autoTitleFrom(content);
@@ -260,21 +294,60 @@ export function useChatSession(sessionId?: string) {
           `${API_BASE}/api/chat/sessions/${id}/messages`,
           init,
         );
-        const data = await json<{
-          user: ChatMessageItem;
-          assistant: ChatMessageItem;
-        }>(res);
 
-        setMessages((prev) => [...prev, data.user, data.assistant]);
+        if (!res.ok) {
+          // Handle Errors (402, 403, 500)
+          const text = await res.text();
+          let data;
+          try { data = JSON.parse(text); } catch { }
+          const err: any = new Error(data?.message || text || `HTTP ${res.status}`);
+          err.status = res.status;
+          if (data?.error) err.code = data.error;
 
-        // resynchronise la liste (titre final + updatedAt)
+          // Rollback optimistic
+          setMessages((prev) => prev.filter(m => m.id !== tempUserId && m.id !== tempAiId));
+          throw err;
+        }
+
+        // 2. Stream Reading
+        if (!res.body) throw new Error('No response body');
+        const reader = res.body.getReader();
+        const decoder = new TextDecoder('utf-8');
+
+        let accumulated = '';
+
+        while (true) {
+          const { done, value } = await reader.read();
+          if (done) break;
+
+          const chunk = decoder.decode(value, { stream: true });
+          accumulated += chunk;
+
+          // Live Update UI
+          setMessages((prev) =>
+            prev.map((m) =>
+              m.id === tempAiId ? { ...m, content: accumulated } : m
+            )
+          );
+        }
+
+        // 3. Sync finished (Optional: Fetch real message to get ID and Metadata/Sources)
+        // Since backend saves logic at the end, we can reload or just keep optimistic for now.
+        // For better experience (citations), we should reload messages silently.
+        loadMessages(id).catch(() => { });
         listSessions().catch(() => { });
-        return data;
+
+        return; // No specific return needed anymore
+      } catch (err) {
+        // Rollback optimistic on network error if needed or let UI show error state
+        // For now we assume User wants to see failed state or we allow retry?
+        // Let's re-throw so UI can handle it
+        throw err;
       } finally {
         setThinking(false);
       }
     },
-    [sessions, listSessions],
+    [sessions, listSessions, loadMessages],
   );
 
   React.useEffect(() => {
