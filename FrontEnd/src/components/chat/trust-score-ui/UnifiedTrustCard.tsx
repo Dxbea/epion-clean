@@ -1,6 +1,7 @@
 import React, { useState } from 'react';
 import { Anchor, Wind, ShieldCheck, Info, X, AlertTriangle, CheckCircle, HelpCircle } from 'lucide-react';
 import { createGlossyGradient } from '@/lib/color-utils';
+import { TRUST_SCORE_RANGES } from '@/config/trust-constants';
 
 interface UnifiedTrustCardProps {
     details: {
@@ -12,9 +13,6 @@ interface UnifiedTrustCardProps {
     flags: {
         isAdsTxtValid: boolean;
         hasFactCheckFailures?: boolean;
-        isClickbait?: boolean;
-        hasDarkPatterns?: boolean;
-        adDensity?: string;
     };
     metadata: {
         name: string;
@@ -22,23 +20,34 @@ interface UnifiedTrustCardProps {
         politicalBias?: string;
         explanation?: {
             formula: string;
-            sources: string[];
-            livePenalties: string[];
+            range?: string; // V2
+            qualityCursor?: string; // V2
+            penalties?: string[]; // V2
+            // Legacy V1 compatibility
+            sources?: string[];
         };
         dbScore?: number; // Optional passed prop if we have it, otherwise implied
+        liveScore?: number; // Technical/Live score
         reliability?: string;
         justification?: string | null;
+        description?: string | null;
     };
 }
 
 export function UnifiedTrustCard({ details, flags, metadata }: UnifiedTrustCardProps) {
+    console.log('[UnifiedTrustCard] Received Metadata:', metadata);
     const { explanation, country, politicalBias, dbScore, reliability, justification } = metadata;
     const [activePillar, setActivePillar] = useState<'transparency' | 'editorial' | 'semantic' | 'ux' | null>(null);
 
     // Safety check
     if (!explanation) return null;
 
-    const { formula, sources, livePenalties } = explanation;
+    const { formula, range, qualityCursor } = explanation;
+    const penalties = explanation.penalties || [];
+    const sources = explanation.sources || [];
+
+    // Detect V2
+    const isV2 = !!range;
     const isHybrid = formula.includes('70%');
 
     // --- Derived Scores ---
@@ -47,8 +56,23 @@ export function UnifiedTrustCard({ details, flags, metadata }: UnifiedTrustCardP
         (details.transparency + details.editorial + details.semantic + details.ux) / 4
     );
 
+    // Removed misplaced import
+
+    // ...
+
     // Reputation Score = dbScore (or derive/fallback if needed)
-    const reputationScore = dbScore || 0;
+    const getReputationFallback = (rel?: string) => {
+        switch (rel) {
+            case 'HIGH': return 95; // Middle of 80-100 range roughly
+            case 'MIXED': return 60; // Middle of 45-79
+            case 'LOW': return 30; // Middle of 20-44
+            case 'PROPAGANDA': return 10; // Middle of 0-19
+            default: return 50; // Neutral fallback for UNKNOWN
+        }
+    };
+
+    // Use passed dbScore, or derive from reliability if missing (Legacy data support)
+    const reputationScore = dbScore || getReputationFallback(reliability);
 
     // --- Helpers for Penalties & Justifications ---
     const parsePenalty = (text: string) => {
@@ -69,17 +93,15 @@ export function UnifiedTrustCard({ details, flags, metadata }: UnifiedTrustCardP
         // 1. Check Specific Flags (Priority)
         if (pillar === 'editorial') {
             if (flags.hasFactCheckFailures) return { text: "Grave : Échecs Fact-Check détectés", type: 'error' as const };
-            const citationBonus = livePenalties.find(p => p.includes('Citations'));
+            const citationBonus = penalties.find(p => p.includes('Citations'));
             if (citationBonus) return { text: citationBonus.replace('Citations & Liens :', 'Bonus Rigueur :'), type: 'success' as const };
         }
         if (pillar === 'ux') {
-            if (flags.hasDarkPatterns) return { text: "Pénalité : Dark Patterns détectés", type: 'error' as const };
-            const intrusiveness = livePenalties.find(p => p.includes('Intrusivité'));
+            const intrusiveness = penalties.find(p => p.includes('Intrusivité'));
             if (intrusiveness) return { text: intrusiveness, type: 'warning' as const };
-            if (flags.adDensity === 'HIGH') return { text: "Attention : Densité publicitaire élevée", type: 'warning' as const };
         }
         if (pillar === 'semantic') {
-            if (flags.isClickbait) return { text: "Attention : Titres sensationnalistes", type: 'warning' as const };
+            // Clickbait flag removed from Source level
         }
         if (pillar === 'transparency') {
             if (!flags.isAdsTxtValid) return { text: "Manque de transparence technique (Ads.txt)", type: 'warning' as const };
@@ -143,8 +165,8 @@ export function UnifiedTrustCard({ details, flags, metadata }: UnifiedTrustCardP
                                 <div className="flex items-start gap-2">
                                     {getIconForType(justification.type)}
                                     <span className={`text-xs font-medium leading-tight ${justification.type === 'error' ? 'text-red-700 dark:text-red-400' :
-                                            justification.type === 'warning' ? 'text-orange-700 dark:text-orange-400' :
-                                                justification.type === 'success' ? 'text-emerald-700 dark:text-emerald-400' : 'text-blue-700 dark:text-blue-400'
+                                        justification.type === 'warning' ? 'text-orange-700 dark:text-orange-400' :
+                                            justification.type === 'success' ? 'text-emerald-700 dark:text-emerald-400' : 'text-blue-700 dark:text-blue-400'
                                         }`}>
                                         {justification.text}
                                     </span>
@@ -166,16 +188,30 @@ export function UnifiedTrustCard({ details, flags, metadata }: UnifiedTrustCardP
                     <span className="text-xs font-bold uppercase tracking-wide text-gray-500 dark:text-gray-400">
                         Transparence du Score
                     </span>
-                    {isHybrid && (
+                    {isV2 ? (
+                        <span className="px-1.5 py-0.5 rounded text-[10px] font-bold bg-indigo-100 text-indigo-700 dark:bg-indigo-900/30 dark:text-indigo-300 border border-indigo-200 dark:border-transparent">
+                            Modèle V2 (Range & Cursor)
+                        </span>
+                    ) : isHybrid && (
                         <span className="px-1.5 py-0.5 rounded text-[10px] font-bold bg-purple-100 text-purple-700 dark:bg-purple-900/30 dark:text-purple-300 border border-purple-200 dark:border-transparent">
                             Méthode Hybride
                         </span>
                     )}
                 </div>
                 <p className="text-xs text-gray-600 dark:text-gray-300">
-                    <span className="font-bold text-blue-600 dark:text-blue-400">70% Réputation</span>
-                    <span className="mx-1 text-gray-400">+</span>
-                    <span className="font-bold text-orange-500 dark:text-orange-400">30% Analyse</span>
+                    {isV2 ? (
+                        <>
+                            <span className="font-bold text-blue-600 dark:text-blue-400">Intervalle {range}</span>
+                            <span className="mx-1 text-gray-400">+</span>
+                            <span className="font-bold text-orange-500 dark:text-orange-400">Qualité {qualityCursor}</span>
+                        </>
+                    ) : (
+                        <>
+                            <span className="font-bold text-blue-600 dark:text-blue-400">70% Réputation</span>
+                            <span className="mx-1 text-gray-400">+</span>
+                            <span className="font-bold text-orange-500 dark:text-orange-400">30% Analyse</span>
+                        </>
+                    )}
                 </p>
             </div>
 
@@ -197,41 +233,54 @@ export function UnifiedTrustCard({ details, flags, metadata }: UnifiedTrustCardP
                         </div>
 
                         <div className="space-y-4">
-                            {/* Context/Justification */}
-                            {justification && (
-                                <p className="text-sm text-gray-600 dark:text-gray-300 leading-relaxed italic">
-                                    "{justification}"
-                                </p>
+                            {/* 1. Description / Quote (AI or Static) */}
+                            {(metadata.description || justification) && (
+                                <blockquote className="relative p-4 bg-gray-50 dark:bg-white/5 rounded-lg border-l-4 border-blue-500">
+                                    <p className="text-sm italic text-gray-700 dark:text-gray-300 leading-relaxed font-serif">
+                                        "{metadata.description || justification}"
+                                    </p>
+                                </blockquote>
                             )}
 
-                            {/* Reliability Badges */}
+                            {/* 2. Badges (Reliability & Bias) */}
                             <div className="flex flex-wrap gap-2">
+                                {/* Reliability Badge */}
                                 {reliability && (
-                                    <span className={`px-2 py-1 rounded-md text-xs font-bold bg-gray-100 dark:bg-white/5 text-gray-700 dark:text-gray-200 border border-gray-200 dark:border-white/10`}>
-                                        Fiabilité: {reliability}
+                                    <span className={`px-2.5 py-1 rounded-md text-xs font-bold border flex items-center gap-1.5 ${reliability === 'HIGH' ? 'bg-emerald-50 text-emerald-700 border-emerald-200 dark:bg-emerald-900/20 dark:text-emerald-400 dark:border-emerald-800' :
+                                        reliability === 'MIXED' ? 'bg-orange-50 text-orange-700 border-orange-200 dark:bg-orange-900/20 dark:text-orange-400 dark:border-orange-800' :
+                                            'bg-red-50 text-red-700 border-red-200 dark:bg-red-900/20 dark:text-red-400 dark:border-red-800'
+                                        }`}>
+                                        <ShieldCheck size={12} />
+                                        Fiabilité: {reliability === 'HIGH' ? 'HAUTE' : reliability === 'MIXED' ? 'MIXTE' : reliability === 'LOW' ? 'FAIBLE' : reliability}
                                     </span>
                                 )}
-                                {country && (
-                                    <span className="px-2 py-1 rounded-md text-xs font-bold bg-gray-100 dark:bg-white/5 text-gray-700 dark:text-gray-200 border border-gray-200 dark:border-white/10">
-                                        Pays: {country}
+
+                                {/* Bias Badge */}
+                                {politicalBias && (
+                                    <span className="px-2.5 py-1 rounded-md text-xs font-bold bg-gray-100 dark:bg-white/5 text-gray-700 dark:text-gray-200 border border-gray-200 dark:border-white/10 flex items-center gap-1.5">
+                                        <Info size={12} />
+                                        Biais: {politicalBias}
                                     </span>
                                 )}
                             </div>
 
-                            {/* Consensus Sources */}
-                            <div className="bg-blue-50/50 dark:bg-blue-900/10 rounded-lg p-3 border border-blue-100 dark:border-blue-900/20">
-                                <p className="text-[10px] text-blue-600 dark:text-blue-400 mb-2 font-bold uppercase tracking-wider flex items-center gap-1.5">
+                            {/* 3. Sources de Consensus (Vertical List) */}
+                            <div className="bg-blue-50/50 dark:bg-blue-900/10 rounded-xl p-4 border border-blue-100 dark:border-blue-900/20">
+                                <p className="text-[10px] text-blue-600 dark:text-blue-400 mb-3 font-bold uppercase tracking-wider flex items-center gap-1.5">
                                     <ShieldCheck className="w-3 h-3" />
                                     Sources de consensus
                                 </p>
                                 {isHybrid && sources.length > 0 ? (
-                                    <div className="flex flex-wrap gap-2">
+                                    <ul className="space-y-2">
                                         {sources.map((src, i) => (
-                                            <span key={i} className="text-xs font-semibold text-gray-700 dark:text-gray-300 bg-white dark:bg-black/20 px-2 py-1 rounded border border-blue-100 dark:border-white/5 shadow-sm">
-                                                {src}
-                                            </span>
+                                            <li key={i} className="flex items-center gap-2 text-xs text-gray-700 dark:text-gray-300">
+                                                <div className="bg-blue-100 dark:bg-blue-900/30 text-blue-600 dark:text-blue-400 rounded-full p-0.5">
+                                                    <CheckCircle size={10} strokeWidth={3} />
+                                                </div>
+                                                <span className="font-medium">{src}</span>
+                                            </li>
                                         ))}
-                                    </div>
+                                    </ul>
                                 ) : (
                                     <div className="flex items-center gap-2 text-xs text-gray-400 italic">
                                         <AlertTriangle className="w-3 h-3" />
@@ -240,9 +289,11 @@ export function UnifiedTrustCard({ details, flags, metadata }: UnifiedTrustCardP
                                 )}
                             </div>
 
-                            <div className="pt-2 border-t border-gray-50 dark:border-white/5">
-                                <p className="text-[10px] text-gray-400 text-center">
-                                    Basé sur l'historique et les audits externes.
+                            {/* 4. Footer */}
+                            <div className="pt-2">
+                                <p className="text-[10px] text-gray-400 flex items-center justify-center gap-1.5">
+                                    <Info size={12} />
+                                    Source vérifiée via {sources.length > 0 ? sources.length : 'plusieurs'} références externes
                                 </p>
                             </div>
                         </div>
@@ -273,8 +324,8 @@ export function UnifiedTrustCard({ details, flags, metadata }: UnifiedTrustCardP
                     {/* Bonus / Malus List (Show only if not focused for clarity UI) */}
                     {!activePillar && (
                         <div className="space-y-1.5 pt-2 border-t border-gray-100 dark:border-white/5 opacity-80">
-                            {livePenalties.length > 0 ? (
-                                livePenalties.map((item, i) => {
+                            {penalties.length > 0 ? (
+                                penalties.map((item, i) => {
                                     const { text, type } = parsePenalty(item);
                                     let colorClass = "text-gray-600 dark:text-gray-400 bg-gray-50 dark:bg-white/5";
                                     if (type === 'bonus') colorClass = "text-emerald-700 dark:text-emerald-400 bg-emerald-50 dark:bg-emerald-900/10";

@@ -13,22 +13,25 @@ const VIVID_YELLOW_END = '#FACC15';   // Yellow 400
 const VIVID_GREEN_START = '#10B981';  // Emerald 500
 const VIVID_GREEN_END = '#34D399';    // Emerald 400
 
+import { TRUST_SCORE_RANGES } from "../config/trust-constants";
+
 /**
  * Retourne la couleur principale (Hex) pour un score donné.
  * Utilisé pour le texte coloré simple.
  *
- * PALIERS V2 (4 Niveaux) :
- * 0 - 24   : Critique (Rouge)
- * 25 - 49  : Faible (Orange)
- * 50 - 74  : Moyen (Jaune/Ambre)
- * 75 - 100 : Fiable (Vert)
+ * PALIERS V2 (Alignés avec Backend) :
+ * < 20     : Critique (Rouge) - Propaganda
+ * 20 - 44  : Faible (Orange) - Low
+ * 45 - 79  : Moyen (Jaune/Ambre) - Mixed
+ * 80 - 100 : Fiable (Vert) - High
  */
 export function getScoreColor(score: number): string {
     const s = Math.max(0, Math.min(100, score));
-    if (s < 25) return VIVID_RED_START;
-    if (s < 50) return VIVID_ORANGE_START;
-    if (s < 75) return VIVID_YELLOW_START;
-    return VIVID_GREEN_START;
+
+    if (s < TRUST_SCORE_RANGES.LOW.min) return VIVID_RED_START; // Propaganda (0-19)
+    if (s < TRUST_SCORE_RANGES.MIXED.min) return VIVID_ORANGE_START; // Low (20-44)
+    if (s < TRUST_SCORE_RANGES.HIGH.min) return VIVID_YELLOW_START; // Mixed (45-79)
+    return VIVID_GREEN_START; // High (80+)
 }
 
 /**
@@ -37,11 +40,11 @@ export function getScoreColor(score: number): string {
 export function getVividGradient(score: number): string {
     const s = Math.max(0, Math.min(100, score));
 
-    if (s < 25) {
+    if (s < TRUST_SCORE_RANGES.LOW.min) {
         return `linear-gradient(90deg, ${VIVID_RED_START}, ${VIVID_RED_END})`;
-    } else if (s < 50) {
+    } else if (s < TRUST_SCORE_RANGES.MIXED.min) {
         return `linear-gradient(90deg, ${VIVID_ORANGE_START}, ${VIVID_ORANGE_END})`;
-    } else if (s < 75) {
+    } else if (s < TRUST_SCORE_RANGES.HIGH.min) {
         return `linear-gradient(90deg, ${VIVID_YELLOW_START}, ${VIVID_YELLOW_END})`;
     } else {
         return `linear-gradient(90deg, ${VIVID_GREEN_START}, ${VIVID_GREEN_END})`;

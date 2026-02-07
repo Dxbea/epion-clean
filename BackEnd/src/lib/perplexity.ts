@@ -214,7 +214,7 @@ export async function callPerplexity(
                     'Authorization': `Bearer ${apiKey}`,
                     'Content-Type': 'application/json',
                 },
-                timeout: 100000 // 100s timeout
+                timeout: 300000 // 300s timeout (increased for Deep Research)
             }
         );
 

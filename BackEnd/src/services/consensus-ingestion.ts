@@ -1,3 +1,4 @@
+import 'dotenv/config';
 import { PrismaClient, PoliticalBias, Reliability } from '@prisma/client';
 import axios from 'axios';
 import { parse } from 'csv-parse/sync';
@@ -113,6 +114,7 @@ export async function ingestAllSidesData() {
                 update: {
                     politicalBias: mapped.bias,
                     biasScore: mapped.score,
+                    allSidesRating: rawRating,
                     metadata: { importedFrom: "AllSides", originalRating: rawRating }
                 },
                 create: {
@@ -122,6 +124,7 @@ export async function ingestAllSidesData() {
                     biasScore: mapped.score,
                     reliability: Reliability.HIGH,
                     trustScore: 50,
+                    allSidesRating: rawRating,
                     metadata: { importedFrom: "AllSides", originalRating: rawRating }
                 }
             });
@@ -294,13 +297,13 @@ export async function ingestMBFCData() {
                         biasScore: finalScore,
                         politicalBias: finalBias,
                         isConsensusVerified: true,
-                        // Always trust MBFC reliability since AllSides usually lacks it
-                        reliability: reliability !== Reliability.UNKNOWN ? reliability : undefined
+                        // Always update reliability from MBFC
+                        reliability: reliability
                     } : {
                         // NO Consensus (just MBFC update or already MBFC)
                         biasScore: finalScore,
                         politicalBias: finalBias,
-                        reliability: reliability !== Reliability.UNKNOWN ? reliability : undefined
+                        reliability: reliability
                     }),
                     metadata: {
                         ...(existing?.metadata as object || {}),
@@ -337,8 +340,8 @@ export async function ingestMBFCData() {
 }
 
 // Allow direct execution
-const isMainModule = require.main === module;
-if (isMainModule) {
+// Allow direct execution
+if (require.main === module) {
     (async () => {
         // Uncomment to run AllSides first if needed
         // await ingestAllSidesData();

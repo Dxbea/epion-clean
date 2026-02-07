@@ -3,6 +3,7 @@ import { getRichTrustScore } from '../lib/trust-score';
 import { buildArticlePrompt } from '../lib/prompts/articlePrompts';
 import { GenerateArticleRequest } from '../types/article';
 import { analyzeOutputQuality } from '../lib/semantic-scanner';
+import { MODEL_DETAILS, AI_MODELS } from '../config/ai-models';
 
 interface GeneratedArticle {
     title: string;
@@ -96,9 +97,12 @@ export async function generateArticleContent(request: GenerateArticleRequest): P
             };
         });
 
-        // Note Output : Analyse rapide de la qualité du texte (Non bloquant, pur CPU)
-        const outputAnalysis = analyzeOutputQuality(parsedArticle.content);
-        const outputScore = outputAnalysis.score;
+        // Note Output : Score Statique basé sur le Modèle (Plus propre/stable)
+        // On récupère le score de confiance défini dans la config du modèle
+        const modelKey = 'sonar'; // Hardcoded for now matching the callPerplexity arg above
+        const outputScore = MODEL_DETAILS[modelKey]?.trustScore || 80;
+
+        // LEGACY: const outputAnalysis = analyzeOutputQuality(parsedArticle.content);
 
         // Score temporaire : 50 (Neutre) en attendant l'enrichissement
         const finalFactScore = 50;

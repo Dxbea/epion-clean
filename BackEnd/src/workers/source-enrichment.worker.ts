@@ -58,7 +58,17 @@ export const sourceEnrichmentWorker = new Worker(
                     type: richScore.metadata.type,
                     logo: `https://logo.clearbit.com/${domain}`,
                     description: richScore.metadata.description,
-                    metrics: richScore.details
+                    justification: richScore.metadata.justification,
+                    metrics: richScore.details,
+                    // NEW: Full metadata for frontend transparency display
+                    metadata: {
+                        reliability: richScore.metadata.reliability,
+                        dbScore: richScore.globalScore, // Pass the calculated score explicitly
+                        politicalBias: richScore.metadata.politicalBias,
+                        biasScore: richScore.metadata.biasScore,
+                        country: richScore.metadata.country,
+                        explanation: richScore.metadata.explanation
+                    }
                 };
 
             } catch (error: any) {

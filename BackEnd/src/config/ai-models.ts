@@ -6,8 +6,8 @@ export const AI_MODELS = {
 } as const;
 
 export const MODEL_DETAILS = {
-    [AI_MODELS.STANDARD]: { label: 'Sonar', description: 'Rapide & Efficace', tier: 'free' },
-    [AI_MODELS.ADVANCED]: { label: 'Sonar Pro', description: 'Recherche Approfondie', tier: 'premium' },
-    [AI_MODELS.REASONING]: { label: 'Reasoning Pro', description: 'Analyse Logique (Lent)', tier: 'premium' },
-    [AI_MODELS.RESEARCH]: { label: 'Deep Research', description: 'Rapport Complet (Très lent)', tier: 'premium' },
+    [AI_MODELS.STANDARD]: { label: 'Sonar', description: 'Rapide & Efficace', tier: 'free', trustScore: 80 },
+    [AI_MODELS.ADVANCED]: { label: 'Sonar Pro', description: 'Recherche Approfondie', tier: 'premium', trustScore: 95 },
+    [AI_MODELS.REASONING]: { label: 'Reasoning Pro', description: 'Analyse Logique (Lent)', tier: 'premium', trustScore: 100 },
+    [AI_MODELS.RESEARCH]: { label: 'Deep Research', description: 'Rapport Complet (Très lent)', tier: 'premium', trustScore: 100 },
 };

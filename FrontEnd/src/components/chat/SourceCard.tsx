@@ -38,6 +38,7 @@ export interface SourceData {
     flags?: SourceFlags;
     justification?: string;
     // New Fields
+    dbScore?: number; // V2 Score carried from DB
     country?: string;
     politicalBias?: string;
     biasScore?: number;
@@ -208,6 +209,7 @@ export default function SourceCard({ source, isFocused }: SourceCardProps) {
                                 }}
                                 metadata={{
                                     name: source.name,
+                                    dbScore: source.dbScore,
                                     country: source.country,
                                     politicalBias: source.politicalBias,
                                     explanation: source.explanation,

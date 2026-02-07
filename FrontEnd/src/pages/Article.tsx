@@ -16,7 +16,8 @@ import TrustHeader from '@/components/shared/TrustHeader';
 // import MarkdownRenderer from '@/components/shared/MarkdownRenderer'; // On inline la logique pour garantir la feature
 import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
-import { TrustScoreModal } from '@/components/chat/TrustScoreModal';
+// import { TrustScoreModal } from '@/components/chat/TrustScoreModal';
+import { GlobalTrustScoreModal } from '@/components/chat/trust-score-ui/GlobalTrustScoreModal';
 import { useComments } from '@/hooks/useComments';
 import Modal from '@/components/ui/Modal';
 import SourceCard from '../components/chat/SourceCard';
@@ -104,18 +105,38 @@ export default function Article() {
         pillarWeights: { transparency: "20%", editorial: "30%", semantic: "30%", ux: "20%" }
       };
 
+      // 3.1 CALCUL HYBRIDE (70% Réputation + 30% Analyse Live)
+      const metrics = s.metrics || s.metric || {};
+      const analysisMean = Math.round(
+        ((metrics.transparency || 50) +
+          (metrics.editorial || 50) +
+          (metrics.semantic || 50) +
+          (metrics.ux || 50)) / 4
+      );
+
+      const dbScore = s.metadata?.dbScore || s.dbScore || scoreVal;
+      let finalScore = dbScore || analysisMean || 50;
+
+      // Si on a les deux, on applique la pondération
+      if (dbScore && analysisMean) {
+        finalScore = Math.round((dbScore * 0.7) + (analysisMean * 0.3));
+      }
+
       return {
         ...s,
         domain: domainVal,
-        score: scoreVal,
+        score: finalScore, // HYBRID SCORE
         url: s.url || s.link || "#",
         description: s.description || "Source analysée par Epion.",
         name: domainVal,
-        trustScore: scoreVal,
+        trustScore: dbScore, // Keep raw V2 score for reference
         type: s.type || s.category || "GENERAL",
         category: s.category || s.type || "GENERAL",
         logo: s.logo || `https://www.google.com/s2/favicons?domain=${domainVal !== "Source inconnue" ? domainVal : 'example.com'}`,
         flags: s.flags || { isAdsTxtValid: true, isClickbait: false, isPlatform: false },
+        dbScore: s.metadata?.dbScore || s.dbScore || undefined, // FIX: Pass V2 Score
+        reliability: s.metadata?.reliability || s.reliability || undefined, // FIX: Pass Reliability
+        biasScore: s.metadata?.biasScore || s.biasScore || undefined, // FIX: Pass Bias Score
         country: s.metadata?.country || s.country || "FR",
         politicalBias: s.metadata?.politicalBias || s.politicalBias || "UNKNOWN",
         metric: s.metrics || s.metric,
@@ -126,9 +147,17 @@ export default function Article() {
     // 4. SCORING (Chat Logic)
     const scores = normalized.map(s => (typeof s.score === 'number' ? s.score : 0));
     const avgSourceScore = scores.length > 0 ? Math.round(scores.reduce((a, b) => a + b, 0) / scores.length) : 0;
-    const outputScore = 90;
 
-    let finalFactScore = article.factCheckScore || 0;
+    // FIX: Use Real Global AI Score (Analysis/Summary) instead of hardcoded 90
+    let aiScore = 90;
+    if (article.factCheckData && !Array.isArray(article.factCheckData) && typeof article.factCheckData.factScore === 'number') {
+      aiScore = article.factCheckData.factScore;
+    } else if (typeof article.factCheckScore === 'number') {
+      aiScore = article.factCheckScore;
+    }
+    const outputScore = aiScore;
+
+    let finalFactScore = aiScore;
     if (scores.length > 0) {
       finalFactScore = Math.round((avgSourceScore * 0.75) + (outputScore * 0.25));
     }
@@ -679,31 +708,14 @@ export default function Article() {
 
       {/* Modal Score de Confiance (Détail) */}
       {activeModal === 'reliability' && (
-        <TrustScoreModal
+        <GlobalTrustScoreModal
           isOpen={true}
           onClose={() => setActiveModal(null)}
-          trustData={{
-            globalScore: topLevelTransparencyData.rawSourceScore,
-            confidenceLevel: 'HIGH', // TODO: Dynamique
-            details: {
-              transparency: article?.factCheckData?.sources?.[0]?.metrics?.transparency || 0,
-              editorial: article?.factCheckData?.sources?.[0]?.metrics?.editorial || 0,
-              semantic: article?.factCheckData?.sources?.[0]?.metrics?.semantic || 0,
-              ux: article?.factCheckData?.sources?.[0]?.metrics?.ux || 0,
-            },
-            flags: article?.factCheckData?.sources?.[0]?.flags || { isPlatform: false, hasFactCheckFailures: false, isAdsTxtValid: false },
-            metadata: {
-              name: article?.factCheckData?.sources?.[0]?.name || "Source Principale",
-              justification: article?.factCheckData?.sources?.[0]?.justification || null,
-              description: article?.factCheckData?.sources?.[0]?.description || null,
-              politicalBias: article?.factCheckData?.sources?.[0]?.metadata?.politicalBias || "UNKNOWN",
-              biasScore: article?.factCheckData?.sources?.[0]?.metadata?.biasScore || 0,
-              reliability: article?.factCheckData?.sources?.[0]?.metadata?.reliability || "UNKNOWN",
-              country: article?.factCheckData?.sources?.[0]?.metadata?.country || "FR",
-              explanation: article?.factCheckData?.sources?.[0]?.metadata?.explanation || undefined
-            },
-            sourceCount: topLevelTransparencyData.sources.length,
-            outputScore: topLevelTransparencyData.outputScore
+          data={{
+            sources: normalizedSources,
+            globalScore: topLevelTransparencyData?.factScore || 0,
+            sourceScore: topLevelTransparencyData?.rawSourceScore || 0,
+            aiScore: topLevelTransparencyData?.outputScore || 0
           }}
         />
       )}

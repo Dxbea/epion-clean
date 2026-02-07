@@ -425,18 +425,19 @@ model Source {
   reliability       Reliability   @default(UNKNOWN)
   detectedCountry   String?       @default("FR")
   
-  isClickbait       Boolean @default(false)     // Titre trompeur vs contenu
+  isClickbait       Boolean @default(false)     // REMOVED: Article-specific
   
   // --- PILIER 4 : UX & RÉPUTATION ---
   uxScore           Int @default(0)
-  adDensity         String  @default("LOW") // LOW, MEDIUM, HIGH (>30%)
-  hasDarkPatterns   Boolean @default(false) // Pièges UX détectés
+  // adDensity REMOVED: Article-specific
+  // hasDarkPatterns REMOVED: Article-specific
   
   // --- INFOS GÉNÉRALES ---
   type            String   @default("GENERAL")
   justification   String?  // Explication humaine ("Pourquoi ce score ?")
   description     String?  // Bio générée par IA
   metadata        Json?    // Métadonnées étendues (ex: owners, headquarters...)
+  auditCount      Int      @default(0) // Nombre d'audits réalisés (pour la moyenne cumulative)
   lastAuditDate   DateTime?
   
   // --- EXTENSION CONSENSUS PROTOCOL ---

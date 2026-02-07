@@ -29,6 +29,8 @@ export interface TrustData {
         politicalBias?: string;
         biasScore?: number;
         reliability?: string;
+        dbScore?: number;
+        liveScore?: number;
         country?: string;
         explanation?: {
             formula: string;
@@ -50,9 +52,9 @@ interface TrustScoreModalProps {
 export function TrustScoreModal({ isOpen, onClose, trustData }: TrustScoreModalProps) {
     const { globalScore: avgSourceScore, details, flags, metadata } = trustData;
 
-    // --- LOGIQUE PONDEREE (75/25) ---
-    const iaScore = trustData.outputScore ?? 90;
-    const globalFactScore = Math.round((avgSourceScore * 0.75) + (iaScore * 0.25));
+    // USE PASSED GLOBAL SCORE (Single Source of Truth)
+    // Fallback to average source score if not provided (legacy safety), but parent should provide it.
+    const globalFactScore = trustData.globalScore || avgSourceScore;
 
     return (
         <Modal
@@ -120,7 +122,10 @@ export function TrustScoreModal({ isOpen, onClose, trustData }: TrustScoreModalP
                             politicalBias: metadata.politicalBias,
                             explanation: metadata.explanation,
                             reliability: metadata.reliability,
-                            justification: metadata.justification
+                            justification: metadata.justification,
+                            description: metadata.description,
+                            dbScore: metadata.dbScore,
+                            liveScore: metadata.liveScore
                         }}
                     />
                 </div>
