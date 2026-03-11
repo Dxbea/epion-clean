@@ -1,7 +1,7 @@
 import { prisma } from "./db";
 import { logger } from "./logger";
 import { analyzeAdsTxt } from "./ads-scanner";
-import { analyzeUX } from "./ux-scanner";
+import { analyzePluralism } from "./scanners/pluralism-scanner";
 import { analyzeSemantics } from "./semantic-scanner";
 import { checkMediaReputation } from "./google-fact-check";
 import { generateSourceDescription } from "../services/sourceProfiler";
@@ -18,7 +18,7 @@ export interface RichTrustScore {
         transparency: number;
         editorial: number;
         semantic: number;
-        ux: number;
+        pluralism: number;
     };
     flags: {
         isPlatform: boolean;
@@ -51,7 +51,7 @@ function getRange(reliability: Reliability) {
     return TRUST_SCORE_RANGES[reliability] || TRUST_SCORE_RANGES[Reliability.UNKNOWN];
 }
 
-export async function getRichTrustScore(domain: string): Promise<RichTrustScore> {
+export async function getRichTrustScore(domain: string, url?: string): Promise<RichTrustScore> {
     // 1. Chercher le domaine dans la BDD
     let source = await prisma.source.findUnique({
         where: { domain: domain },
@@ -78,7 +78,6 @@ export async function getRichTrustScore(domain: string): Promise<RichTrustScore>
     }
 
     if (isValidCache && source) {
-        // ... (Logique description manquante conservée) ...
         if (!source.description) {
             logger.info('Cache HIT but Bio missing. Auto-generating...', { module: 'TrustScore', domain });
             const cachedDescription = await generateSourceDescription(domain);
@@ -108,29 +107,28 @@ export async function getRichTrustScore(domain: string): Promise<RichTrustScore>
         }
     }
 
-    // ... (Investigation / Scanners) ...
-    // Note: Copied context for insertion, actual scanners run here
-
     // 3. INVESTIGATION (Cold Profiler) si Unknown
     let reliability = source?.reliability || Reliability.UNKNOWN;
+    let detectedSourceType = source?.type || 'GENERAL';
 
     if (reliability === Reliability.UNKNOWN) {
         const investigation = await evaluateUnknownSource(domain);
         reliability = investigation.reliability;
-        logger.info(`Cold Profiler Verdict: ${reliability}`, { module: 'TrustScore', reasoning: investigation.reasoning });
+        detectedSourceType = investigation.sourceType;
+        logger.info(`Cold Profiler Verdict: ${reliability} (${detectedSourceType})`, { module: 'TrustScore', reasoning: investigation.reasoning });
     }
 
     // 4. FULL AUDIT (Parallel Scanners)
     logger.info('Starting V2 Audit (Range & Cursor)', { module: 'TrustScore', domain, reliability });
 
-    const [auditResult, adsResult, uxResult, semanticResult, editorialResult, aiDescription, biasResult] = await Promise.all([
+    const [auditResult, adsResult, pluralismResult, semanticResult, editorialResult, aiDescription, biasResult] = await Promise.all([
         checkMediaReputation(domain),        // Google Fact Check
         analyzeAdsTxt(domain),               // Ads.txt
-        analyzeUX(domain),                   // UX & Ads
+        analyzePluralism(domain, url),       // Pluralism (Fetches content internally)
         analyzeSemantics(domain),            // Clickbait & NLP
         analyzeEditorial(domain),            // Citations & Corrections
         generateSourceDescription(domain),   // Bio IA
-        analyzeBias(domain)                  // Bias Scanner (pour confirmer/affiner)
+        analyzeBias(domain)                  // Bias Scanner
     ]);
 
     // 5. CALCUL DU SCORE (V2 Logic)
@@ -139,7 +137,7 @@ export async function getRichTrustScore(domain: string): Promise<RichTrustScore>
     const rangeSize = max - min;
 
     // B. Calculer le Curseur (La Position)
-    // Editorial (0.6) + Sémantique (0.4)
+    // Editorial (40%) + Sémantique (30%) + Pluralisme (30%)
     // Les scores des scanners sont sur 100.
 
     // Normalisation Editorial (Base 60 + Modifiers)
@@ -147,14 +145,18 @@ export async function getRichTrustScore(domain: string): Promise<RichTrustScore>
     if (editorialResult && typeof editorialResult.scoreModifier === 'number') {
         editorialBase += editorialResult.scoreModifier; // +/- points
     }
-    if (uxResult.hasCorrectionPolicy) editorialBase += 10;
+
     const editorialScore = Math.min(100, Math.max(0, editorialBase));
 
     // Normalisation Sémantique
     const semanticScore = semanticResult.score; // 0-100
 
+    // Normalisation Pluralisme
+    const pluralismScore = pluralismResult.score; // 0-100
+
     // Ratio Global (0.0 à 1.0)
-    const qualityRatio = ((editorialScore * 0.6) + (semanticScore * 0.4)) / 100;
+    // 40% Editorial (Facts/Corrections), 30% Semantic (Tone), 30% Pluralism (Diversity)
+    const qualityRatio = ((editorialScore * 0.4) + (semanticScore * 0.3) + (pluralismScore * 0.3)) / 100;
 
     // C. Score Brut
     let rawScore = min + (rangeSize * qualityRatio);
@@ -163,37 +165,10 @@ export async function getRichTrustScore(domain: string): Promise<RichTrustScore>
     // D. Appliquer les Modificateurs (Malus/Bonus)
     const penalties: string[] = [];
 
-    // Malus UX
-    if (uxResult.adDensity === 'HIGH') {
-        rawScore -= 5;
-        penalties.push("Publicité Excessive (-5)");
-    } else if (uxResult.intrusivenessScore >= 4) {
-        rawScore -= 3;
-        penalties.push("Formats Intrusifs (-3)");
-    }
-
-    if (uxResult.hasDarkPatterns) {
-        rawScore -= 3;
-        penalties.push("Dark Patterns (-3)");
-    }
-
     // Malus Transparence
     if (!adsResult.isAdsTxtValid) {
         rawScore -= 5;
         penalties.push("Ads.txt Manquant (-5)");
-    }
-
-    // Bonus Transparence
-    let isOwnerPublic = uxResult.isOwnerPublic;
-    if (domain.endsWith('.gouv.fr') || domain.endsWith('.gov')) isOwnerPublic = true;
-
-    if (isOwnerPublic) {
-        rawScore += 2;
-        // penalties.push("Propriétaire Public (+2)"); // On n'affiche pas les bonus en 'penalties'
-    }
-
-    if (uxResult.hasAbout) {
-        rawScore += 2;
     }
 
     // E. Kill Switch (Fact Check)
@@ -211,29 +186,50 @@ export async function getRichTrustScore(domain: string): Promise<RichTrustScore>
     // 6. SAUVEGARDE DB & EVOLUTION
     let finalPoliticalBias = source?.politicalBias || PoliticalBias.UNKNOWN;
 
-    // EVOLUTION LOGIC
-    // Si c'est un consensus, on protège.
-    // Sinon, on fait une moyenne pondérée pour lisser l'évolution.
-    const isEvolving = !source?.isConsensusVerified && source !== null;
+    // EVOLUTION LOGIC (CUMULATIVE AVERAGE)
+    // AI Sources: Cumulative Moving Average (Starts high impact, settles to 10%)
+    // Consensus Sources: Fixed low impact (10%) to respect the "Expert" baseline while allowing slight movement.
+    const isEvolving = source !== null; // Tout le monde peut évoluer maintenant
 
     // Valeurs cibles (Nouveau Scan)
     let targetEditorial = editorialScore;
     let targetSemantic = semanticScore;
-    let targetUX = uxResult.score;
+    let targetPluralism = pluralismScore;
     let targetTransparency = adsResult.score;
 
     let nextAuditCount = (source?.auditCount || 0) + 1;
 
     if (isEvolving && source) {
-        // Weighted Average: 70% Old + 30% New (Stability > Volatility)
-        // Helps avoid "Bad Audit" anomaly destroying a score, but allows progress.
-        logger.info(`Evolving Score for ${domain}...`, { module: 'TrustScore' });
+        let newWeight = 0.10; // Default min floor
 
-        finalTrustScore = Math.round((source.trustScore * 0.7) + (finalTrustScore * 0.3));
-        targetEditorial = Math.round((source.editorialScore * 0.7) + (editorialScore * 0.3));
-        targetSemantic = Math.round((source.semanticScore * 0.7) + (semanticScore * 0.3));
-        targetUX = Math.round((source.uxScore * 0.7) + (uxResult.score * 0.3));
-        targetTransparency = Math.round((source.transparencyScore * 0.7) + (adsResult.score * 0.3));
+        if (source.isConsensusVerified) {
+            // CONSENSUS STRATEGY:
+            // On considère que le Consensus vaut comme un "très long historique".
+            // On accorde seulement 10% de poids au nouveau scan pour faire varier la note à la marge.
+            // C'est comme si on avait déjà 9 audits en stock (1/(9+1) = 0.1).
+            newWeight = 0.10;
+            logger.info(`Evolving Score for CONSENSUS ${domain}. Weights: History=0.90, New=0.10`, { module: 'TrustScore' });
+        } else {
+            // AI STRATEGY (Cold Profile):
+            // Loi de l'inverse : Plus on a d'audits, plus le nouveau compte moins.
+            // Mais on garde un plancher de 10% pour rester réactif.
+            const currentCount = source.auditCount || 1;
+            newWeight = 1 / (currentCount + 1);
+            newWeight = Math.max(newWeight, 0.10); // Min 10% d'impact
+
+            logger.info(`Evolving Score for AI-SOURCE ${domain} (Audit #${nextAuditCount}). Weights: History=${(1 - newWeight).toFixed(2)}, New=${newWeight.toFixed(2)}`, { module: 'TrustScore' });
+        }
+
+        const historyWeight = 1 - newWeight;
+
+        finalTrustScore = Math.round((source.trustScore * historyWeight) + (finalTrustScore * newWeight));
+        targetEditorial = Math.round((source.editorialScore * historyWeight) + (editorialScore * newWeight));
+        targetSemantic = Math.round((source.semanticScore * historyWeight) + (semanticScore * newWeight));
+        targetTransparency = Math.round((source.transparencyScore * historyWeight) + (adsResult.score * newWeight));
+
+        // Pluralism History (New Field, might be null/0 initially)
+        const historyPluralism = source.pluralismScore || pluralismScore; // Use new score if 0/null to init
+        targetPluralism = Math.round((historyPluralism * historyWeight) + (pluralismScore * newWeight));
     }
 
     // Bias Logic
@@ -247,9 +243,24 @@ export async function getRichTrustScore(domain: string): Promise<RichTrustScore>
     }
 
     // Bias Score Evolution (Numeric)
+    // CONSENSUS PROTECTION: Never touch bias score of a consensus source with a live scan.
+    // AI SOURCES: Evolve with the same cumulative logic.
     let biasScore = biasResult.score !== 0 ? biasResult.score : (source?.biasScore || 0);
+
     if (isEvolving && source && biasResult.score !== 0) {
-        biasScore = Math.round((source.biasScore * 0.7) + (biasScore * 0.3));
+        if (source.isConsensusVerified) {
+            // PROTECTED. Keep DB Value.
+            biasScore = source.biasScore;
+            logger.info(`Consensus Bias Protected: kept ${biasScore}`, { module: 'TrustScore' });
+        } else {
+            // AI EVOLUTION
+            const currentCount = source.auditCount || 1;
+            let newWeight = 1 / (currentCount + 1);
+            newWeight = Math.max(newWeight, 0.10);
+            const historyWeight = 1 - newWeight;
+
+            biasScore = Math.round((source.biasScore * historyWeight) + (biasScore * newWeight));
+        }
     }
 
     const updatedSource = await prisma.source.upsert({
@@ -259,8 +270,11 @@ export async function getRichTrustScore(domain: string): Promise<RichTrustScore>
             transparencyScore: targetTransparency,
             editorialScore: targetEditorial,
             semanticScore: targetSemantic,
-            uxScore: targetUX,
+            pluralismScore: targetPluralism,
+            pluralismDetails: pluralismResult.details, // Save details!
             reliability: reliability,
+            // Only update type if it was GENERAL (don't overwrite manually-set types)
+            ...(source?.type === 'GENERAL' && detectedSourceType !== 'GENERAL' ? { type: detectedSourceType } : {}),
 
             politicalBias: finalPoliticalBias,
             biasScore,
@@ -268,7 +282,6 @@ export async function getRichTrustScore(domain: string): Promise<RichTrustScore>
             isAdsTxtValid: adsResult.isAdsTxtValid,
             hasFactCheckFailures: auditResult.failureCount > 0,
             factCheckFailCount: auditResult.failureCount,
-            // isClickbait: semanticResult.isClickbait, // REMOVED
 
             lastAuditDate: now,
             description: aiDescription || source?.description,
@@ -277,18 +290,19 @@ export async function getRichTrustScore(domain: string): Promise<RichTrustScore>
         create: {
             domain,
             name: domain,
+            type: detectedSourceType,
             trustScore: finalTrustScore,
             reliability: reliability,
             transparencyScore: adsResult.score,
             editorialScore: editorialScore,
             semanticScore: semanticScore,
-            uxScore: uxResult.score,
+            pluralismScore: pluralismScore,
+            pluralismDetails: pluralismResult.details,
 
             politicalBias: finalPoliticalBias,
             biasScore,
 
             isAdsTxtValid: adsResult.isAdsTxtValid,
-            // adDensity, hasDarkPatterns, isClickbait REMOVED
             hasFactCheckFailures: auditResult.failureCount > 0,
             factCheckFailCount: auditResult.failureCount,
 
@@ -310,7 +324,7 @@ function formatResponse(source: Source, min: number, max: number, qualityRatio: 
             transparency: source.transparencyScore,
             editorial: source.editorialScore,
             semantic: source.semanticScore,
-            ux: source.uxScore,
+            pluralism: source.pluralismScore,
         },
         flags: {
             isPlatform: source.type === 'SOCIAL',

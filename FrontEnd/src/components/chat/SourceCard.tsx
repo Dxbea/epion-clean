@@ -13,7 +13,7 @@ export interface SourceMetrics {
     transparency: number;
     editorial: number;
     semantic: number;
-    ux: number;
+    logic: number;
 }
 
 export interface SourceFlags {
@@ -202,7 +202,12 @@ export default function SourceCard({ source, isFocused }: SourceCardProps) {
                         {/* 2. Unified Trust Analysis (Replacement for Pillars + Transparency) */}
                         {source.metrics && (
                             <UnifiedTrustCard
-                                details={source.metrics}
+                                details={{
+                                    transparency: source.metrics.transparency,
+                                    editorial: source.metrics.editorial,
+                                    semantic: source.metrics.semantic,
+                                    logic: source.metrics.logic || (source.metrics as any).pluralism || 50
+                                }}
                                 flags={{
                                     ...source.flags,
                                     isAdsTxtValid: source.flags?.isAdsTxtValid ?? true

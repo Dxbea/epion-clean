@@ -12,6 +12,9 @@ const connection = new IORedis(redisUrl, {
 interface SourceEnrichmentJobData {
     articleId: string;
     sources: string[];
+    // NEW: Passed from live-analysis.worker via chainage
+    scoreLiveBrut?: number;
+    liveAnalysis?: any;
 }
 
 /**
@@ -94,23 +97,17 @@ export const sourceEnrichmentWorker = new Worker(
             }
         });
 
-        // Calcul du factScore global (moyenne sources * 0.75 + output * 0.25)
-        // On récupère l'outputScore existant si disponible
-        const article = await prisma.article.findUnique({
-            where: { id: articleId },
-            select: { factCheckData: true }
-        });
-
+        // Calcul du factScore global (moyenne sources * 0.75 + ScoreLiveBrut * 0.25)
         let finalFactScore = 50; // Défaut si aucune source valide
+        const scoreLiveBrut = job.data.scoreLiveBrut ?? 75;
+
         if (validScores > 0) {
             const sourcesMean = Math.round(totalScore / validScores);
-
-            // Récupération de l'outputScore (s'il existe dans les métadonnées)
-            const existingData = article?.factCheckData as any;
-            const outputScore = existingData?.metadata?.outputScore || 75; // Défaut raisonnable
-
-            finalFactScore = Math.round((sourcesMean * 0.75) + (outputScore * 0.25));
+            finalFactScore = Math.round((sourcesMean * 0.75) + (scoreLiveBrut * 0.25));
             finalFactScore = Math.min(100, Math.max(0, finalFactScore));
+        } else {
+            // No valid sources: use ScoreLiveBrut as sole signal
+            finalFactScore = scoreLiveBrut;
         }
 
         // Mise à jour de l'article avec les sources enrichies + factScore
@@ -121,9 +118,12 @@ export const sourceEnrichmentWorker = new Worker(
                     factCheckScore: finalFactScore,
                     factCheckData: {
                         factScore: finalFactScore,
-                        sources: enrichedSources,
                         enrichedAt: new Date().toISOString(),
-                        analysis: `${enrichedSources.length} sources analyzed. Average trust score: ${validScores > 0 ? Math.round(totalScore / validScores) : 'N/A'}/100`
+                        // Article-level analysis (from live-analysis pipeline)
+                        liveAnalysis: job.data.liveAnalysis || null,
+                        // Source-level data (from enrichment)
+                        sources: enrichedSources,
+                        sourcesMean: validScores > 0 ? Math.round(totalScore / validScores) : null,
                     }
                 }
             });
@@ -133,7 +133,21 @@ export const sourceEnrichmentWorker = new Worker(
                 finalScore: finalFactScore
             });
         } else {
-            logger.warn(`[Worker] No sources enriched for article ${articleId}`);
+            // No sources enriched, but still save liveAnalysis data
+            await prisma.article.update({
+                where: { id: articleId },
+                data: {
+                    factCheckScore: finalFactScore,
+                    factCheckData: {
+                        factScore: finalFactScore,
+                        enrichedAt: new Date().toISOString(),
+                        liveAnalysis: job.data.liveAnalysis || null,
+                        sources: [],
+                        sourcesMean: null,
+                    }
+                }
+            });
+            logger.warn(`[Worker] No sources enriched for article ${articleId}, saved liveAnalysis only`);
         }
 
         return {

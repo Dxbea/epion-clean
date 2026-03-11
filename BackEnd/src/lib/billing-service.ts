@@ -6,6 +6,7 @@ export const COSTS = {
     CHAT_FAST: 10,
     CHAT_WEB_STANDARD: 350,
     CHAT_WEB_DEEP: 1000,
+    FACT_CHECK_PREMIUM: 500,  // Epion 2.0: Perplexity + GPT + Mistral
     CREATE_ARTICLE: 0,
 };
 

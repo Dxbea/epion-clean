@@ -4,6 +4,8 @@ import { requireSession } from '../lib/session';
 import { checkAndIncrement } from '../lib/rateLimiter';
 import { callPerplexity } from '../lib/perplexity';
 import { AI_MODELS } from '../config/ai-models';
+import { hasSufficientFunds, chargeUser, COSTS } from '../lib/billing-service';
+import { liveAnalysisQueue } from '../lib/queue';
 import type { Prisma } from '@prisma/client';
 import { z } from 'zod';
 
@@ -79,87 +81,129 @@ router.post('/summarize', async (req, res) => {
 // ------------------------------------------------------------------
 // POST /api/ai/fact-check
 // Body: { articleId: string }
+// Async pattern: enqueue job, return jobId
 // ------------------------------------------------------------------
 router.post('/fact-check', async (req, res) => {
     try {
         const sess = await requireSession(req, res);
         if (!sess) return res.status(401).json({ error: 'NO_SESSION' });
 
-        // Rate Limit (DB)
-        await checkAndIncrement(sess.userId);
-
         const body = summarizeSchema.safeParse(req.body);
         if (!body.success) return res.status(400).json({ error: 'INVALID_INPUT', details: body.error.format() });
 
         const { articleId } = body.data;
 
+        // 1. Check article exists
         const article = await prisma.article.findUnique({
             where: { id: articleId },
             select: { id: true, title: true, content: true, factCheckData: true }
         });
 
         if (!article) return res.status(404).json({ error: 'Article not found' });
+
+        // 2. Return cached if exists
         if (article.factCheckData) {
             return res.json({ analysis: article.factCheckData, cached: true });
         }
 
-        // 3. Prepare Prompt
-        const prompt = `
-    Analyze the credibility of this article. Cross-check facts with search.
-    
-    Article Title: "${article.title}"
-    
-    Return a valid JSON object (NO MARKDOWN) with this structure:
-    {
-      "factScore": number (0-100),
-      "analysis": "Short text summary of the verification",
-      "sources": [ { "name": "Source Name", "domain": "domain.com", "score": 90, "url": "..." } ],
-      "scoreBreakdown": [ { "id": "sources", "label": "Qualité Sources", "score": 90, "description": "..." } ]
-    }
-    `;
-
-        const messages: any[] = [
-            {
-                role: 'system',
-                content: "You are a strict fact-checker. You ONLY return valid JSON. No text outside JSON."
-            },
-            {
-                role: 'user',
-                content: prompt
-            }
-        ];
-
-        const aiResponse = await callPerplexity(messages, AI_MODELS.ADVANCED);
-        let rawContent = aiResponse.choices[0]?.message?.content || "{}";
-
-        // Clean markdown
-        rawContent = rawContent.replace(/```json/g, '').replace(/```/g, '').trim();
-
-        let analysisData;
-        try {
-            analysisData = JSON.parse(rawContent);
-        } catch (e) {
-            analysisData = {
-                factScore: 50,
-                analysis: "AI Error: Could not parse analysis response.",
-                raw: rawContent
-            };
+        // 3. Check billing
+        const hasFunds = await hasSufficientFunds(sess.userId, 'FACT_CHECK_PREMIUM');
+        if (!hasFunds) {
+            return res.status(402).json({
+                error: 'Crédits insuffisants pour le fact-check.',
+                code: 'INSUFFICIENT_FUNDS',
+                cost: COSTS.FACT_CHECK_PREMIUM,
+            });
         }
 
-        // Save
-        // We cast to any or InputJsonValue because Prisma JSON types can be tricky in TS
-        await prisma.article.update({
-            where: { id: articleId },
-            data: {
-                factCheckScore: analysisData.factScore || 0,
-                factCheckData: analysisData as Prisma.InputJsonValue
-            }
+        // 4. Extract citation URLs from article content (basic URL regex)
+        const urlRegex = /https?:\/\/[^\s"'<>]+/g;
+        const citationUrls = (article.content?.match(urlRegex) || []).slice(0, 20);
+
+        // 5. Enqueue live-analysis job
+        const job = await liveAnalysisQueue.add('fact-check', {
+            articleId: article.id,
+            title: article.title,
+            content: article.content || '',
+            citationUrls,
+        }, {
+            removeOnComplete: false, // Keep result for polling
         });
 
-        res.json({ analysis: analysisData, cached: false });
+        // 6. Charge user
+        await chargeUser(sess.userId, 'FACT_CHECK_PREMIUM');
+
+        res.json({
+            jobId: job.id,
+            status: 'processing',
+            message: 'Analyse lancée. Utilisez GET /api/ai/fact-check/:jobId pour suivre la progression.',
+        });
 
     } catch (error) {
         console.error('[AI] Fact-check error:', error);
         res.status(500).json({ error: 'Fact-check failed' });
+    }
+});
+
+// ------------------------------------------------------------------
+// GET /api/ai/fact-check/:jobId
+// Poll job status for the frontend
+// The full pipeline is: live-analysis → source-enrichment → DB write.
+// We check the DB as source of truth for completion.
+// ------------------------------------------------------------------
+router.get('/fact-check/:jobId', async (req, res) => {
+    try {
+        const sess = await requireSession(req, res);
+        if (!sess) return res.status(401).json({ error: 'NO_SESSION' });
+
+        const { jobId } = req.params;
+
+        // First, try to find the job in the queue
+        const job = await liveAnalysisQueue.getJob(jobId);
+
+        if (!job) {
+            // Job not found — might have been cleaned up. Check DB directly.
+            return res.status(404).json({ error: 'Job not found', jobId });
+        }
+
+        const articleId = job.data.articleId;
+
+        // Check if the full chain is complete (DB has factCheckData)
+        const article = await prisma.article.findUnique({
+            where: { id: articleId },
+            select: { factCheckScore: true, factCheckData: true }
+        });
+
+        if (article?.factCheckData) {
+            // Full pipeline complete (live-analysis + source-enrichment)
+            // Clean up the job
+            try { await job.remove(); } catch { /* already removed */ }
+
+            return res.json({
+                status: 'completed',
+                result: article.factCheckData,
+                score: article.factCheckScore,
+            });
+        }
+
+        // DB not yet populated. Check job state for error reporting.
+        const state = await job.getState();
+
+        if (state === 'failed') {
+            const failedReason = job.failedReason || 'Unknown error';
+            return res.json({
+                status: 'failed',
+                error: failedReason,
+            });
+        }
+
+        // Still processing (live-analysis or source-enrichment in progress)
+        res.json({
+            status: 'processing',
+        });
+
+    } catch (error) {
+        console.error('[AI] Fact-check poll error:', error);
+        res.status(500).json({ error: 'Poll failed' });
     }
 });

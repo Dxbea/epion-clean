@@ -54,8 +54,9 @@ ${jsonSchema}
 
 RÈGLES IMPORTANTES :
 1. Le "content" doit être du Markdown valide.
-2. Cite tes sources explicitement dans le texte si tu trouves des informations factuelles (ex: "Selon l'AFP...").
-3. Remplis "detectedSources" avec les URLs réelles que tu as utilisées pour vérifier les faits.
-4. Ne mets pas de bloc de code (\`\`\`json), renvoie le JSON brut.
+2. FOUILLE EXHAUSTIVE : Tu dois analyser et synthétiser l'information à partir d'un grand nombre de sources (cible: ~15 sources diverses). Ne te limite pas aux 2 ou 3 premiers résultats. Explore différents médias, rapports, et articles.
+3. Cite tes sources explicitement dans le texte si tu trouves des informations factuelles (ex: "Selon l'AFP [1]...").
+4. Remplis "detectedSources" avec toutes les URLs réelles que tu as utilisées. Il doit y avoir idéalement entre 10 et 20 URLs.
+5. Ne mets pas de bloc de code (\`\`\`json), renvoie le JSON brut.
 `;
 }

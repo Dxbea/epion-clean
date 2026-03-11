@@ -102,7 +102,7 @@ export default function Article() {
         formula: "70% Base de données + 30% Analyse Live",
         sources: ["Audit Epion (Legacy)"],
         livePenalties: [],
-        pillarWeights: { transparency: "20%", editorial: "30%", semantic: "30%", ux: "20%" }
+        pillarWeights: { transparency: "20%", editorial: "30%", semantic: "30%", pluralism: "20%" }
       };
 
       // 3.1 CALCUL HYBRIDE (70% Réputation + 30% Analyse Live)
@@ -110,8 +110,7 @@ export default function Article() {
       const analysisMean = Math.round(
         ((metrics.transparency || 50) +
           (metrics.editorial || 50) +
-          (metrics.semantic || 50) +
-          (metrics.ux || 50)) / 4
+          (metrics.logic || metrics.pluralism || metrics.ux || 50)) / 4
       );
 
       const dbScore = s.metadata?.dbScore || s.dbScore || scoreVal;
@@ -166,7 +165,8 @@ export default function Article() {
       factScore: finalFactScore, // 80% (Weighted)
       rawSourceScore: avgSourceScore, // 77% (Raw)
       outputScore: outputScore,
-      sources: normalized
+      sources: normalized,
+      liveAnalysis: article.factCheckData?.liveAnalysis || null
     };
   }, [article]); // Safe dependency (article is state)
 
@@ -715,7 +715,8 @@ export default function Article() {
             sources: normalizedSources,
             globalScore: topLevelTransparencyData?.factScore || 0,
             sourceScore: topLevelTransparencyData?.rawSourceScore || 0,
-            aiScore: topLevelTransparencyData?.outputScore || 0
+            aiScore: topLevelTransparencyData?.outputScore || 0,
+            liveAnalysis: topLevelTransparencyData?.liveAnalysis || null
           }}
         />
       )}

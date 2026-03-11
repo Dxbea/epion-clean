@@ -76,7 +76,11 @@ export default function ChatMessage({ message }: { message: Msg }) {
       dbScore: s.metadata?.dbScore || s.dbScore || undefined, // FIX: Pull dbScore up
       biasScore: s.metadata?.biasScore || s.biasScore || undefined, // FIX: Pull biasScore up
       explanation: s.explanation || s.metadata?.explanation || undefined,
-      description: s.description || s.metadata?.description || null
+      description: s.description || s.metadata?.description || null,
+      metrics: s.metrics ? {
+        ...s.metrics,
+        logic: s.metrics.logic || s.metrics.pluralism || s.metrics.ux || 50
+      } : undefined
     }));
 
     // DEBUG: Trace data flow
@@ -96,7 +100,7 @@ export default function ChatMessage({ message }: { message: Msg }) {
       // Moyenne des scores d'analyse (Live)
       const totalAnalysis = normalizedSources.reduce((acc, s) => {
         const m = s.metrics || {};
-        const mean = ((m.transparency || 50) + (m.editorial || 50) + (m.semantic || 50) + (m.ux || 50)) / 4;
+        const mean = ((m.transparency || 50) + (m.editorial || 50) + (m.semantic || 50) + (m.logic || m.pluralism || m.ux || 50)) / 4;
         return acc + mean;
       }, 0);
       const avgAnalysis = Math.round(totalAnalysis / normalizedSources.length);
@@ -504,7 +508,7 @@ export default function ChatMessage({ message }: { message: Msg }) {
                   trustData={{
                     globalScore: (transparencyData as any).factScore || 50,
                     confidenceLevel: (transparencyData.sources[0]?.confidence as any) || 'LOW',
-                    details: transparencyData.sources[0]?.metrics || { transparency: 0, editorial: 0, semantic: 0, ux: 0 },
+                    details: transparencyData.sources[0]?.metrics || { transparency: 0, editorial: 0, semantic: 0, logic: 0 },
                     flags: transparencyData.sources[0]?.flags || { isPlatform: false, hasFactCheckFailures: false, isAdsTxtValid: false },
                     metadata: {
                       name: transparencyData.sources[0]?.name || "Analyse Agrégée",

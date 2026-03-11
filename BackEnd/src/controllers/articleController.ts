@@ -88,25 +88,24 @@ export async function createAIArticle(req: Request, res: Response, next: NextFun
             }
         });
 
-        // 4. Background Job: Enrichissement des sources
-        // On récupère les URLs brutes passées via les métadonnées (ou on re-parse si nécessaire, mais metadata est plus sûr)
-        const sourcesToEnrich = generatedData.metadata?.citationUrls || [];
+        // 4. Background Job: Live Analysis Pipeline (Epion 2.0)
+        // The live-analysis worker runs the 3-model pipeline, then chains to source-enrichment automatically.
+        const citationUrls = generatedData.metadata?.citationUrls || [];
 
-        if (sourcesToEnrich.length > 0) {
-            console.log(`[Controller] Dispatching source enrichment for article ${newArticle.id} (${sourcesToEnrich.length} sources)`);
+        console.log(`[Controller] Dispatching live analysis for article ${newArticle.id} (${citationUrls.length} citation URLs)`);
 
-            // Pas de await ici (fire and forget) pour ne pas bloquer la réponse
-            // Mais on catch l'erreur pour ne pas faire crasher le process
-            import('../lib/queue').then(({ sourceEnrichmentQueue }) => {
-                sourceEnrichmentQueue.add('enrich', {
-                    articleId: newArticle.id,
-                    sources: sourcesToEnrich
-                }, {
-                    removeOnComplete: true,
-                    attempts: 2
-                }).catch(err => console.error('[Controller] Queue dispatch failed:', err));
-            });
-        }
+        // Fire and forget — don't block the response
+        import('../lib/queue').then(({ liveAnalysisQueue }) => {
+            liveAnalysisQueue.add('article-generation', {
+                articleId: newArticle.id,
+                title: generatedData.title,
+                content: generatedData.content,
+                citationUrls,
+            }, {
+                removeOnComplete: true,
+                attempts: 2
+            }).catch(err => console.error('[Controller] Live analysis queue dispatch failed:', err));
+        });
 
         // 4. Return to Frontend
         return res.status(201).json({

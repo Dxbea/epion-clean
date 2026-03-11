@@ -427,10 +427,10 @@ model Source {
   
   isClickbait       Boolean @default(false)     // REMOVED: Article-specific
   
-  // --- PILIER 4 : UX & RÉPUTATION ---
-  uxScore           Int @default(0)
-  // adDensity REMOVED: Article-specific
-  // hasDarkPatterns REMOVED: Article-specific
+  // --- PILIER 4 : PLURALISME (Diversité des points de vue) ---
+  pluralismScore    Int      @default(0)
+  pluralismDetails  Json?    // { pivots: number, entities: number, controversy: number }
+  // uxScore REMOVED
   
   // --- INFOS GÉNÉRALES ---
   type            String   @default("GENERAL")

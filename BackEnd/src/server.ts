@@ -27,7 +27,9 @@ import { router as socialRouter } from './routes/social';
 import { router as usersRouter } from './routes/users';
 import { router as healthRouter } from './routes/health';
 import { initializeCron } from './cron/dailyReset';
-import './workers/embedding.worker'; // 🧠 Initialize Worker
+import './workers/embedding.worker'; // 🧠 Initialize Embedding Worker
+import './workers/source-enrichment.worker'; // 🔍 Initialize Source Enrichment Worker
+import './workers/live-analysis.worker'; // ⚖️ Initialize Live Analysis Worker (Epion 2.0)
 
 // ... (existing code)
 

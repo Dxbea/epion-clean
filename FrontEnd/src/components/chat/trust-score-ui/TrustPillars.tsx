@@ -7,7 +7,7 @@ interface TrustPillarsProps {
         transparency: number;
         editorial: number;
         semantic: number;
-        ux: number;
+        logic: number;
     };
     flags: {
         isAdsTxtValid: boolean;
@@ -20,25 +20,25 @@ interface TrustPillarsProps {
 }
 
 export function TrustPillars({ details, flags, livePenalties = [] }: TrustPillarsProps) {
-    const [activePillar, setActivePillar] = useState<'transparency' | 'editorial' | 'semantic' | 'ux' | null>(null);
+    const [activePillar, setActivePillar] = useState<'transparency' | 'editorial' | 'semantic' | 'logic' | null>(null);
 
     // Static Descriptions
     const PILLAR_DESCRIPTIONS = {
         transparency: "Propriété et mentions légales",
         editorial: "Analyse de la fiabilité éditoriale",
         semantic: "Analyse du ton et du vocabulaire",
-        ux: "Expérience utilisateur & Ergonomie"
+        logic: "Intégrité Logique & Débat"
     };
 
     // Helper to find relevant penalty/bonus text for a pillar
-    const getJustification = (pillar: 'transparency' | 'editorial' | 'semantic' | 'ux', score: number) => {
+    const getJustification = (pillar: 'transparency' | 'editorial' | 'semantic' | 'logic', score: number) => {
         // 1. Check Specific Flags (Priority)
         if (pillar === 'editorial') {
             if (flags.hasFactCheckFailures) return { text: "Grave : Échecs Fact-Check détectés", type: 'error' as const };
             const citationBonus = livePenalties.find(p => p.includes('Citations'));
             if (citationBonus) return { text: citationBonus.replace('Citations & Liens :', 'Bonus Rigueur :'), type: 'success' as const };
         }
-        if (pillar === 'ux') {
+        if (pillar === 'logic') {
             if (flags.hasDarkPatterns) return { text: "Pénalité : Dark Patterns détectés", type: 'error' as const };
             const intrusiveness = livePenalties.find(p => p.includes('Intrusivité'));
             if (intrusiveness) return { text: intrusiveness, type: 'warning' as const };
@@ -57,21 +57,21 @@ export function TrustPillars({ details, flags, livePenalties = [] }: TrustPillar
                 case 'transparency': return { text: "Identité vérifiée et claire.", type: 'success' as const };
                 case 'editorial': return { text: "Standards journalistiques respectés.", type: 'success' as const };
                 case 'semantic': return { text: "Ton neutre et factuel.", type: 'success' as const };
-                case 'ux': return { text: "Navigation fluide et respectueuse.", type: 'success' as const };
+                case 'logic': return { text: "Raisonnement logique et équilibré.", type: 'success' as const };
             }
         } else if (score >= 50) {
             switch (pillar) {
                 case 'transparency': return { text: "Informations légales basiques présentes.", type: 'info' as const };
                 case 'editorial': return { text: "Ligne éditoriale identifiée.", type: 'info' as const };
                 case 'semantic': return { text: "Vocabulaire parfois orienté.", type: 'info' as const };
-                case 'ux': return { text: "Expérience utilisateur standard.", type: 'info' as const };
+                case 'logic': return { text: "Cohérence logique standard.", type: 'info' as const };
             }
         } else {
             switch (pillar) {
                 case 'transparency': return { text: "Opacité sur les propriétaires.", type: 'error' as const };
                 case 'editorial': return { text: "Méthodologie floue ou absente.", type: 'error' as const };
                 case 'semantic': return { text: "Langage potentiellement clivant.", type: 'error' as const };
-                case 'ux': return { text: "Navigation complexe ou intrusive.", type: 'error' as const };
+                case 'logic': return { text: "Failles logiques ou partialité.", type: 'error' as const };
             }
         }
         return null;
@@ -86,7 +86,7 @@ export function TrustPillars({ details, flags, livePenalties = [] }: TrustPillar
         }
     };
 
-    const renderPillar = (label: string, score: number, color: string, key: 'transparency' | 'editorial' | 'semantic' | 'ux') => {
+    const renderPillar = (label: string, score: number, color: string, key: 'transparency' | 'editorial' | 'semantic' | 'logic') => {
         const isActive = activePillar === key;
 
         // Skip rendering if another pillar is active (Focus Mode)
@@ -128,9 +128,9 @@ export function TrustPillars({ details, flags, livePenalties = [] }: TrustPillar
                                 <div className="flex items-start gap-2 bg-gray-50 dark:bg-white/5 p-3 rounded-lg">
                                     {getIconForType(justification.type)}
                                     <span className={`text-sm font-medium ${justification.type === 'error' ? 'text-red-600 dark:text-red-400' :
-                                            justification.type === 'warning' ? 'text-orange-600 dark:text-orange-400' :
-                                                justification.type === 'success' ? 'text-emerald-600 dark:text-emerald-400' :
-                                                    'text-blue-600 dark:text-blue-400'
+                                        justification.type === 'warning' ? 'text-orange-600 dark:text-orange-400' :
+                                            justification.type === 'success' ? 'text-emerald-600 dark:text-emerald-400' :
+                                                'text-blue-600 dark:text-blue-400'
                                         }`}>
                                         {justification.text}
                                     </span>
@@ -149,7 +149,7 @@ export function TrustPillars({ details, flags, livePenalties = [] }: TrustPillar
                 {renderPillar("Transparence", details.transparency, "#3B82F6", "transparency")}
                 {renderPillar("Processus Éditorial", details.editorial, "#10B981", "editorial")}
                 {renderPillar("Sémantique", details.semantic, "#8B5CF6", "semantic")}
-                {renderPillar("Qualité UX", details.ux, "#F97316", "ux")}
+                {renderPillar("Intégrité Logique", details.logic, "#F97316", "logic")}
             </div>
         </div>
     );

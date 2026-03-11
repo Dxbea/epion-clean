@@ -12,7 +12,7 @@ export interface TrustData {
         transparency: number;
         editorial: number;
         semantic: number;
-        ux: number;
+        logic: number;
     };
     flags: {
         isPlatform: boolean;
@@ -112,9 +112,8 @@ export function TrustScoreModal({ isOpen, onClose, trustData }: TrustScoreModalP
                     <UnifiedTrustCard
                         details={details}
                         flags={{
-                            ...flags,
                             isAdsTxtValid: flags.isAdsTxtValid,
-                            adDensity: flags.adDensity
+                            hasFactCheckFailures: flags.hasFactCheckFailures
                         }}
                         metadata={{
                             name: metadata.name,

@@ -17,11 +17,22 @@ interface GlobalTrustScoreModalProps {
         globalScore: number;
         sourceScore: number;
         aiScore: number;
+        liveAnalysis?: {
+            contentIntent: string;
+            intentReasoning?: string; // Optional since it might not be in DB
+            pillarScores: {
+                transparency: { score: number; quote?: string; reasoning: string };
+                editorial: { score: number; quote?: string; reasoning: string };
+                semantic: { score: number; quote?: string; reasoning: string };
+                logic: { score: number; quote?: string; reasoning: string };
+            };
+            correctiveNotes?: string[];
+        } | null;
     };
 }
 
 export function GlobalTrustScoreModal({ isOpen, onClose, data }: GlobalTrustScoreModalProps) {
-    const { sources, globalScore, sourceScore: avgSourceScore, aiScore } = data;
+    const { sources, globalScore, sourceScore: avgSourceScore, aiScore, liveAnalysis } = data;
 
     // --- 1. CALCUL SCORES ---
     // NO CALCULATION HERE - Single Source of Truth from Parent
@@ -182,7 +193,69 @@ export function GlobalTrustScoreModal({ isOpen, onClose, data }: GlobalTrustScor
                             />
                         </div>
 
-                        {showAiInfo && (
+                        {/* Epion 2.0 Live Analysis Details */}
+                        {showAiInfo && liveAnalysis && (
+                            <div className="mt-4 space-y-4 animate-in fade-in slide-in-from-top-2 duration-300">
+                                {/* Intent */}
+                                <div className="bg-indigo-50 dark:bg-indigo-900/10 p-4 rounded-xl border border-indigo-100 dark:border-indigo-900/30">
+                                    <div className="flex items-center gap-2 mb-2">
+                                        <span className="text-[10px] font-bold uppercase tracking-wider text-indigo-600 dark:text-indigo-400">Intention Détectée</span>
+                                        <span className="px-2 py-0.5 rounded-full text-xs font-bold bg-white dark:bg-black/20 text-indigo-700 dark:text-indigo-300 border border-indigo-200 dark:border-indigo-800">
+                                            {liveAnalysis.contentIntent}
+                                        </span>
+                                    </div>
+                                    {liveAnalysis.intentReasoning && (
+                                        <p className="text-xs text-gray-700 dark:text-indigo-200/80 leading-relaxed italic">
+                                            "{liveAnalysis.intentReasoning}"
+                                        </p>
+                                    )}
+                                </div>
+
+                                {/* Pillars Breakdown */}
+                                <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                                    {[
+                                        { key: 'transparency', label: 'Transparence', data: liveAnalysis.pillarScores.transparency, color: '#3B82F6' },
+                                        { key: 'editorial', label: 'Processus Éditorial', data: liveAnalysis.pillarScores.editorial, color: '#10B981' },
+                                        { key: 'semantic', label: 'Sémantique', data: liveAnalysis.pillarScores.semantic, color: '#8B5CF6' },
+                                        { key: 'logic', label: 'Intégrité Logique', data: liveAnalysis.pillarScores.logic, color: '#F59E0B' }
+                                    ].map(pillar => (
+                                        <div key={pillar.key} className="bg-gray-50 dark:bg-white/5 p-3 rounded-lg border border-gray-100 dark:border-white/5">
+                                            <div className="flex justify-between items-center mb-2">
+                                                <span className="text-xs font-bold text-gray-700 dark:text-gray-300">{pillar.label}</span>
+                                                <span className="text-xs font-black" style={{ color: pillar.color }}>{pillar.data.score}/100</span>
+                                            </div>
+                                            {pillar.data.quote && pillar.data.quote !== 'None' && (
+                                                <blockquote className="text-[10px] text-gray-500 dark:text-gray-400 italic mb-2 border-l-2 border-gray-300 dark:border-gray-600 pl-2">
+                                                    "{pillar.data.quote}"
+                                                </blockquote>
+                                            )}
+                                            <p className="text-[10px] leading-relaxed text-gray-600 dark:text-gray-400">
+                                                {pillar.data.reasoning}
+                                            </p>
+                                        </div>
+                                    ))}
+                                </div>
+
+                                {/* Auditor Notes */}
+                                {liveAnalysis.correctiveNotes && liveAnalysis.correctiveNotes.length > 0 && (
+                                    <div className="bg-orange-50 dark:bg-orange-900/10 p-3 rounded-lg border border-orange-100 dark:border-orange-900/30 flex gap-2 items-start">
+                                        <AlertTriangle className="w-4 h-4 text-orange-500 shrink-0 mt-0.5" />
+                                        <div>
+                                            <span className="text-[10px] font-bold uppercase tracking-wider text-orange-700 dark:text-orange-400 block mb-1">
+                                                Intervention Mistral AI (Auditeur)
+                                            </span>
+                                            <ul className="list-disc list-inside text-xs text-orange-800 dark:text-orange-200/80 space-y-1">
+                                                {liveAnalysis.correctiveNotes.map((note: string, idx: number) => (
+                                                    <li key={idx}>{note}</li>
+                                                ))}
+                                            </ul>
+                                        </div>
+                                    </div>
+                                )}
+                            </div>
+                        )}
+
+                        {showAiInfo && !liveAnalysis && (
                             <div className="mt-2 text-xs text-gray-500 bg-gray-50 dark:bg-white/5 p-3 rounded-lg animate-in fade-in slide-in-from-top-1 duration-200">
                                 <p>
                                     Évalue la précision du modèle IA ayant rédigé l'article.

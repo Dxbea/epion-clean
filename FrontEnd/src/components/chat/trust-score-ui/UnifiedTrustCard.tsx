@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { Anchor, Wind, ShieldCheck, Info, X, AlertTriangle, CheckCircle, HelpCircle } from 'lucide-react';
+import { Anchor, Wind, ShieldCheck, Info, X, AlertTriangle, CheckCircle, HelpCircle, Users, GitMerge } from 'lucide-react';
 import { createGlossyGradient } from '@/lib/color-utils';
 import { TRUST_SCORE_RANGES } from '@/config/trust-constants';
 
@@ -8,7 +8,7 @@ interface UnifiedTrustCardProps {
         transparency: number;
         editorial: number;
         semantic: number;
-        ux: number;
+        logic: number; // Renamed from pluralism
     };
     flags: {
         isAdsTxtValid: boolean;
@@ -35,9 +35,9 @@ interface UnifiedTrustCardProps {
 }
 
 export function UnifiedTrustCard({ details, flags, metadata }: UnifiedTrustCardProps) {
-    console.log('[UnifiedTrustCard] Received Metadata:', metadata);
+    // console.log('[UnifiedTrustCard] Received Metadata:', metadata);
     const { explanation, country, politicalBias, dbScore, reliability, justification } = metadata;
-    const [activePillar, setActivePillar] = useState<'transparency' | 'editorial' | 'semantic' | 'ux' | null>(null);
+    const [activePillar, setActivePillar] = useState<'transparency' | 'editorial' | 'semantic' | 'logic' | null>(null);
 
     // Safety check
     if (!explanation) return null;
@@ -53,12 +53,8 @@ export function UnifiedTrustCard({ details, flags, metadata }: UnifiedTrustCardP
     // --- Derived Scores ---
     // Analysis Score = Average of the 4 live pillars
     const analysisScore = Math.round(
-        (details.transparency + details.editorial + details.semantic + details.ux) / 4
+        (details.transparency + details.editorial + details.semantic + details.logic) / 4
     );
-
-    // Removed misplaced import
-
-    // ...
 
     // Reputation Score = dbScore (or derive/fallback if needed)
     const getReputationFallback = (rel?: string) => {
@@ -86,19 +82,21 @@ export function UnifiedTrustCard({ details, flags, metadata }: UnifiedTrustCardP
         transparency: "Propriété et mentions légales",
         editorial: "Analyse de la fiabilité éditoriale",
         semantic: "Analyse du ton et du vocabulaire",
-        ux: "Expérience utilisateur & Ergonomie"
+        logic: "Intégrité Logique & Débat"
     };
 
-    const getJustification = (pillar: 'transparency' | 'editorial' | 'semantic' | 'ux', score: number) => {
+    const getJustification = (pillar: 'transparency' | 'editorial' | 'semantic' | 'logic', score: number) => {
         // 1. Check Specific Flags (Priority)
         if (pillar === 'editorial') {
             if (flags.hasFactCheckFailures) return { text: "Grave : Échecs Fact-Check détectés", type: 'error' as const };
             const citationBonus = penalties.find(p => p.includes('Citations'));
             if (citationBonus) return { text: citationBonus.replace('Citations & Liens :', 'Bonus Rigueur :'), type: 'success' as const };
         }
-        if (pillar === 'ux') {
-            const intrusiveness = penalties.find(p => p.includes('Intrusivité'));
-            if (intrusiveness) return { text: intrusiveness, type: 'warning' as const };
+        if (pillar === 'logic') {
+            // Logic specific feedback
+            if (score >= 80) return { text: "Raisonnement structuré et fondé.", type: 'success' as const };
+            if (score >= 50) return { text: "Cohérence logique standard.", type: 'info' as const };
+            if (score < 30) return { text: "Biais cognitifs ou illogisme.", type: 'warning' as const };
         }
         if (pillar === 'semantic') {
             // Clickbait flag removed from Source level
@@ -123,7 +121,7 @@ export function UnifiedTrustCard({ details, flags, metadata }: UnifiedTrustCardP
     };
 
     // --- Mini Pillar Renderer (Interactive) ---
-    const renderInteractivePillar = (label: string, score: number, color: string, key: 'transparency' | 'editorial' | 'semantic' | 'ux') => {
+    const renderInteractivePillar = (label: string, score: number, color: string, key: 'transparency' | 'editorial' | 'semantic' | 'logic') => {
         const isActive = activePillar === key;
 
         // Focus Mode: Hide others
@@ -318,7 +316,8 @@ export function UnifiedTrustCard({ details, flags, metadata }: UnifiedTrustCardP
                         {renderInteractivePillar("Transparence", details.transparency, "#3B82F6", 'transparency')}
                         {renderInteractivePillar("Éditorial", details.editorial, "#10B981", 'editorial')}
                         {renderInteractivePillar("Sémantique", details.semantic, "#8B5CF6", 'semantic')}
-                        {renderInteractivePillar("UX & Pubs", details.ux, "#F97316", 'ux')}
+                        {renderInteractivePillar("Intégrité Logique", details.logic, "#F59E0B", 'logic')}
+                        {/* Was UX CheckOrange #F97316 - Switched to Amber/Yellow for Logic */}
                     </div>
 
                     {/* Bonus / Malus List (Show only if not focused for clarity UI) */}

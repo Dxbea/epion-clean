@@ -51,3 +51,23 @@ sourceEnrichmentQueue.on('error', (err) => {
 });
 
 logger.info('Source Enrichment Queue initialized', { module: 'Queue' });
+
+// Live Analysis Queue (Epion 2.0 — Article Fact-Check Pipeline)
+export const liveAnalysisQueue = new Queue('live-analysis-queue', {
+    connection,
+    defaultJobOptions: {
+        attempts: 2,
+        backoff: {
+            type: 'exponential',
+            delay: 3000, // 3s, 6s (longer due to 3 API calls)
+        },
+        removeOnComplete: 50,  // Keep last 50 for result polling
+        removeOnFail: 100,
+    },
+});
+
+liveAnalysisQueue.on('error', (err) => {
+    logger.error('Live Analysis Queue error', { module: 'Queue', error: err.message });
+});
+
+logger.info('Live Analysis Queue initialized', { module: 'Queue' });
