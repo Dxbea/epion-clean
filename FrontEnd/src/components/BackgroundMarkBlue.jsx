@@ -4,7 +4,7 @@ import pictoBlue from '../assets/LG_picto_BleuMed.png';
 export default function BackgroundMarkBlue({
   className = '',
   size = 560,
-  opacity = 0.08,
+  opacity = 0.5,
   showFrom = 'block', // 'block' | 'sm' | 'md' | 'lg' | 'xl'
 }) {
   const vis =

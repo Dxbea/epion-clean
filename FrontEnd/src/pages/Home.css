@@ -1,0 +1,126 @@
+/* src/pages/Home.css */
+
+/* Force line-height on all large headings — Tailwind arbitrary values don't always work */
+.home-snap-container h1,
+.home-snap-container h2 {
+  line-height: 1.15 !important;
+}
+.home-snap-container {
+  /* Use proximity instead of mandatory for a softer snap effect */
+  /* full screen minus header */
+  min-height: calc(100vh - var(--app-header-h, 64px));
+  scrollbar-width: none;
+  -ms-overflow-style: none;
+  background-color: #FAFAF5; /* Match MainLayout bg */
+  color: #0B0B0A;
+}
+
+.dark .home-snap-container {
+  background-color: #0B0B0A;
+  color: #FAFAF5;
+}
+
+.home-snap-container::-webkit-scrollbar {
+  display: none;
+}
+
+.home-snap-section {
+  min-height: calc(100vh - var(--app-header-h, 64px));
+  position: relative;
+  overflow: hidden;
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+}
+
+.home-snap-section-auto {
+  min-height: calc(100vh - var(--app-header-h, 64px));
+  position: relative;
+  /* Auto height for scrolling content like Why Epion */
+  padding-top: 10vh;
+  padding-bottom: 20vh;
+}
+
+/* Mistral-like Subtle Grid Background */
+.home-snap-container::before {
+  content: "";
+  position: fixed;
+  inset: 0;
+  z-index: 0;
+  pointer-events: none;
+  background-size: 40px 40px;
+  background-image: 
+    linear-gradient(to right, rgba(0,0,0,0.02) 1px, transparent 1px),
+    linear-gradient(to bottom, rgba(0,0,0,0.02) 1px, transparent 1px);
+}
+.dark .home-snap-container::before {
+  background-image: 
+    linear-gradient(to right, rgba(255,255,255,0.02) 1px, transparent 1px),
+    linear-gradient(to bottom, rgba(255,255,255,0.02) 1px, transparent 1px);
+}
+
+/* Background elements */
+.bg-magnifier {
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  transform: translate(-50%, -50%);
+  width: 90vmin;
+  height: 90vmin;
+  background: radial-gradient(circle, rgba(14, 165, 233, 0.05) 0%, rgba(45, 212, 191, 0.05) 40%, transparent 70%);
+  border-radius: 50%;
+  border: 2px solid rgba(14, 165, 233, 0.1);
+  box-shadow: 0 0 100px rgba(45, 212, 191, 0.05);
+  pointer-events: none;
+  z-index: 0;
+  filter: blur(2px);
+}
+.dark .bg-magnifier {
+  border: 2px solid rgba(255, 255, 255, 0.1);
+  background: radial-gradient(circle, rgba(14, 165, 233, 0.05) 0%, rgba(45, 212, 191, 0.06) 40%, transparent 70%);
+}
+
+.bg-magnifier::after {
+  content: "";
+  position: absolute;
+  bottom: -5vmin;
+  right: -5vmin;
+  width: 25vmin;
+  height: 5vmin;
+  background: linear-gradient(45deg, rgba(14, 165, 233, 0.1), transparent);
+  transform: rotate(45deg);
+  border-radius: 9999px;
+}
+
+@keyframes pulse-slow {
+  0%, 100% { transform: translate(-50%, -50%) scale(1); opacity: 0.8; }
+  50% { transform: translate(-50%, -50%) scale(1.05); opacity: 1; }
+}
+.animate-pulse-slow {
+  animation: pulse-slow 8s ease-in-out infinite;
+}
+
+@keyframes fadeUp {
+  from { opacity: 0; transform: translateY(30px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+
+.animate-fade-up {
+  animation: fadeUp 0.8s cubic-bezier(0.16, 1, 0.3, 1) forwards;
+  opacity: 0;
+}
+.delay-100 { animation-delay: 100ms; }
+.delay-200 { animation-delay: 200ms; }
+.delay-300 { animation-delay: 300ms; }
+.delay-400 { animation-delay: 400ms; }
+
+/* Why Epion: scroll-triggered scale animation */
+.why-block {
+  opacity: 0;
+  transform: scale(0.92);
+  transition: opacity 0.6s ease, transform 0.6s ease;
+}
+.why-block.visible {
+  opacity: 1;
+  transform: scale(1);
+}
