@@ -46,10 +46,7 @@ export default function Home(): JSX.Element {
   return (
     <div className="home-snap-container w-full relative">
       
-      {/* Background Decor: Magnifying glass effect (subtle) */}
-      <div className="fixed inset-0 pointer-events-none overflow-hidden z-0 flex items-center justify-center">
-         <div className="bg-magnifier animate-pulse-slow"></div>
-      </div>
+      {/* Background Decor Removed as requested */}
 
       {/* BLOCK 1: Being informed — text left, images right */}
       <section className="home-snap-section px-6 md:px-16 lg:px-32 z-10 pt-24 pb-12">
@@ -57,7 +54,7 @@ export default function Home(): JSX.Element {
           {/* Text */}
           <div className="flex-1 animate-fade-up flex flex-col items-start text-left mt-10">
             <h1 className="text-[3rem] sm:text-5xl md:text-[4rem] lg:text-[5rem] font-medium tracking-tight mb-6">
-              Being informed<br className="hidden sm:block"/>
+              Being informed <br className="hidden sm:block"/>
               has never been this easy
             </h1>
             <p className="text-gray-600 dark:text-gray-400 text-lg sm:text-xl max-w-lg leading-relaxed mb-6">
@@ -85,7 +82,7 @@ export default function Home(): JSX.Element {
           {/* Text */}
           <div className="flex-1 animate-fade-up delay-100 flex flex-col items-start text-left">
             <h2 className="text-[3rem] sm:text-4xl md:text-[4rem] lg:text-[5rem] font-medium tracking-tight mb-6">
-              Forget traditionals<br className="hidden sm:block"/>
+              Forget traditionals <br className="hidden sm:block"/>
               ai chat
             </h2>
             <p className="text-gray-600 dark:text-gray-400 text-lg sm:text-xl max-w-lg leading-relaxed mb-6">
@@ -98,46 +95,44 @@ export default function Home(): JSX.Element {
             >
               open ai chat
             </Link>
+
+            {/* BLOCK 2b: Everywhere anytime + download buttons (Moved inside left column) */}
+            <div className="mt-20 md:mt-32">
+               <h2 className="text-[2.5rem] sm:text-4xl md:text-[3.5rem] lg:text-[4.5rem] font-medium tracking-tight mb-10">
+                 and access to epion <br className="hidden sm:block"/> everywhere anytime.
+               </h2>
+               <div className="flex flex-col gap-8">
+                 <div className="flex flex-col items-start gap-4">
+                   <p className="text-gray-500 dark:text-gray-400 font-medium text-sm tracking-wide uppercase">on desktop</p>
+                   <div className="flex flex-wrap gap-4">
+                      <Button variant="outline" className="rounded-full px-5 hover:bg-black hover:text-white dark:hover:bg-white dark:hover:text-black transition-colors border-gray-300 dark:border-gray-700">
+                         <FaWindows className="mr-2" /> Windows
+                      </Button>
+                      <Button variant="outline" className="rounded-full px-5 hover:bg-black hover:text-white dark:hover:bg-white dark:hover:text-black transition-colors border-gray-300 dark:border-gray-700">
+                         <FaApple className="mr-2 mb-[2px]" /> Mac
+                      </Button>
+                   </div>
+                 </div>
+                 <div className="flex flex-col items-start gap-4 mt-2">
+                   <p className="text-gray-500 dark:text-gray-400 font-medium text-sm tracking-wide uppercase">on mobile</p>
+                   <div className="flex flex-wrap gap-4">
+                      <Button variant="outline" className="rounded-full px-6 py-2 h-auto text-base hover:bg-black hover:text-white dark:hover:bg-white dark:hover:text-black transition-colors border-gray-300 dark:border-gray-700">
+                         <FaApple className="mr-2 mb-[2px]" /> iOS
+                      </Button>
+                      <Button variant="outline" className="rounded-full px-6 py-2 h-auto text-base hover:bg-black hover:text-white dark:hover:bg-white dark:hover:text-black transition-colors border-gray-300 dark:border-gray-700">
+                         <FaAndroid className="mr-2" /> Android
+                      </Button>
+                   </div>
+                 </div>
+               </div>
+            </div>
           </div>
           {/* Images — stacked / overlapping */}
-          <div className="flex-shrink-0 w-full md:w-[40%] lg:w-[38%] relative h-72 md:h-96 animate-fade-up delay-300">
+          <div className="flex-shrink-0 w-full md:w-[45%] lg:w-[40%] relative min-h-[350px] md:min-h-[500px] animate-fade-up delay-300 mt-12 md:mt-0">
             <img src="/img/IMG1.png" alt="AI Summary" className="absolute top-0 right-4 w-[65%] rounded-2xl shadow-lg border border-gray-200 dark:border-gray-700 object-cover" />
-            <img src="/img/IMG6.png" alt="AI Generation Context" className="absolute top-20 right-[-8px] w-[60%] rounded-2xl shadow-xl border border-gray-200 dark:border-gray-700 object-cover" />
+            <img src="/img/IMG6.png" alt="AI Generation Context" className="absolute top-24 md:top-32 right-[-10px] md:right-[-20px] w-[70%] rounded-2xl shadow-xl border border-gray-200 dark:border-gray-700 object-cover" />
           </div>
         </div>
-      </section>
-
-      {/* BLOCK 2b: Everywhere anytime + download buttons */}
-      <section className="px-6 md:px-16 lg:px-32 z-10 pb-24">
-        <div className="max-w-3xl animate-fade-up delay-200">
-           <h2 className="text-[2.5rem] sm:text-4xl md:text-[3.5rem] lg:text-[4.5rem] font-medium tracking-tight mb-10">
-             and access to epion<br/> everywhere anytime.
-           </h2>
-           <div className="flex flex-col gap-8">
-             <div className="flex flex-col items-start gap-4">
-               <p className="text-gray-500 dark:text-gray-400 font-medium text-sm tracking-wide uppercase">on desktop</p>
-               <div className="flex flex-wrap gap-4">
-                  <Button variant="outline" className="rounded-full px-5 hover:bg-black hover:text-white dark:hover:bg-white dark:hover:text-black transition-colors border-gray-300 dark:border-gray-700">
-                     <FaWindows className="mr-2" /> Windows
-                  </Button>
-                  <Button variant="outline" className="rounded-full px-5 hover:bg-black hover:text-white dark:hover:bg-white dark:hover:text-black transition-colors border-gray-300 dark:border-gray-700">
-                     <FaApple className="mr-2 mb-[2px]" /> Mac
-                  </Button>
-               </div>
-             </div>
-             <div className="flex flex-col items-start gap-4 mt-2">
-               <p className="text-gray-500 dark:text-gray-400 font-medium text-sm tracking-wide uppercase">on mobile</p>
-               <div className="flex flex-wrap gap-4">
-                  <Button variant="outline" className="rounded-full px-6 py-2 h-auto text-base hover:bg-black hover:text-white dark:hover:bg-white dark:hover:text-black transition-colors border-gray-300 dark:border-gray-700">
-                     <FaApple className="mr-2 mb-[2px]" /> iOS
-                  </Button>
-                  <Button variant="outline" className="rounded-full px-6 py-2 h-auto text-base hover:bg-black hover:text-white dark:hover:bg-white dark:hover:text-black transition-colors border-gray-300 dark:border-gray-700">
-                     <FaAndroid className="mr-2" /> Android
-                  </Button>
-               </div>
-             </div>
-             </div>
-          </div>
       </section>
 
       {/* BLOCK 3: Why epion? */}
