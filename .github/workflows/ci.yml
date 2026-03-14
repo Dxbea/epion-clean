@@ -13,32 +13,6 @@ jobs:
       run:
         working-directory: ./BackEnd
 
-    steps:
-    - uses: actions/checkout@v4
-
-    - name: Use Node.js
-      uses: actions/setup-node@v4
-      with:
-        node-version: '20.x'
-        cache: 'npm'
-        cache-dependency-path: './BackEnd/package-lock.json'
-
-    - name: Install dependencies
-      run: npm ci
-
-    - name: Run Tests
-      # We skip DB tests that require a real DB if we don't spin one up.
-      # Ideally we'd spin up a Postgres container here.
-      # For now, we assume tests might fail if they hit a real DB without env vars.
-      # We'll rely on mocks if possible, or set a dummy DB URL to valid format to pass zod validation
-      # but tests hitting DB will fail if no service is present.
-      # Let's add a postgres service.
-      env:
-        DATABASE_URL: "postgresql://postgres:postgres@localhost:5432/epion_test"
-        JWT_SECRET: "test_secret_for_ci_pipeline_12345"
-        FRONTEND_ORIGIN: "http://localhost:5173"
-      run: npm run test
-
     services:
       postgres:
         image: postgres:15
@@ -53,6 +27,38 @@ jobs:
           --health-interval 10s
           --health-timeout 5s
           --health-retries 5
+
+    steps:
+    - uses: actions/checkout@v4
+
+    - name: Use Node.js
+      uses: actions/setup-node@v4
+      with:
+        node-version: '20.x'
+        cache: 'npm'
+        cache-dependency-path: './BackEnd/package-lock.json'
+
+    - name: Install dependencies
+      run: npm ci
+
+    # --- NOUVELLES ÉTAPES PRISMA ---
+    - name: Generate Prisma Client
+      run: npx prisma generate
+
+    - name: Setup Test Database
+      # On force Prisma à utiliser notre base de données temporaire pour créer les tables
+      env:
+        DATABASE_URL: "postgresql://postgres:postgres@localhost:5432/epion_test"
+      run: npx prisma db push
+    # -------------------------------
+
+    - name: Run Tests
+      env:
+        DATABASE_URL: "postgresql://postgres:postgres@localhost:5432/epion_test"
+        JWT_SECRET: "test_secret_for_ci_pipeline_12345"
+        FRONTEND_ORIGIN: "http://localhost:5173"
+      run: npm run test
+
 
   frontend-check:
     runs-on: ubuntu-latest
