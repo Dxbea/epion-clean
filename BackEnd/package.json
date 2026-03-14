@@ -23,7 +23,7 @@
     "@sentry/profiling-node": "^10.36.0",
     "@types/cheerio": "^0.22.35",
     "@types/jsdom": "^27.0.0",
-    "axios": "^1.13.4",
+    "axios": "^1.13.6",
     "axios-retry": "^4.5.0",
     "bcrypt": "^6.0.0",
     "bcryptjs": "^3.0.2",
