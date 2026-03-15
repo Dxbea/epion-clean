@@ -38,7 +38,8 @@ function GuestAuthForm({
   onSignup: (
     email: string,
     pw: string,
-    displayName: string
+    displayName: string,
+    inviteCode?: string,
   ) => Promise<void>;
 }) {
   // state invité
@@ -52,6 +53,12 @@ function GuestAuthForm({
   const [emailErr, setEmailErr] = React.useState<string | null>(null);
   const [pwErr, setPwErr] = React.useState<string | null>(null);
   const [formErr, setFormErr] = React.useState<string | null>(null);
+
+  // Beta invite code from localStorage (set by the beta gate popup)
+  const [inviteCode, setInviteCode] = React.useState(() => {
+    try { return localStorage.getItem('epion_invite_code') || ''; } catch { return ''; }
+  });
+  const hasBetaCode = !!inviteCode;
 
   // reset erreurs quand on tape
   React.useEffect(() => {
@@ -114,13 +121,21 @@ function GuestAuthForm({
 
     try {
       setBusy(true);
-      await onSignup(email, password, displayName.trim());
+      await onSignup(email, password, displayName.trim(), inviteCode || undefined);
+      // Clear invite code from localStorage on success
+      try { localStorage.removeItem('epion_invite_code'); } catch {}
     } catch (err: any) {
       const status = httpStatusFromErr(err);
       if (status === 409) {
         setEmailErr('This email is already linked to an account.');
       } else {
-        setFormErr('Something went wrong. Please try again.');
+        // Try to parse the error for invite code issues
+        const text = String(err?.message || '');
+        if (text.includes('INVITE_CODE') || text.includes('MISSING_INVITE')) {
+          setFormErr('Invalid or missing invite code. Please check your code.');
+        } else {
+          setFormErr('Something went wrong. Please try again.');
+        }
       }
     } finally {
       setBusy(false);
@@ -155,6 +170,21 @@ function GuestAuthForm({
               value={displayName}
               onChange={e => setDisplayName(e.target.value)}
               placeholder="Jane Doe"
+            />
+          </div>
+        )}
+
+        {mode === 'signup' && hasBetaCode && (
+          <div>
+            <label className="mb-1 flex items-center gap-2 text-sm">
+              Invite code
+              <span className="inline-flex items-center rounded-full bg-violet-500/10 px-2 py-0.5 text-[10px] font-semibold text-violet-500">BETA</span>
+            </label>
+            <input
+              className="w-full rounded-xl border border-violet-500/30 bg-violet-50/5 px-3 py-2 text-sm font-mono tracking-wider outline-none focus:ring-2 focus:ring-violet-500/50 dark:border-violet-500/20 dark:bg-violet-950/10"
+              value={inviteCode}
+              onChange={e => setInviteCode(e.target.value.toUpperCase())}
+              placeholder="XXXX-XXXX"
             />
           </div>
         )}
@@ -421,8 +451,8 @@ export function AccountAuthBoxCompact() {
             await refresh();
             push('Connected', 'success');
           }}
-          onSignup={async (email, pw, dn) => {
-            await signup(email, pw, dn);
+          onSignup={async (email, pw, dn, code) => {
+            await signup(email, pw, dn, code);
             await refresh();
             push('Account created & connected', 'success');
           }}

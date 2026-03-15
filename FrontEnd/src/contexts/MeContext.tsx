@@ -27,7 +27,7 @@ type MeCtxShape = {
   refresh: () => Promise<void>
 
   login: (email: string, password: string) => Promise<void>
-  signup: (email: string, password: string, displayName: string) => Promise<void>
+  signup: (email: string, password: string, displayName: string, inviteCode?: string) => Promise<void>
   logout: () => Promise<void>
 
   updateLocal: (patch: Partial<Me>) => void
@@ -119,12 +119,12 @@ export function MeProvider({ children }: { children: React.ReactNode }) {
   )
 
   const signup = React.useCallback(
-    async (email: string, password: string, displayName: string) => {
+    async (email: string, password: string, displayName: string, inviteCode?: string) => {
       const res = await fetch(`${API_BASE}/api/auth/signup`, {
         method: 'POST',
         credentials: 'include',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ email, password, displayName }),
+        body: JSON.stringify({ email, password, displayName, ...(inviteCode ? { inviteCode } : {}) }),
       })
 
       if (!res.ok) {

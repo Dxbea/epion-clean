@@ -79,6 +79,10 @@ model User {
   followingCount Int         @default(0)
 
   usage UserUsage?
+
+  // Beta invite
+  inviteCodeId String?
+  inviteCode   InviteCode? @relation("UserInvite", fields: [inviteCodeId], references: [id])
 }
 
 enum PlanType {
@@ -514,4 +518,18 @@ model KnowledgeChunk {
 
   // TODO: Fix Hnsw index syntax. Currently causing validation error P1012.
   // @@index([embedding], name: "embedding_index", type: Hnsw)
+}
+
+// -----------------------------------------------------------------------------
+// BETA INVITE CODES
+// -----------------------------------------------------------------------------
+model InviteCode {
+  id        String    @id @default(cuid())
+  code      String    @unique
+  maxUses   Int       @default(100)
+  usedCount Int       @default(0)
+  createdAt DateTime  @default(now())
+  expiresAt DateTime?
+
+  users     User[]    @relation("UserInvite")
 }

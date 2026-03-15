@@ -61,6 +61,7 @@ const allowedOrigin = [
   'https://epion-clean.vercel.app',
   'https://epion.app',
   'https://www.epion.app',
+  'https://api.epion.app'
 ];
 
 app.use(

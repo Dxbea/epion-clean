@@ -1,4 +1,5 @@
 // BackEnd/src/routes/auth.ts
+// TS-Server-Refresh
 import { Router } from 'express';
 import { z } from 'zod';
 import bcrypt from 'bcrypt';
@@ -46,6 +47,34 @@ function serverStrongPassword(pw: string): boolean {
   );
 }
 
+const BETA_MODE = process.env.BETA_MODE === 'true';
+
+/* ------------------------ VERIFY INVITE CODE ------------------------ */
+router.post('/auth/verify-invite', async (req, res, next) => {
+  try {
+    const code = String(req.body?.code || '').trim().toUpperCase();
+    if (!code) return res.status(400).json({ error: 'MISSING_CODE' });
+
+    const invite = await prisma.inviteCode.findUnique({ where: { code } });
+
+    if (!invite) {
+      return res.status(400).json({ error: 'INVALID_CODE' });
+    }
+
+    if (invite.expiresAt && invite.expiresAt < new Date()) {
+      return res.status(400).json({ error: 'EXPIRED_CODE' });
+    }
+
+    if (invite.usedCount >= invite.maxUses) {
+      return res.status(400).json({ error: 'CODE_FULL' });
+    }
+
+    return res.json({ valid: true });
+  } catch (e) {
+    next(e);
+  }
+});
+
 /* ------------------------ SIGNUP ------------------------ */
 router.post('/auth/signup', async (req, res, next) => {
   try {
@@ -54,6 +83,23 @@ router.post('/auth/signup', async (req, res, next) => {
 
     if (!serverStrongPassword(input.password)) {
       return res.status(400).json({ error: 'WEAK_PASSWORD' });
+    }
+
+    // Beta mode: require invite code
+    let inviteCodeId: string | undefined;
+    if (BETA_MODE) {
+      const code = String(req.body?.inviteCode || '').trim().toUpperCase();
+      if (!code) return res.status(400).json({ error: 'MISSING_INVITE_CODE' });
+
+      const invite = await prisma.inviteCode.findUnique({ where: { code } });
+      if (!invite) return res.status(400).json({ error: 'INVALID_INVITE_CODE' });
+      if (invite.expiresAt && invite.expiresAt < new Date()) {
+        return res.status(400).json({ error: 'EXPIRED_INVITE_CODE' });
+      }
+      if (invite.usedCount >= invite.maxUses) {
+        return res.status(400).json({ error: 'INVITE_CODE_FULL' });
+      }
+      inviteCodeId = invite.id;
     }
 
     const exists = await prisma.user.findUnique({ where: { email } });
@@ -66,9 +112,18 @@ router.post('/auth/signup', async (req, res, next) => {
         name: input.displayName,
         role: 'USER',
         passwordHash,
+        ...(inviteCodeId ? { inviteCodeId } : {}),
       },
       select: { id: true, email: true, name: true },
     });
+
+    // Increment invite code usage
+    if (inviteCodeId) {
+      await prisma.inviteCode.update({
+        where: { id: inviteCodeId },
+        data: { usedCount: { increment: 1 } },
+      });
+    }
 
     // 👉 crée la session DB
     const session = await prisma.session.create({
@@ -84,6 +139,11 @@ router.post('/auth/signup', async (req, res, next) => {
   } catch (e) {
     next(e);
   }
+});
+
+// GET /api/auth/beta-status — tells the frontend if beta mode is on
+router.get('/auth/beta-status', (_req, res) => {
+  res.json({ betaMode: BETA_MODE });
 });
 
 // ---------- login ----------
