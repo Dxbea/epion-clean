@@ -60,44 +60,52 @@
 }
 
 /* Background elements */
-.bg-magnifier {
+.bg-magnifier-tr, .bg-magnifier-bl {
   position: absolute;
-  top: 50%;
-  left: 50%;
-  transform: translate(-50%, -50%);
-  width: 90vmin;
-  height: 90vmin;
+  width: 65vmin;
+  height: 65vmin;
   background: radial-gradient(circle, rgba(14, 165, 233, 0.05) 0%, rgba(45, 212, 191, 0.05) 40%, transparent 70%);
   border-radius: 50%;
   border: 2px solid rgba(14, 165, 233, 0.1);
-  box-shadow: 0 0 100px rgba(45, 212, 191, 0.05);
+  box-shadow: 0 0 60px rgba(45, 212, 191, 0.05);
   pointer-events: none;
   z-index: 0;
   filter: blur(2px);
 }
-.dark .bg-magnifier {
+.bg-magnifier-tr { top: -2%; right: -5%; }
+.bg-magnifier-bl { bottom: 0%; left: -5%; }
+
+.dark .bg-magnifier-tr, .dark .bg-magnifier-bl {
   border: 2px solid rgba(255, 255, 255, 0.1);
   background: radial-gradient(circle, rgba(14, 165, 233, 0.05) 0%, rgba(45, 212, 191, 0.06) 40%, transparent 70%);
 }
 
-.bg-magnifier::after {
+.bg-magnifier-tr::after, .bg-magnifier-bl::after {
   content: "";
   position: absolute;
-  bottom: -5vmin;
-  right: -5vmin;
-  width: 25vmin;
-  height: 5vmin;
+  bottom: -4vmin;
+  right: -4vmin;
+  width: 20vmin;
+  height: 4vmin;
   background: linear-gradient(45deg, rgba(14, 165, 233, 0.1), transparent);
   transform: rotate(45deg);
   border-radius: 9999px;
 }
 
-@keyframes pulse-slow {
-  0%, 100% { transform: translate(-50%, -50%) scale(1); opacity: 0.8; }
-  50% { transform: translate(-50%, -50%) scale(1.05); opacity: 1; }
+@keyframes pulse-float {
+  0%, 100% { transform: scale(1); opacity: 0.8; }
+  50% { transform: scale(1.05); opacity: 1; }
 }
-.animate-pulse-slow {
-  animation: pulse-slow 8s ease-in-out infinite;
+.animate-pulse-float {
+  animation: pulse-float 8s ease-in-out infinite;
+}
+
+@keyframes pulse-float-flipped {
+  0%, 100% { transform: scaleX(-1) scaleY(1); opacity: 0.8; }
+  50% { transform: scaleX(-1) scaleY(1.05); opacity: 1; }
+}
+.animate-pulse-float-flipped {
+  animation: pulse-float-flipped 8s ease-in-out infinite;
 }
 
 @keyframes fadeUp {
