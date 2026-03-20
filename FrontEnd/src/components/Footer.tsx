@@ -1,48 +1,11 @@
 // src/components/Footer.tsx
 import React from 'react';
 import { Link } from 'react-router-dom';
+import { useI18n } from '@/i18n/I18nContext';
 
 type FooterLink = { label: string; to: string; external?: boolean };
 type FooterSection = { title?: string; links?: FooterLink[] };
 
-const defaultSections: FooterSection[] = [
-  {
-    title: 'Product',
-    links: [
-      { label: 'Download', to: '/download' },
-      { label: 'Chat', to: '/chat' },
-      { label: 'news', to: '/news' },
-      { label: 'Fact-check', to: '/fact-check' },
-    ],
-  },
-  {
-    title: 'Resources',
-    links: [
-      { label: 'Help / FAQ', to: '/help' },
-      { label: 'Guide', to: '/guide' },
-      { label: 'Blog', to: '/blog' },
-      { label: 'Changelog', to: '/changelog' },
-    ],
-  },
-  {
-    title: 'Company',
-    links: [
-      { label: 'About', to: '/about' },
-      { label: 'Our transparency', to: '/transparency' },
-      { label: 'Press', to: '/press' },
-      { label: 'Contact', to: '/contact' },
-    ],
-  },
-  {
-    title: 'Legal',
-    links: [
-      { label: 'Privacy', to: '/legal/privacy' },
-      { label: 'Terms', to: '/legal/terms' },
-      { label: 'Cookies', to: '/legal/cookies' },
-      { label: 'Moderation policy', to: '/legal/moderation' },
-    ],
-  },
-];
 
 const defaultCategories = [
   'Monde',
@@ -89,12 +52,55 @@ type Props = React.ComponentProps<'footer'> & {
 export default function Footer({
   logoLight,
   logoDark,
-  sections = defaultSections,
-  categories = defaultCategories,
+  sections: propsSections,
+  categories: propsCategories,
   showCategories = false,
   className = '',
   ...rest
 }: Props) {
+  const { t } = useI18n();
+
+  const sections = propsSections ?? [
+    {
+      title: t('footer_product'),
+      links: [
+        { label: t('download'), to: '/download' },
+        { label: t('chat'), to: '/chat' },
+        { label: t('news'), to: '/news' },
+        { label: t('fact_check'), to: '/fact-check' },
+      ],
+    },
+    {
+      title: t('footer_resources'),
+      links: [
+        { label: t('faq'), to: '/help' },
+        { label: t('guide'), to: '/guide' },
+        { label: t('blog'), to: '/blog' },
+        { label: t('changelog'), to: '/changelog' },
+      ],
+    },
+    {
+      title: t('footer_company'),
+      links: [
+        { label: t('about'), to: '/about' },
+        { label: t('transparency'), to: '/transparency' },
+        { label: t('press'), to: '/press' },
+        { label: t('contact'), to: '/contact' },
+      ],
+    },
+    {
+      title: t('footer_legal'),
+      links: [
+        { label: t('privacy'), to: '/legal/privacy' },
+        { label: t('terms'), to: '/legal/terms' },
+        { label: t('cookies'), to: '/legal/cookies' },
+        { label: t('moderation_policy'), to: '/legal/moderation' },
+      ],
+    },
+  ];
+
+  const categories = propsCategories ?? defaultCategories;
+
   return (
     <footer
       {...rest}
@@ -118,7 +124,7 @@ export default function Footer({
               <div className="text-xl font-semibold">Epion</div>
             )}
             <p className="max-w-sm text-sm text-white/70">
-              L’information, sans le bruit. Vérifie. Comprends. Discute.
+              {t('footer_tagline')}
             </p>
           </div>
 
@@ -145,7 +151,7 @@ export default function Footer({
         {showCategories ? (
           <div className="border-t border-white/5 pt-6">
             <div className="text-xs font-semibold uppercase tracking-wide text-white/50 mb-3">
-              Categories
+              {t('categories')}
             </div>
             <div className="grid grid-cols-2 gap-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-6">
               {categories.map((c) => (
@@ -165,16 +171,16 @@ export default function Footer({
       {/* bottom bar */}
       <div className="mx-auto mt-8 w-full max-w-7xl px-4 sm:px-6 lg:px-8">
         <div className="flex flex-col gap-4 border-t border-white/5 pt-4 text-xs text-white/40 sm:flex-row sm:items-center sm:justify-between">
-          <div>© {new Date().getFullYear()} Epion. Tous droits réservés.</div>
+          <div>© {new Date().getFullYear()} Epion. {t('footer_rights')}</div>
           <div className="flex flex-wrap gap-4">
             <Link to="/legal/privacy" className="hover:text-white">
-              Confidentialité
+              {t('privacy')}
             </Link>
             <Link to="/legal/terms" className="hover:text-white">
-              Conditions
+              {t('terms')}
             </Link>
             <Link to="/legal/cookies" className="hover:text-white">
-              Cookies
+              {t('cookies')}
             </Link>
           </div>
         </div>

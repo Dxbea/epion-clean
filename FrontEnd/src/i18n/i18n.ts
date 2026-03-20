@@ -15,13 +15,13 @@ i18n
                 translation: DICT.fr,
             },
         },
-        fallbackLng: 'fr',
+        fallbackLng: 'en',
         interpolation: {
             escapeValue: false,
         },
         detection: {
             order: ['localStorage', 'navigator'],
-            lookupLocalStorage: 'lang',
+            lookupLocalStorage: 'epion_lang_pref',
             caches: ['localStorage'],
         },
     });

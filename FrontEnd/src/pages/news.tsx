@@ -8,6 +8,7 @@ import { usePaginatedArticles } from '@/hooks/usePaginatedArticles';
 import TopOfWeekRow from '@/components/articles/TOTW';
 import { useLocation, Link, useNavigate } from 'react-router-dom';
 import { useMe } from '@/contexts/MeContext';
+import { useI18n } from '@/i18n/I18nContext';
 import { api } from '@/config/api';
 
 
@@ -78,6 +79,7 @@ const since24h = (iso: string) => Date.now() - new Date(iso).getTime() <= 24 * 3
 export default function News() {
   const navigate = useNavigate();
   const { me } = useMe();
+  const { t } = useI18n();
   // 🔗 Récupère les articles paginés depuis l’API
   const { items, hasMore, loadMore } = usePaginatedArticles({ take: 24 });
 
@@ -194,22 +196,22 @@ export default function News() {
     <main className="mx-auto w-full max-w-7xl px-4 py-10 space-y-10">
       {/* Header simple */}
       <header>
-        <h1 className="text-3xl font-semibold">News</h1>
+        <h1 className="text-3xl font-semibold">{t('news_title')}</h1>
         <p className="mt-2 max-w-2xl text-black/80 dark:text-white/80">
-          Here is the place you will find daily news on the world, you can browse, and ask AI to resume, explain, or create.
+          {t('news_lead')}
         </p>
         <div className="mt-4">
           <Link
             to="/create"
             className="rounded-xl bg-black px-4 py-2 text-white hover:opacity-90 dark:bg-white dark:text-black"
           >
-            Ask AI to create an article
+            {t('news_ask_create')}
           </Link>
         </div>
       </header>
 
       {/* Hero */}
-      <SectionHeader title="Today’s highlight" />
+      <SectionHeader title={t('news_highlight')} />
       <HeroArticle article={hero} />
 
       {/* TOTW */}
@@ -219,13 +221,13 @@ export default function News() {
       {me && (
         followingArticles.length > 0 ? (
           <ArticleSection
-            title="From people you follow"
+            title={t('news_following')}
             articles={followingArticles.slice(0, 4)}
           />
         ) : (
           <section className="rounded-2xl border border-black/5 bg-black/[0.02] p-8 text-center dark:border-white/5 dark:bg-white/[0.02]">
             <p className="text-sm text-neutral-500 dark:text-neutral-400">
-              Articles from people you follow will appear here. No articles found yet.
+              {t('news_no_following')}
             </p>
           </section>
         )
@@ -245,7 +247,7 @@ export default function News() {
 
       {/* Discovery : 2 lignes, 3 cartes par ligne */}
       <section className="space-y-6">
-        <SectionHeader title="Discovery" />
+        <SectionHeader title={t('news_discovery')} />
         <ArticleSection title="" articles={discoveryRows[0]} showHeader={false} />
         <ArticleSection title="" articles={discoveryRows[1]} showHeader={false} />
 
@@ -256,7 +258,7 @@ export default function News() {
               onClick={loadMore}
               className="mt-4 rounded-full border px-4 py-2 text-sm hover:bg-black/5 dark:border-white/10"
             >
-              Load more
+              {t('news_load_more')}
             </button>
           ) : null}
         </div>
@@ -264,11 +266,11 @@ export default function News() {
 
       {/* Search & Explore */}
       <section className="mt-8 space-y-3">
-        <SectionHeader title="Search & explore" />
+        <SectionHeader title={t('news_search_explore')} />
         <div className="flex flex-col items-center gap-3 rounded-2xl border border-black/10 p-4 dark:border-white/10">
           <input
             type="search"
-            placeholder="Search for an article…"
+            placeholder={t('news_search_placeholder')}
             className="w-full max-w-2xl rounded-xl border border-black/10 px-4 py-2 focus:outline-none focus:ring-2 focus:ring-black
                        dark:border-white/10 dark:bg-neutral-950"
             onKeyDown={(e) => {
@@ -283,7 +285,7 @@ export default function News() {
               to="/news/categories"
               className="rounded-xl border px-4 py-2 text-sm hover:bg-black/5 dark:border-white/10"
             >
-              Find articles by category
+              {t('news_search_categories')}
             </Link>
 
           </div>

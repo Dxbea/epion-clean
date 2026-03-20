@@ -39,6 +39,7 @@ import VerifyEmailBanner from '@/components/account/VerifyEmailBanner';
 function EmailAndVerificationBlock(): React.JSX.Element {
   const { me, refresh } = useMe();
   const { push } = useToast();
+  const { t } = useI18n();
 
   // change email form local state
   const [newEmail, setNewEmail] = React.useState('');
@@ -97,7 +98,7 @@ function EmailAndVerificationBlock(): React.JSX.Element {
     <div className="space-y-4">
       {/* Titre de sous-section */}
       <H3 as="div" className="text-base font-semibold">
-        Email & verification
+        {t('settings_email_verification')}
       </H3>
 
       {/* Ligne email actuelle + badge + resend */}
@@ -114,7 +115,7 @@ function EmailAndVerificationBlock(): React.JSX.Element {
               : 'border-yellow-600 text-yellow-700 dark:border-yellow-400 dark:text-yellow-400')
           }
         >
-          {verified ? 'Verified' : 'Unverified'}
+          {verified ? t('verified') : t('unverified')}
         </span>
 
         {!verified && (
@@ -128,14 +129,14 @@ function EmailAndVerificationBlock(): React.JSX.Element {
               disabled:opacity-50
             "
           >
-            {busyResend ? 'Sending…' : 'Resend email'}
+            {busyResend ? t('sending') : t('resend_email')}
           </button>
         )}
       </div>
 
       {/* Change email */}
       <div className="grid gap-2 text-sm md:max-w-md">
-        <label className="text-sm font-medium">Change email</label>
+        <label className="text-sm font-medium">{t('settings_change_email')}</label>
 
         <div className="flex flex-col gap-2 sm:flex-row sm:items-center">
           <input
@@ -158,12 +159,12 @@ function EmailAndVerificationBlock(): React.JSX.Element {
       disabled:opacity-50
     "
           >
-            {busyChangeEmail ? 'Sending…' : 'Send link'}
+            {busyChangeEmail ? t('sending') : t('settings_send_link')}
           </button>
         </div>
 
         <p className="text-[11px] opacity-70">
-          We’ll email a confirmation link to the new address.
+          {t('settings_email_help')}
         </p>
       </div>
     </div>
@@ -320,12 +321,12 @@ function NotificationsSection({ id }: { id?: string }): React.JSX.Element {
           />
           {!pushSupported && (
             <div className="mt-1 text-xs text-neutral-500">
-              Push not supported on this browser.
+              {t('push_not_supported')}
             </div>
           )}
           {pushSupported && permission === 'denied' && (
             <div className="mt-1 text-xs text-neutral-500">
-              Permission previously denied in browser settings.
+              {t('push_denied')}
             </div>
           )}
         </li>
@@ -519,11 +520,12 @@ function GeneralSection({ id }: { id?: string }): React.JSX.Element {
 // 🔁 remplace ENTIEREMENT SecurityBlock dans Settings.tsx
 
 function SecurityBlock({ id }: { id?: string }): React.JSX.Element {
+  const { t } = useI18n();
   return (
     <FormSection
       id={id}
-      title="Security"
-      description="Manage your email & verification status, change your password, enable two-factor auth and review active sessions."
+      title={t('settings_security')}
+      description={t('settings_security_desc')}
     >
       <div className="space-y-8">
         {/* 1. Email & verification (on garde la carte ici car c'est du contenu inline) */}
@@ -667,7 +669,7 @@ export default function Settings(): React.JSX.Element {
       {/* Mobile jump */}
       <div className="mb-6 lg:hidden">
         <label htmlFor="settings-jump" className="sr-only">
-          Jump to
+          {t('jump_to')}
         </label>
         <select
           id="settings-jump"
@@ -702,7 +704,7 @@ export default function Settings(): React.JSX.Element {
 
           {/* ACCOUNT (connexion / signup / logout / go to my account) */}
           <section id="account" className="space-y-4">
-            <H3 as="div" className="text-base font-semibold">Profile & Auth</H3>
+            <H3 as="div" className="text-base font-semibold">{t('profile_and_auth')}</H3>
             <AccountProfileForm />
             <AccountAuthBox />
           </section>

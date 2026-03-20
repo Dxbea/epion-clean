@@ -3,6 +3,7 @@ import FormSection from '@/components/settings/FormSection'
 import Button from '@/components/ui/Button'
 import { useI18n } from '@/i18n/I18nContext'
 import { useToast } from '@/components/ui/Toast'
+import { THEME_STORAGE_KEY } from '@/hooks/useTheme'
 
 
 
@@ -25,9 +26,9 @@ export default function DataComplianceSection({ id }: { id?: string }){
       account: JSON.parse(localStorage.getItem('account') || 'null'),
       notif: JSON.parse(localStorage.getItem('notif') || 'null'),
       privacy: JSON.parse(localStorage.getItem('privacy') || 'null'),
-      lang: localStorage.getItem('lang') || null,
+      lang: localStorage.getItem('epion_lang_pref') || null,
       sessions: JSON.parse(localStorage.getItem('sessions') || 'null'),
-      theme: localStorage.getItem('theme') || null,
+      theme: localStorage.getItem(THEME_STORAGE_KEY) || null,
       a11y: JSON.parse(localStorage.getItem('a11y') || 'null'),
       exportedAt: new Date().toISOString(),
     }
@@ -37,7 +38,7 @@ export default function DataComplianceSection({ id }: { id?: string }){
 
   function deleteAccount(){
     if (!confirm(t('delete_confirm'))) return
-    ;['account','notif','privacy','lang','sessions','theme','a11y'].forEach(k => localStorage.removeItem(k))
+    ;['account','notif','privacy','lang','epion_lang_pref','sessions', THEME_STORAGE_KEY, 'a11y', 'theme'].forEach(k => localStorage.removeItem(k))
     alert(t('deleted_local'))
     push(t?.('deleted_local') ?? 'Local data deleted.', 'success')
 

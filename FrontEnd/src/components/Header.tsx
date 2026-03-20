@@ -73,13 +73,13 @@ export default function Header(
           <img
             src={logoLight}
             alt="epion"
-            className="h-9 dark:hidden"
+            className="h-7 dark:hidden"
             draggable={false}
           />
           <img
             src={logoDark}
             alt="epion"
-            className="hidden h-9 dark:block"
+            className="hidden h-7 dark:block"
             draggable={false}
           />
         </Link>

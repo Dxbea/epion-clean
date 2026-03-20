@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { Instagram, Info, ArrowRight } from 'lucide-react';
+import { Instagram, Info, ArrowRight, Github } from 'lucide-react';
 import Modal from './ui/Modal';
 import { useTranslation } from 'react-i18next';
 import Button from './ui/Button';
@@ -57,6 +57,25 @@ export default function BetaNotificationPopup() {
               {t('beta_popup_insta_handle')}
             </span>
             <ArrowRight className="w-4 h-4 text-neutral-400 group-hover:text-pink-500 group-hover:translate-x-1 transition-all" />
+          </a>
+        </div>
+
+        {/* GitHub promo */}
+        <div className="p-4 rounded-2xl bg-gradient-to-br from-gray-50 to-neutral-50 dark:from-gray-900/10 dark:to-neutral-900/10 border border-gray-100 dark:border-gray-900/20">
+          <p className="text-sm font-medium text-neutral-700 dark:text-neutral-200 mb-3 flex items-center gap-2">
+            <Github className="w-4 h-4 text-neutral-900 dark:text-white" />
+            {t('beta_popup_github_label')}
+          </p>
+          <a
+            href="https://github.com/Dxbea/epion-clean"
+            target="_blank"
+            rel="noopener noreferrer"
+            className="flex items-center justify-between group bg-white dark:bg-neutral-800 p-3 rounded-xl border border-gray-100 dark:border-gray-900/30 hover:border-gray-300 dark:hover:border-gray-500/50 transition-all shadow-sm"
+          >
+            <span className="font-bold text-neutral-900 dark:text-white">
+              {t('beta_popup_github_repo')}
+            </span>
+            <ArrowRight className="w-4 h-4 text-neutral-400 group-hover:text-neutral-900 dark:group-hover:text-white group-hover:translate-x-1 transition-all" />
           </a>
         </div>
 

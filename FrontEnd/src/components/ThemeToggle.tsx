@@ -1,24 +1,26 @@
 import React from 'react'
+import { useTheme } from '@/hooks/useTheme'
+import { useI18n } from '@/i18n/I18nContext'
+import { Sun, Moon, Monitor } from 'lucide-react'
 
-export function ThemeToggle(){
-  const [dark, setDark] = React.useState<boolean>(() => {
-    if (typeof window === 'undefined') return false
-    const s = localStorage.getItem('theme')
-    if (s) return s === 'dark'
-    return window.matchMedia?.('(prefers-color-scheme: dark)').matches
-  })
+export function ThemeToggle() {
+  const { theme, toggleTheme } = useTheme()
+  const { t } = useI18n()
 
-  React.useEffect(() => {
-    const root = document.documentElement
-    if (dark) { root.classList.add('dark'); localStorage.setItem('theme','dark') }
-    else { root.classList.remove('dark'); localStorage.setItem('theme','light') }
-  }, [dark])
+  const Icon = theme === 'system' ? Monitor : theme === 'dark' ? Moon : Sun
+  const label = t?.(`theme_${theme}`) || theme
 
   return (
-    <button onClick={() => setDark(v=>!v)} aria-label="Toggle theme"
-      className="inline-flex items-center rounded-xl border border-surface-200 px-3 py-2 text-sm hover:bg-surface-100 dark:border-neutral-700 dark:hover:bg-neutral-800">
-      <span className="hidden sm:inline mr-2">{dark ? 'Dark' : 'Light'} mode</span>
-      <svg width="18" height="18" viewBox="0 0 24 24" fill="none"><path className="dark:hidden" d="M12 3v2m0 14v2m9-9h-2M5 12H3m14.95 6.95-1.41-1.41M7.46 7.46 6.05 6.05m11.18 0-1.41 1.41M7.46 16.54 6.05 17.95" stroke="currentColor" strokeWidth="1.7" strokeLinecap="round"/><path className="hidden dark:block" d="M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79Z" stroke="currentColor" strokeWidth="1.7"/></svg>
+    <button
+      onClick={toggleTheme}
+      aria-label="Toggle theme"
+      title={t?.('theme')}
+      className="inline-flex items-center gap-2 rounded-xl border border-black/10 bg-white/50 px-3 py-2 text-sm transition-all hover:bg-white dark:border-white/10 dark:bg-neutral-900/50 dark:hover:bg-neutral-900"
+    >
+      <Icon size={16} className="text-neutral-600 dark:text-neutral-400" />
+      <span className="hidden sm:inline font-medium text-neutral-700 dark:text-neutral-300">
+        {label}
+      </span>
     </button>
   )
 }

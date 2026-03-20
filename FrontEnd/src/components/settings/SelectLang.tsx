@@ -2,7 +2,7 @@
 import React from 'react'
 import { useI18n } from '@/i18n/I18nContext'
 
-type Lang = 'fr' | 'en'
+type Lang = 'fr' | 'en' | 'system'
 
 type Props = {
   value?: Lang                 // optionnel : si tu veux le contrôler depuis Settings
@@ -11,14 +11,18 @@ type Props = {
 }
 
 export default function SelectLang({ value, onChange, className = '' }: Props) {
-  const { locale, setLocale } = useI18n()
+  const { locale, setLocale, t } = useI18n()
   const current = value ?? locale
 
   function handleChange(e: React.ChangeEvent<HTMLSelectElement>) {
     const l = e.target.value as Lang
-    onChange?.(l)          // si contrôlé → remonte la valeur
-    if (!onChange) setLocale(l) // sinon → change direct via contexte
-    localStorage.setItem('lang', l) // persistance
+    onChange?.(l)          
+    if (!onChange) setLocale(l)
+    if (l === 'system') {
+      localStorage.removeItem('epion_lang_pref')
+    } else {
+      localStorage.setItem('epion_lang_pref', l)
+    }
   }
 
   return (
@@ -30,8 +34,9 @@ export default function SelectLang({ value, onChange, className = '' }: Props) {
         value={current}
         onChange={handleChange}
       >
-        <option value="fr">Français</option>
-        <option value="en">English</option>
+        <option value="system">{t?.('lang_auto') || 'Auto'}</option>
+        <option value="fr">{t?.('lang_fr') || 'Français'}</option>
+        <option value="en">{t?.('lang_en') || 'English'}</option>
       </select>
     </div>
   )
