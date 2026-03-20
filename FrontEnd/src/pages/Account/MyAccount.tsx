@@ -191,7 +191,7 @@ function MyArticlesSection() {
       ) : (
         <div className="rounded-2xl border border-dashed border-neutral-200 dark:border-neutral-800 p-12 text-center">
           <p className="text-neutral-500">No articles found.</p>
-          <Link to="/actuality/create" className="mt-4 inline-block px-4 py-2 bg-black text-white rounded-full text-sm font-medium">Create Article</Link>
+          <Link to="/news/create" className="mt-4 inline-block px-4 py-2 bg-black text-white rounded-full text-sm font-medium">Create Article</Link>
         </div>
       )}
     </>

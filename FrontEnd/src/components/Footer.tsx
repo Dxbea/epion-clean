@@ -11,7 +11,7 @@ const defaultSections: FooterSection[] = [
     links: [
       { label: 'Download', to: '/download' },
       { label: 'Chat', to: '/chat' },
-      { label: 'Actuality', to: '/actuality' },
+      { label: 'news', to: '/news' },
       { label: 'Fact-check', to: '/fact-check' },
     ],
   },
@@ -151,7 +151,7 @@ export default function Footer({
               {categories.map((c) => (
                 <Link
                   key={c}
-                  to={`/actuality/${c.toLowerCase()}`}
+                  to={`/news/${c.toLowerCase()}`}
                   className="text-sm text-white/70 hover:text-white transition"
                 >
                   {c}

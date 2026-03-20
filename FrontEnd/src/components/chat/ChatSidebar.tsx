@@ -304,14 +304,14 @@ function MenuItem({ onClick, label, icon }: { onClick: () => void; label: string
 
 /* --------- MENU DÉROULANT PRINCIPAL (QuickMenu) --------- */
 function QuickMenu({
-  anchorEl, onClose, onHome, onActuality,
+  anchorEl, onClose, onHome, onnews,
   hideAppHeader, setHideAppHeader, hideAppFooter, setHideAppFooter,
   onSettings,
 }: {
   anchorEl: HTMLElement | null;
   onClose: () => void;
   onHome: () => void;
-  onActuality: () => void;
+  onnews: () => void;
   hideAppHeader: boolean; setHideAppHeader: (v: boolean) => void;
   hideAppFooter: boolean; setHideAppFooter: (v: boolean) => void;
   onSettings: () => void;
@@ -333,7 +333,7 @@ function QuickMenu({
     <div style={style} onMouseDown={(e) => e.stopPropagation()} className="rounded-xl border border-surface-200 bg-white/95 p-2 shadow-xl backdrop-blur-sm dark:border-neutral-800 dark:bg-neutral-900">
       <div className="px-2 pb-1 pt-1 text-[11px] font-medium uppercase tracking-wide text-black/60 dark:text-white/60">Navigation</div>
       <MenuItem onClick={run(onHome)} icon={<FiHome />} label="Accueil" />
-      <MenuItem onClick={run(onActuality)} icon={<FiGrid />} label="Actuality" />
+      <MenuItem onClick={run(onnews)} icon={<FiGrid />} label="news" />
       <div className="mt-2 px-2 pb-1 pt-1 text-[11px] font-medium uppercase tracking-wide text-black/60 dark:text-white/60">Layout</div>
       <label className="flex w-full cursor-pointer items-center justify-between gap-2 rounded-lg px-2 py-2 text-sm hover:bg-black/5 dark:hover:bg-white/10">
         <span className="flex items-center gap-2"><FiSliders className="opacity-80" />Masquer le header de l’app</span>
@@ -521,7 +521,7 @@ export default function ChatSidebar(props: Props) {
               anchorEl={menuBtnRef.current}
               onClose={() => setMenuOpen(false)}
               onHome={() => nav('/')}
-              onActuality={() => nav('/actuality')}
+              onnews={() => nav('/news')}
               hideAppHeader={hideAppHeader} setHideAppHeader={setHideAppHeader}
               hideAppFooter={hideAppFooter} setHideAppFooter={setHideAppFooter}
               onSettings={() => (onOpenSettings ? onOpenSettings() : nav('/settings'))}
@@ -576,7 +576,7 @@ export default function ChatSidebar(props: Props) {
               anchorEl={menuBtnRef.current}
               onClose={() => setMenuOpen(false)}
               onHome={() => nav('/')}
-              onActuality={() => nav('/actuality')}
+              onnews={() => nav('/news')}
               hideAppHeader={hideAppHeader} setHideAppHeader={setHideAppHeader}
               hideAppFooter={hideAppFooter} setHideAppFooter={setHideAppFooter}
               onSettings={() => { setMenuOpen(false); nav('/settings'); }}

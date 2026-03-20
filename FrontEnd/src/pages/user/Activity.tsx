@@ -125,7 +125,7 @@ export default function Activity() {
                         <p className="mt-1 text-sm text-neutral-500">
                             You haven't interacted with any content in this section yet.
                         </p>
-                        <Link to="/actuality" className="mt-6 inline-flex h-10 items-center justify-center rounded-full bg-black px-6 text-sm font-medium text-white transition-transform active:scale-95 dark:bg-white dark:text-black">
+                        <Link to="/news" className="mt-6 inline-flex h-10 items-center justify-center rounded-full bg-black px-6 text-sm font-medium text-white transition-transform active:scale-95 dark:bg-white dark:text-black">
                             Explore content
                         </Link>
                     </div>

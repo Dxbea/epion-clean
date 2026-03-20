@@ -45,7 +45,7 @@ export default function FavoritesPage() {
   return (
     <main className="mx-auto w-full max-w-7xl px-4 py-10 space-y-8">
       <nav className="text-sm opacity-70">
-        <Link to="/actuality" className="hover:underline">Actuality</Link>
+        <Link to="/news" className="hover:underline">news</Link>
         <span className="mx-2">/</span><span>Favorites</span>
       </nav>
       <SectionHeader title="Your favorites" />

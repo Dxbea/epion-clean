@@ -6,12 +6,12 @@ import PageLoader from '../components/ui/PageLoader';
 
 // Eager loaded pages (Core / Landing / First Paint)
 import Home from '../pages/Home';
-import Actuality from '../pages/Actuality';
+import News from '../pages/news';
 import CategoryIndex from '../pages/CategoryIndex';
 import Categories from '../pages/Categories';
 import Saved from '../pages/Saved';
 import Favorites from '../pages/Favorites';
-import ActualitySlug from '../pages/ActualitySlug';
+import NewsSlug from '../pages/newsSlug';
 
 // Lazy loaded pages (Heavy bundles or secondary)
 const Settings = React.lazy(() => import('../pages/Settings'));
@@ -72,15 +72,15 @@ export default function Router(): React.ReactElement {
       <Route element={<MainLayout />}>
         {/* --- pages publiques Core (Eager) --- */}
         <Route path="/" element={<Home />} />
-        <Route path="/actuality" element={<Actuality />} />
-        <Route path="/actuality/category" element={<CategoryIndex />} />
-        <Route path="/actuality/favorites" element={<Favorites />} />
-        <Route path="/actuality/categories" element={<Categories />} />
-        <Route path="/actuality/:slug" element={<ActualitySlug />} />
-        <Route path="/actuality/saved" element={<Saved />} />
+        <Route path="/news" element={<News />} />
+        <Route path="/news/category" element={<CategoryIndex />} />
+        <Route path="/news/favorites" element={<Favorites />} />
+        <Route path="/news/categories" element={<Categories />} />
+        <Route path="/news/:slug" element={<NewsSlug />} />
+        <Route path="/news/saved" element={<Saved />} />
         <Route
           path="/saved"
-          element={<Navigate to="/actuality/saved" replace />}
+          element={<Navigate to="/news/saved" replace />}
         />
 
         {/* --- Lazy Loaded Pages --- */}
@@ -90,7 +90,7 @@ export default function Router(): React.ReactElement {
             <Suspense fallback={<PageLoader />}>
               <Routes>
                 {/* --- Search & Articles --- */}
-                <Route path="/actuality/search" element={<SearchPage />} />
+                <Route path="/news/search" element={<SearchPage />} />
 
                 {/* article en lecture */}
                 <Route path="/article/:slug" element={<Article />} />
@@ -114,7 +114,7 @@ export default function Router(): React.ReactElement {
 
                 {/* édition depuis une URL “actualité” */}
                 <Route
-                  path="/actuality/article/:idOrSlug/edit"
+                  path="/news/article/:idOrSlug/edit"
                   element={<EditArticlePage />}
                 />
 

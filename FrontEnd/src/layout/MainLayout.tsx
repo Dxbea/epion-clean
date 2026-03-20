@@ -8,6 +8,7 @@ import logoLight from '@/assets/LG_All_Blanc.png';
 import logoDark from '@/assets/LG_Text_Noir.png';
 import { ToasterProvider } from '@/components/ui/Toast';
 import { AuthPromptProvider } from '@/contexts/AuthPromptContext';
+import BetaNotificationPopup from '@/components/BetaNotificationPopup';
 
 
 function useExposeChromeHeights(): void {
@@ -58,6 +59,7 @@ export default function MainLayout(): React.JSX.Element {
   return (
     <AuthPromptProvider>
       <ToasterProvider>
+        <BetaNotificationPopup />
         <div className="grid min-h-screen grid-rows-[auto_1fr_auto] bg-[#FAFAF5] text-neutral-900 dark:bg-neutral-950 dark:text-white">
           <Header data-app-header />
           <Analytics />

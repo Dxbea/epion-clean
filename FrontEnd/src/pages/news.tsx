@@ -75,7 +75,7 @@ function groupBy<T, K extends string | number>(arr: T[], key: (x: T) => K) {
 }
 const since24h = (iso: string) => Date.now() - new Date(iso).getTime() <= 24 * 3600 * 1000;
 
-export default function Actuality() {
+export default function News() {
   const navigate = useNavigate();
   const { me } = useMe();
   // 🔗 Récupère les articles paginés depuis l’API
@@ -194,7 +194,7 @@ export default function Actuality() {
     <main className="mx-auto w-full max-w-7xl px-4 py-10 space-y-10">
       {/* Header simple */}
       <header>
-        <h1 className="text-3xl font-semibold">Actuality</h1>
+        <h1 className="text-3xl font-semibold">News</h1>
         <p className="mt-2 max-w-2xl text-black/80 dark:text-white/80">
           Here is the place you will find daily news on the world, you can browse, and ask AI to resume, explain, or create.
         </p>
@@ -274,13 +274,13 @@ export default function Actuality() {
             onKeyDown={(e) => {
               if (e.key === 'Enter') {
                 const q = (e.target as HTMLInputElement).value.trim();
-                if (q) navigate(`/actuality/search?q=${encodeURIComponent(q)}`);
+                if (q) navigate(`/news/search?q=${encodeURIComponent(q)}`);
               }
             }}
           />
           <div className="flex items-center gap-2">
             <Link
-              to="/actuality/categories"
+              to="/news/categories"
               className="rounded-xl border px-4 py-2 text-sm hover:bg-black/5 dark:border-white/10"
             >
               Find articles by category

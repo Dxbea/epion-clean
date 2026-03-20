@@ -485,13 +485,13 @@ export default function Article() {
       <main className="mx-auto w-full max-w-4xl px-4 py-10 space-y-8 pb-32">
         {/* Breadcrumb */}
         <nav className="text-sm opacity-70">
-          <Link to="/actuality" className="hover:underline">
-            Actuality
+          <Link to="/news" className="hover:underline">
+            news
           </Link>
           {category?.name && (
             <>
               <span className="mx-2">/</span>
-              <Link to={`/actuality/${category.slug}`} className="hover:underline">
+              <Link to={`/news/${category.slug}`} className="hover:underline">
                 {category.name}
               </Link>
             </>
@@ -536,7 +536,7 @@ export default function Article() {
                       className="absolute right-0 z-50 mt-2 w-48 overflow-hidden rounded-2xl border bg-white shadow-lg ring-1 ring-black/5 dark:border-white/10 dark:bg-neutral-950"
                     >
                       <Link
-                        to={`/actuality/article/${article.slug}/edit`}
+                        to={`/news/article/${article.slug}/edit`}
                         role="menuitem"
                         className="block w-full px-3 py-2 text-left text-sm hover:bg-black/5 dark:hover:bg-white/10"
                         onClick={() => setIsEditOpen(false)}
@@ -564,7 +564,7 @@ export default function Article() {
                           setIsEditOpen(false);
                           if (!confirm('Delete this article?')) return;
                           await fetch(`${API_BASE}/api/articles/${article.id}`, { method: 'DELETE', credentials: 'include' });
-                          navigate('/actuality');
+                          navigate('/news');
                         }}
                       >
                         Delete

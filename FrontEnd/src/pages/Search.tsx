@@ -69,40 +69,40 @@ export default function SearchPage() {
   }, [q]);
 
   // recharge quand la query change
-React.useEffect(() => {
-  // Lance la recherche quand l’URL (q) change
-  load(null);
-  // eslint-disable-next-line react-hooks/exhaustive-deps
-}, [q]);
+  React.useEffect(() => {
+    // Lance la recherche quand l’URL (q) change
+    load(null);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [q]);
 
   return (
     <main className="mx-auto w-full max-w-7xl px-4 py-10 space-y-8">
       <header className="space-y-2">
         <nav className="text-sm opacity-70">
-          <Link to="/actuality" className="hover:underline">Actuality</Link>
+          <Link to="/news" className="hover:underline">news</Link>
           <span className="mx-2">/</span><span>Search</span>
         </nav>
         <SectionHeader title="Search" />
         <input
-  value={query}
-  onChange={(e) => setQuery(e.target.value)}
-  onKeyDown={(e) => {
-    if (e.key === 'Enter') {
-      const v = query.trim();
-      navigate(`/actuality/search?q=${encodeURIComponent(v)}`);
-      window.scrollTo({ top: 0, behavior: 'smooth' });
-    }
-  }}
-  placeholder="Search…"
-  className="mt-2 w-full max-w-3xl rounded-xl border border-black/10 px-3 py-2 dark:border-white/10"
-/>
+          value={query}
+          onChange={(e) => setQuery(e.target.value)}
+          onKeyDown={(e) => {
+            if (e.key === 'Enter') {
+              const v = query.trim();
+              navigate(`/news/search?q=${encodeURIComponent(v)}`);
+              window.scrollTo({ top: 0, behavior: 'smooth' });
+            }
+          }}
+          placeholder="Search…"
+          className="mt-2 w-full max-w-3xl rounded-xl border border-black/10 px-3 py-2 dark:border-white/10"
+        />
 
       </header>
 
       {!query ? (
         <div className="rounded-2xl border border-black/10 p-6 text-center dark:border-white/10">
           <div className="text-lg font-medium">Type something to search.</div>
-          <div className="mt-1 text-sm opacity-70">Use the search bar on the Actuality page.</div>
+          <div className="mt-1 text-sm opacity-70">Use the search bar on the news page.</div>
         </div>
       ) : !initialLoaded && loading ? (
         <div className="text-center opacity-70">Loading…</div>

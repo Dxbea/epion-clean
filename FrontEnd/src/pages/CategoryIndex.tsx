@@ -24,7 +24,7 @@ export default function CategoryIndex() {
           return (
             <Link
               key={c}
-              to={`/actuality/${slug}`} // redirige vers la page de catégorie spécifique (déjà prévue)
+              to={`/news/${slug}`} // redirige vers la page de catégorie spécifique (déjà prévue)
               className="rounded-xl border border-black/10 px-4 py-3 hover:bg-black/5 dark:border-white/10 dark:hover:bg-white/5"
             >
               {c}

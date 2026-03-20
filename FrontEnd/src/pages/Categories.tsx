@@ -54,7 +54,7 @@ export default function CategoriesIndex() {
           {cats.map(({ name, slug, count }) => (
             <li key={slug}>
               <Link
-                to={`/actuality/${slug}`} // ⬅️ route correcte
+                to={`/news/${slug}`} // ⬅️ route correcte
                 className="flex items-center justify-between rounded-xl border border-black/10 px-3 py-2 text-sm hover:bg-black/5 dark:border-white/10 dark:hover:bg-neutral-900"
               >
                 <span>{name}</span>

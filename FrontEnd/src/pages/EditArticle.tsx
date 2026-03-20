@@ -422,8 +422,8 @@ export default function EditArticlePage() {
     return (
       <main className="mx-auto w-full max-w-3xl px-4 py-10 space-y-6">
         <nav className="text-sm opacity-70">
-          <Link to="/actuality" className="hover:underline">
-            Actuality
+          <Link to="/news" className="hover:underline">
+            news
           </Link>
           <span className="mx-2">/</span>
           <span>Edit</span>
@@ -441,7 +441,7 @@ export default function EditArticlePage() {
               Sign in / Create account
             </Link>
             <Link
-              to={articleSlug ? `/article/${articleSlug}` : '/actuality'}
+              to={articleSlug ? `/article/${articleSlug}` : '/news'}
               className="rounded-xl border px-4 py-2 hover:bg-black/5 dark:border-white/10"
             >
               View article
@@ -457,8 +457,8 @@ export default function EditArticlePage() {
     return (
       <main className="mx-auto w-full max-w-3xl px-4 py-10 space-y-6">
         <nav className="text-sm opacity-70">
-          <Link to="/actuality" className="hover:underline">
-            Actuality
+          <Link to="/news" className="hover:underline">
+            news
           </Link>
           <span className="mx-2">/</span>
           <span>Edit</span>
@@ -479,7 +479,7 @@ export default function EditArticlePage() {
               Go to account
             </Link>
             <Link
-              to={articleSlug ? `/article/${articleSlug}` : '/actuality'}
+              to={articleSlug ? `/article/${articleSlug}` : '/news'}
               className="rounded-xl border px-4 py-2 hover:bg-black/5 dark:border-white/10"
             >
               View article
@@ -494,8 +494,8 @@ export default function EditArticlePage() {
     return (
       <main className="mx-auto w-full max-w-3xl px-4 py-10 space-y-6">
         <nav className="text-sm opacity-70">
-          <Link to="/actuality" className="hover:underline">
-            Actuality
+          <Link to="/news" className="hover:underline">
+            news
           </Link>
           <span className="mx-2">/</span>
           <span>Edit</span>
@@ -507,7 +507,7 @@ export default function EditArticlePage() {
           <p className="mb-3">You are not allowed to edit this article.</p>
           <div className="flex gap-3">
             <Link
-              to={articleSlug ? `/article/${articleSlug}` : '/actuality'}
+              to={articleSlug ? `/article/${articleSlug}` : '/news'}
               className="rounded-xl bg-black px-4 py-2 text-white dark:bg-white dark:text-black"
             >
               View article
@@ -528,8 +528,8 @@ export default function EditArticlePage() {
     <main className="mx-auto w-full max-w-6xl px-4 py-10 space-y-8">
       {/* breadcrumb */}
       <nav className="text-sm opacity-70">
-        <Link to="/actuality" className="hover:underline">
-          Actuality
+        <Link to="/news" className="hover:underline">
+          news
         </Link>
         <span className="mx-2">/</span>
         <span>Edit</span>

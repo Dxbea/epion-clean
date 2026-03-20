@@ -4,7 +4,7 @@ export const DICT = {
     // ───────────────── NAV
     nav_home: "Home",
     nav_chat: "Chat",
-    nav_actuality: "Actuality",
+    nav_news: "news",
     nav_download: "Download epion",
     menu_my_account: "My account",
     menu_settings: "Settings",
@@ -149,7 +149,7 @@ export const DICT = {
     saving: "Saving…",
 
     // nav
-    actuality: "Actuality",
+    news: "news",
     download: "Download",
     changelog: "Changelog",
     guide: "Guide",
@@ -208,13 +208,12 @@ export const DICT = {
     press_stub: "Media kit and press contacts will be available here.",
     press_kit: "Download press kit",
 
-    // Cookies
-    cookies_title: "Cookies",
-    cookies_lead: "How and why we use cookies.",
-    cookies_stub: "We use only essential cookies at this stage.",
-
-
-
+    // ───────────────── BETA POPUP
+    beta_popup_title: "Welcome to Epion",
+    beta_popup_message: "Our platform is currently under development and not yet fully functional. We are preparing for the launch of our beta version in **June 2026**.",
+    beta_popup_insta_label: "Follow us on Instagram for updates:",
+    beta_popup_insta_handle: "@epion.app",
+    beta_popup_cta: "I understand",
   },
 
 
@@ -223,7 +222,7 @@ export const DICT = {
     // ───────────────── NAV
     nav_home: "Accueil",
     nav_chat: "Chat",
-    nav_actuality: "Actualité",
+    nav_news: "News",
     nav_download: "Télécharger epion",
     menu_my_account: "Mon compte",
     menu_settings: "Paramètres",
@@ -368,7 +367,7 @@ export const DICT = {
     saving: "Enregistrement…",
 
     // nav
-    actuality: "Actualité",
+    news: "News",
     download: "Télécharger",
     changelog: "Journal des versions",
     guide: "Guide",
@@ -431,5 +430,12 @@ export const DICT = {
     cookies_title: "Cookies",
     cookies_lead: "Comment et pourquoi nous utilisons des cookies.",
     cookies_stub: "Nous utilisons uniquement des cookies essentiels à ce stade.",
+
+    // ───────────────── BETA POPUP
+    beta_popup_title: "Bienvenue sur Epion",
+    beta_popup_message: "Notre plateforme est actuellement en cours de développement et n'est pas encore pleinement fonctionnelle. Nous préparons activement le lancement de notre version bêta qui débutera en **juin 2026**.",
+    beta_popup_insta_label: "Suivez-nous sur Instagram pour ne rien manquer :",
+    beta_popup_insta_handle: "@epion.app",
+    beta_popup_cta: "J'ai compris",
   },
 } as const;

@@ -7,7 +7,7 @@ import { API_BASE } from '@/config/api';
 
 type Mode = 'loading' | 'article' | 'category' | 'notfound';
 
-export default function ActualitySlug() {
+export default function NewsSlug() {
   const { slug = '' } = useParams();
   const [mode, setMode] = React.useState<Mode>('loading');
 

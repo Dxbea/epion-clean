@@ -80,7 +80,7 @@ export default function SystemCardModal({
                 <div className="flex items-center justify-between gap-4">
                     <div className="flex-1">
                         <h4 className="mb-1 text-base font-bold text-neutral-800 dark:text-neutral-200">
-                            Actualité Récente
+                            News Récentes
                             {timeRecent && <span className="ml-2 text-xs uppercase tracking-wider text-[#00dc82] font-bold">&lt; 48H</span>}
                         </h4>
                         <p className="text-sm text-neutral-500 leading-snug">

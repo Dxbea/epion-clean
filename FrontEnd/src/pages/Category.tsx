@@ -6,12 +6,12 @@ import type { Article } from '@/types/article';
 import SectionHeader from '@/components/SectionHeader';
 import { API_BASE } from '@/config/api';
 
-function labelFromSlug(slug: string){
-  const pretty = slug.replace(/-/g,' ');
-  return pretty.slice(0,1).toUpperCase()+pretty.slice(1);
+function labelFromSlug(slug: string) {
+  const pretty = slug.replace(/-/g, ' ');
+  return pretty.slice(0, 1).toUpperCase() + pretty.slice(1);
 }
 
-export default function CategoryPage(){
+export default function CategoryPage() {
   const { slug = '' } = useParams();
 
   const [items, setItems] = React.useState<Article[]>([]);
@@ -61,7 +61,7 @@ export default function CategoryPage(){
     <main className="mx-auto w-full max-w-7xl px-4 py-10 space-y-8">
       <header className="space-y-2">
         <nav className="text-sm opacity-70">
-          <Link to="/actuality" className="hover:underline">Actuality</Link>
+          <Link to="/news" className="hover:underline">news</Link>
           <span className="mx-2">/</span><span>{label}</span>
         </nav>
         <SectionHeader title={label} />
@@ -98,7 +98,7 @@ export default function CategoryPage(){
         <div className="rounded-2xl border border-black/10 p-6 text-center dark:border-white/10">
           <div className="text-lg font-medium">Aucun article trouvé</div>
           <div className="mt-1 text-sm opacity-70">
-            Essaie une autre catégorie ou <Link to="/actuality" className="underline">retourne aux articles</Link>.
+            Essaie une autre catégorie ou <Link to="/news" className="underline">retourne aux articles</Link>.
           </div>
         </div>
       )}

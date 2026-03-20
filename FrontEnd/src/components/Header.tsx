@@ -18,7 +18,7 @@ export default function Header(
   const NAV_LINKS = React.useMemo(
     () => [
       { to: '/chat', label: t('nav_chat') || 'Chat' },
-      { to: '/actuality', label: t('nav_actuality') || 'Actuality' },
+      { to: '/news', label: t('nav_news') || 'news' },
     ],
     [t, locale]
   )
@@ -73,13 +73,13 @@ export default function Header(
           <img
             src={logoLight}
             alt="epion"
-            className="h-6 dark:hidden"
+            className="h-9 dark:hidden"
             draggable={false}
           />
           <img
             src={logoDark}
             alt="epion"
-            className="hidden h-6 dark:block"
+            className="hidden h-9 dark:block"
             draggable={false}
           />
         </Link>
@@ -96,10 +96,9 @@ export default function Header(
                 text-neutral-900 transition
                 hover:bg-black/[0.04]
                 dark:text-neutral-100 dark:hover:bg-white/[0.07]
-                ${
-                  isActive
-                    ? 'bg-black/[0.06] font-semibold dark:bg-white/[0.09]'
-                    : ''
+                ${isActive
+                  ? 'bg-black/[0.06] font-semibold dark:bg-white/[0.09]'
+                  : ''
                 }
               `
               }

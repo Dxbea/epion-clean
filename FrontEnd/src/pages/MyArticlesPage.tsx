@@ -117,8 +117,8 @@ export default function MyArticlesPage() {
     <main className="mx-auto w-full max-w-6xl px-4 py-10 space-y-8">
       {/* breadcrumb */}
       <nav className="text-sm opacity-70">
-        <Link to="/actuality" className="hover:underline">
-          Actuality
+        <Link to="/news" className="hover:underline">
+          news
         </Link>
         <span className="mx-2">/</span>
         <span>My articles</span>
@@ -133,22 +133,21 @@ export default function MyArticlesPage() {
           <button
             key={t}
             onClick={() => setTab(t)}
-            className={`rounded-full border px-3 py-1 text-sm dark:border-white/10 ${
-              tab === t
+            className={`rounded-full border px-3 py-1 text-sm dark:border-white/10 ${tab === t
                 ? 'bg-black text-white dark:bg-white dark:text-black'
                 : ''
-            }`}
+              }`}
           >
             {t === 'ALL' ? 'All' : t.charAt(0) + t.slice(1).toLowerCase()}
             {stats && t === 'ALL'
               ? ` (${stats.total})`
               : stats && t === 'DRAFT'
-              ? ` (${stats.draft})`
-              : stats && t === 'PUBLISHED'
-              ? ` (${stats.published})`
-              : stats && t === 'ARCHIVED'
-              ? ` (${stats.archived})`
-              : ''}
+                ? ` (${stats.draft})`
+                : stats && t === 'PUBLISHED'
+                  ? ` (${stats.published})`
+                  : stats && t === 'ARCHIVED'
+                    ? ` (${stats.archived})`
+                    : ''}
           </button>
         ))}
 
@@ -206,7 +205,7 @@ export default function MyArticlesPage() {
 
           {/* bouton create */}
           <Link
-            to="/actuality/create"
+            to="/news/create"
             className="inline-flex h-12 items-center rounded-2xl bg-black px-5 text-sm text-white dark:bg-white dark:text-black"
           >
             New article
@@ -225,23 +224,23 @@ export default function MyArticlesPage() {
         <>
           {/* grille d’articles */}
           <div className="grid grid-cols-1 gap-6 sm:grid-cols-2 lg:grid-cols-3">
-          {items.map((a) => {
-            // on reconstruit l’URL d’édition à partir du slug si dispo, sinon l’id
-            const editUrl = `/account/articles/${encodeURIComponent(
-              a.slug || a.id
-            )}/edit`;
+            {items.map((a) => {
+              // on reconstruit l’URL d’édition à partir du slug si dispo, sinon l’id
+              const editUrl = `/account/articles/${encodeURIComponent(
+                a.slug || a.id
+              )}/edit`;
 
-            return (
-              <Link
-                key={a.id}
-                to={editUrl}
-                className="block focus:outline-none focus:ring-2 focus:ring-[#4290D3] rounded-2xl"
-              >
-                <ArticleCard article={a as Article} />
-              </Link>
-            );
-          })}
-        </div>
+              return (
+                <Link
+                  key={a.id}
+                  to={editUrl}
+                  className="block focus:outline-none focus:ring-2 focus:ring-[#4290D3] rounded-2xl"
+                >
+                  <ArticleCard article={a as Article} />
+                </Link>
+              );
+            })}
+          </div>
 
 
           {/* pagination */}
@@ -266,7 +265,7 @@ export default function MyArticlesPage() {
             Crée ton premier article.
           </div>
           <Link
-            to="/actuality/create"
+            to="/news/create"
             className="mt-4 inline-block rounded-full bg-black px-4 py-2 text-sm text-white dark:bg-white dark:text-black"
           >
             Create an article

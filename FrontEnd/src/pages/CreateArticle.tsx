@@ -175,8 +175,8 @@ export default function CreateArticlePage() {
     return (
       <main className="mx-auto w-full max-w-3xl px-4 py-10 space-y-6">
         <nav className="text-sm opacity-70">
-          <Link to="/actuality" className="hover:underline">
-            Actuality
+          <Link to="/news" className="hover:underline">
+            news
           </Link>
           <span className="mx-2">/</span>
           <span>Create</span>
@@ -194,10 +194,10 @@ export default function CreateArticlePage() {
               Sign in / Create account
             </Link>
             <Link
-              to="/actuality"
+              to="/news"
               className="rounded-xl border px-4 py-2 hover:bg-black/5 dark:border-white/10"
             >
-              Back to Actuality
+              Back to news
             </Link>
           </div>
         </div>
@@ -209,8 +209,8 @@ export default function CreateArticlePage() {
     return (
       <main className="mx-auto w-full max-w-3xl px-4 py-10 space-y-6">
         <nav className="text-sm opacity-70">
-          <Link to="/actuality" className="hover:underline">
-            Actuality
+          <Link to="/news" className="hover:underline">
+            news
           </Link>
           <span className="mx-2">/</span>
           <span>Create</span>
@@ -231,10 +231,10 @@ export default function CreateArticlePage() {
               Go to account
             </Link>
             <Link
-              to="/actuality"
+              to="/news"
               className="rounded-xl border px-4 py-2 hover:bg-black/5 dark:border-white/10"
             >
-              Back to Actuality
+              Back to news
             </Link>
           </div>
         </div>
@@ -245,8 +245,8 @@ export default function CreateArticlePage() {
   return (
     <main className="mx-auto w-full max-w-3xl px-4 py-10 space-y-8">
       <nav className="text-sm opacity-70">
-        <Link to="/actuality" className="hover:underline">
-          Actuality
+        <Link to="/news" className="hover:underline">
+          news
         </Link>
         <span className="mx-2">/</span>
         <span>Create</span>
@@ -411,7 +411,7 @@ export default function CreateArticlePage() {
             )}
           </button>
           <Link
-            to="/actuality"
+            to="/news"
             className="rounded-xl border px-4 py-2 text-sm hover:bg-black/5 dark:border-white/10"
           >
             Cancel

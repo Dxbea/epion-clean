@@ -37,7 +37,7 @@ export default function TopOfWeekRow() {
           <div className="flex items-center gap-3">
             <span className="text-xs opacity-60">Last 7 days</span>
             <Link
-              to="/actuality/top"
+              to="/news/top"
               className="rounded-full border px-3 py-1 text-sm hover:bg-black/5 dark:border-white/10"
             >
               Browse Top of the week

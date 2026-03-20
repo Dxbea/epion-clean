@@ -21,7 +21,7 @@ export default function ArticleSection({
   showHeaderBar?: boolean;
 }) {
   const items = articles.slice(0, 3);
-  const ctaTo = category ? `/actuality/${slugify(category)}` : undefined;
+  const ctaTo = category ? `/news/${slugify(category)}` : undefined;
 
   return (
     <section className="space-y-3">
