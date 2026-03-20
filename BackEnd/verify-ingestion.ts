@@ -31,7 +31,7 @@ async function verifyIngestion() {
     });
 
     console.log('\nSample MBFC sources:');
-    mbfcSources.forEach(s => {
+    mbfcSources.forEach((s: any) => {
         console.log(`  ${s.domain}: MBFC="${s.mbfcRating}" AllSides="${s.allSidesRating}" Score=${s.biasScore} Bias=${s.politicalBias}`);
     });
 
@@ -49,7 +49,7 @@ async function verifyIngestion() {
     });
 
     console.log('\nSample AllSides sources:');
-    allsidesSources.forEach(s => {
+    allsidesSources.forEach((s: any) => {
         console.log(`  ${s.domain}: MBFC="${s.mbfcRating}" AllSides="${s.allSidesRating}" Score=${s.biasScore} Bias=${s.politicalBias}`);
     });
 
