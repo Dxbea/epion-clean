@@ -14,7 +14,7 @@ const connection = new IORedis(redisUrl, {
 });
 
 export const embeddingQueue = new Queue('embedding-queue', {
-    connection,
+    connection: connection as any,
     defaultJobOptions: {
         attempts: 3,
         backoff: {
@@ -34,7 +34,7 @@ logger.info('Embedding Queue initialized', { module: 'Queue' });
 
 // Source Enrichment Queue (TrustScore Analysis)
 export const sourceEnrichmentQueue = new Queue('source-enrichment-queue', {
-    connection,
+    connection: connection as any,
     defaultJobOptions: {
         attempts: 3,
         backoff: {
@@ -54,7 +54,7 @@ logger.info('Source Enrichment Queue initialized', { module: 'Queue' });
 
 // Live Analysis Queue (Epion 2.0 — Article Fact-Check Pipeline)
 export const liveAnalysisQueue = new Queue('live-analysis-queue', {
-    connection,
+    connection: connection as any,
     defaultJobOptions: {
         attempts: 2,
         backoff: {
