@@ -77,7 +77,7 @@ function EmailAndVerificationBlock(): React.JSX.Element {
     if (!me?.email) return;
     try {
       setBusyResend(true);
-      const res = await fetch(`${API_BASE}/api/auth/resend-verification`, {
+      const res = await fetch(`${API_BASE}/api/auth/request-verify`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         credentials: 'include',
