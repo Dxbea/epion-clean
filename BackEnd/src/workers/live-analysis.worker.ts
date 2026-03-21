@@ -52,7 +52,7 @@ export const liveAnalysisWorker = new Worker(
         };
     },
     {
-        connection,
+        connection: connection as any,
         concurrency: 3, // Max 3 concurrent analyses (each involves 3 API calls)
     }
 );

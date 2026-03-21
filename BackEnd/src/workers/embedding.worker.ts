@@ -35,7 +35,7 @@ export const embeddingWorker = new Worker(
         }
     },
     {
-        connection,
+        connection: connection as any,
         concurrency: 5, // Traite jusqu'à 5 articles en parallèle
     }
 );

@@ -156,7 +156,7 @@ export const sourceEnrichmentWorker = new Worker(
         };
     },
     {
-        connection,
+        connection: connection as any,
         concurrency: 10, // Traitement de 10 fichiers simultanés (High Parallelism)
     }
 );
