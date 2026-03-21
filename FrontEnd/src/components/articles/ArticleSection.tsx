@@ -2,6 +2,8 @@ import React from 'react';
 import ArticleCard from './ArticleCard';
 import type { Article } from '@/types/article';
 import SectionHeader from '../SectionHeader';
+import { Link } from 'react-router-dom';
+import { useAuthRequired } from '@/hooks/useAuthRequired';
 
 function slugify(s: string) {
   return s.toLowerCase().replace(/\s+/g, '-').replace(/[^\w-]/g, '');
@@ -20,6 +22,7 @@ export default function ArticleSection({
   showHeader?: boolean;
   showHeaderBar?: boolean;
 }) {
+  const { requireAuth } = useAuthRequired();
   const items = articles.slice(0, 3);
   const ctaTo = category ? `/news/${slugify(category)}` : undefined;
 
@@ -31,8 +34,13 @@ export default function ArticleSection({
           showBar={showHeaderBar}
           right={
             ctaTo && (
-              <a
-                href={ctaTo}
+              <Link
+                to={ctaTo}
+                onClick={(e) => {
+                  if (!requireAuth('Connectez-vous pour explorer cette catégorie.')) {
+                    e.preventDefault();
+                  }
+                }}
                 className="inline-flex items-center gap-1 rounded-full border px-3 py-1 text-sm hover:bg-black/5 dark:border-white/10"
               >
                 Browse {category}
@@ -45,7 +53,7 @@ export default function ArticleSection({
                     strokeLinejoin="round"
                   />
                 </svg>
-              </a>
+              </Link>
             )
           }
         />

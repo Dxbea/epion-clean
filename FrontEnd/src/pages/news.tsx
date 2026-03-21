@@ -10,6 +10,7 @@ import { useLocation, Link, useNavigate } from 'react-router-dom';
 import { useMe } from '@/contexts/MeContext';
 import { useI18n } from '@/i18n/I18nContext';
 import { api } from '@/config/api';
+import { useAuthRequired } from '@/hooks/useAuthRequired';
 
 
 
@@ -80,6 +81,7 @@ export default function News() {
   const navigate = useNavigate();
   const { me } = useMe();
   const { t } = useI18n();
+  const { requireAuth } = useAuthRequired();
   // 🔗 Récupère les articles paginés depuis l’API
   const { items, hasMore, loadMore } = usePaginatedArticles({ take: 24 });
 
@@ -203,6 +205,11 @@ export default function News() {
         <div className="mt-4">
           <Link
             to="/create"
+            onClick={(e) => {
+              if (!requireAuth('Connectez-vous pour utiliser cette fonctionnalité.')) {
+                e.preventDefault();
+              }
+            }}
             className="rounded-xl bg-black px-4 py-2 text-white hover:opacity-90 dark:bg-white dark:text-black"
           >
             {t('news_ask_create')}
@@ -255,7 +262,13 @@ export default function News() {
         <div className="flex items-center justify-center">
           {hasMore ? (
             <button
-              onClick={loadMore}
+              onClick={(e) => {
+                if (!requireAuth('Connectez-vous pour charger plus d\'articles.')) {
+                  e.preventDefault();
+                  return;
+                }
+                loadMore();
+              }}
               className="mt-4 rounded-full border px-4 py-2 text-sm hover:bg-black/5 dark:border-white/10"
             >
               {t('news_load_more')}
@@ -275,6 +288,10 @@ export default function News() {
                        dark:border-white/10 dark:bg-neutral-950"
             onKeyDown={(e) => {
               if (e.key === 'Enter') {
+                if (!requireAuth('Connectez-vous pour faire une recherche.')) {
+                  e.preventDefault();
+                  return;
+                }
                 const q = (e.target as HTMLInputElement).value.trim();
                 if (q) navigate(`/news/search?q=${encodeURIComponent(q)}`);
               }
@@ -283,6 +300,11 @@ export default function News() {
           <div className="flex items-center gap-2">
             <Link
               to="/news/categories"
+              onClick={(e) => {
+                if (!requireAuth('Connectez-vous pour explorer les catégories.')) {
+                  e.preventDefault();
+                }
+              }}
               className="rounded-xl border px-4 py-2 text-sm hover:bg-black/5 dark:border-white/10"
             >
               {t('news_search_categories')}

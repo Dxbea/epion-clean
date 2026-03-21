@@ -4,8 +4,10 @@ import type { Article } from '@/types/article';
 import ArticleCard from '@/components/articles/ArticleCard';
 import { Link } from 'react-router-dom';
 import SectionHeader from '@/components/SectionHeader';
+import { useAuthRequired } from '@/hooks/useAuthRequired';
 
 export default function TopOfWeekRow() {
+  const { requireAuth } = useAuthRequired();
   const [items, setItems] = React.useState<Article[]>([]);
   const [loading, setLoading] = React.useState(true);
 
@@ -38,6 +40,11 @@ export default function TopOfWeekRow() {
             <span className="text-xs opacity-60">Last 7 days</span>
             <Link
               to="/news/top"
+              onClick={(e) => {
+                if (!requireAuth('Connectez-vous pour voir cette section.')) {
+                  e.preventDefault();
+                }
+              }}
               className="rounded-full border px-3 py-1 text-sm hover:bg-black/5 dark:border-white/10"
             >
               Browse Top of the week

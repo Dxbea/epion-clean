@@ -93,8 +93,22 @@ export default function Router(): React.ReactElement {
                 <Route path="/news/search" element={<SearchPage />} />
 
                 {/* article en lecture */}
-                <Route path="/article/:slug" element={<Article />} />
-                <Route path="/article/:id" element={<Article />} />
+                <Route
+                  path="/article/:slug"
+                  element={
+                    <RequireAuth>
+                      <Article />
+                    </RequireAuth>
+                  }
+                />
+                <Route
+                  path="/article/:id"
+                  element={
+                    <RequireAuth>
+                      <Article />
+                    </RequireAuth>
+                  }
+                />
 
                 {/* création (réservée aux comptes connectés) */}
                 <Route

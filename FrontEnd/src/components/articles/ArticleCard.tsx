@@ -1,5 +1,6 @@
 // DEBUT BLOC (remplace tout ce qui est entre ce commentaire et "FIN BLOC")
 import React from 'react';
+import { Link } from 'react-router-dom';
 import { useSavedArticles } from '@/hooks/useSavedArticles';
 import { isInternalUrl } from '@/utils/url';
 import type { Article } from '@/types/article'; // <- utiliser le type partagé
@@ -53,15 +54,25 @@ export default function ArticleCard({ article, disableLink = false }: { article:
     </div>
   );
 
+  const { requireAuth } = useAuthRequired();
+
+  const handleClick = (e: React.MouseEvent) => {
+    if (!requireAuth('Connectez-vous pour lire cet article.')) {
+      e.preventDefault();
+    }
+  };
+
   const Wrapper: React.FC<{ children: React.ReactNode }> = ({ children }) => {
     if (disableLink) return <div className="block h-full cursor-pointer">{children}</div>;
 
-    if (internal) return <a href={article.url}>{children}</a>;
+    if (internal) return <Link onClick={handleClick} to={article.url} className="block">{children}</Link>;
     return (
       <a
         href={article.url}
         target="_blank"
         rel="noopener noreferrer"
+        onClick={handleClick}
+        className="block"
       >
         {children}
       </a>
