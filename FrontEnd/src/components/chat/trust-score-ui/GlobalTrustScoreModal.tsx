@@ -109,12 +109,7 @@ export function GlobalTrustScoreModal({ isOpen, onClose, data }: GlobalTrustScor
                         <div className="relative z-10 flex items-center justify-center">
                             <span
                                 className="text-5xl font-black font-serif tracking-tighter"
-                                style={{
-                                    background: getScoreGradient(globalScore),
-                                    WebkitBackgroundClip: 'text',
-                                    backgroundClip: 'text',
-                                    color: 'transparent'
-                                }}
+                                style={{ color: getStrokeColor(globalScore) }}
                             >
                                 {globalScore}
                             </span>
@@ -299,9 +294,9 @@ export function GlobalTrustScoreModal({ isOpen, onClose, data }: GlobalTrustScor
 
                         {/* Legend */}
                         <div className="flex justify-between text-[10px] text-gray-400 mt-2 px-1 uppercase tracking-wider font-semibold">
-                            <span className="text-red-600">Gauche</span>
+                            <span className="text-red-600">Gauche ({politicalCounts.left})</span>
                             <span className="text-gray-400">Centre / Neutre</span>
-                            <span className="text-blue-600">Droite</span>
+                            <span className="text-blue-600">Droite ({politicalCounts.right})</span>
                         </div>
 
                         {showPoliticalInfo && (

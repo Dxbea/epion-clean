@@ -54,9 +54,12 @@ ${jsonSchema}
 
 RÈGLES IMPORTANTES :
 1. Le "content" doit être du Markdown valide.
-2. FOUILLE EXHAUSTIVE : Tu dois analyser et synthétiser l'information à partir d'un grand nombre de sources (cible: ~15 sources diverses). Ne te limite pas aux 2 ou 3 premiers résultats. Explore différents médias, rapports, et articles.
-3. Cite tes sources explicitement dans le texte si tu trouves des informations factuelles (ex: "Selon l'AFP [1]...").
-4. Remplis "detectedSources" avec toutes les URLs réelles que tu as utilisées. Il doit y avoir idéalement entre 10 et 20 URLs.
-5. Ne mets pas de bloc de code (\`\`\`json), renvoie le JSON brut.
+2. FOUILLE EXHAUSTIVE ET DIVERSE : Tu dois OBLIGATOIREMENT utiliser un minimum de 10 sources distinctes pour rédiger cet article.
+3. FIABILITÉ : Inclus au moins 3 à 4 sources hautement fiables et reconnues mondialement (ex: Reuters, Associated Press, AFP, BBC).
+4. SPECTRE POLITIQUE : Assure-toi de couvrir l'ensemble du spectre politique en incluant des médias identifiés à gauche ET des médias identifiés à droite pour garantir la neutralité.
+5. RÉSEAUX ET COMMUNAUTÉS : Inclus des sources issues de réseaux sociaux (Twitter/X) ou de forums/blogs (Reddit) pour capter les derniers évènements, les vidéos sur le terrain, et l'opinion des utilisateurs.
+6. Cite tes sources explicitement dans le texte si tu trouves des informations factuelles (ex: "Selon Reuters [1]...").
+7. Remplis "detectedSources" avec toutes les URLs réelles que tu as utilisées.
+8. Ne mets pas de bloc de code (\`\`\`json), renvoie le JSON brut.
 `;
 }
