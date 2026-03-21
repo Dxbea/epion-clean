@@ -1,12 +1,8 @@
 // BackEnd/src/lib/mailer.ts
-import nodemailer from 'nodemailer';
 import { logger } from './logger';
 
 const {
-  SMTP_HOST,
-  SMTP_PORT,
-  SMTP_USER,
-  SMTP_PASS,
+  SMTP_PASS, // We use the SMTP_PASS as the Brevo API Key
   MAIL_FROM,
   APP_URL: APP_URL_ENV,
   APP_BASE_URL,
@@ -17,28 +13,8 @@ const {
 export const APP_URL =
   APP_URL_ENV || APP_BASE_URL || FRONTEND_ORIGIN || 'http://localhost:5173';
 
-// ---------- Transport SMTP (Brevo ou autre) ----------
-const hasSmtp =
-  Boolean(SMTP_HOST) &&
-  Boolean(SMTP_PORT) &&
-  Boolean(SMTP_USER) &&
-  Boolean(SMTP_PASS);
-
-let transporter: nodemailer.Transporter | null = null;
-
-if (hasSmtp) {
-  transporter = nodemailer.createTransport({
-    host: SMTP_HOST,
-    port: Number(SMTP_PORT),
-    secure: Number(SMTP_PORT) === 465, // 465 = SSL, 587 = STARTTLS
-    auth: {
-      user: SMTP_USER,
-      pass: SMTP_PASS,
-    },
-  });
-} else {
-  logger.warn('No SMTP config, using console logger only', { module: 'Mailer' });
-}
+// ---------- Transport API Brevo ----------
+const hasApiKey = Boolean(SMTP_PASS);
 
 // ---------- Helper générique ----------
 type MailOpts = {
@@ -49,9 +25,9 @@ type MailOpts = {
 };
 
 export async function sendMail(opts: MailOpts) {
-  // Dev / pas de SMTP configuré → on log juste
-  if (!transporter) {
-    logger.warn('DEV EMAIL (NO TRANSPORT SENDER)', {
+  // Dev / pas de config Brevo → on log juste
+  if (!hasApiKey) {
+    logger.warn('DEV EMAIL (NO API KEY CONFIG)', {
       module: 'Mailer',
       to: opts.to,
       subject: opts.subject,
@@ -61,15 +37,48 @@ export async function sendMail(opts: MailOpts) {
     return;
   }
 
+  // Parse MAIL_FROM e.g. "epion <epion.contact@gmail.com>"
+  let senderEmail = 'no-reply@epion.app';
+  let senderName = 'Epion';
+
+  if (MAIL_FROM) {
+    const match = MAIL_FROM.match(/(.*)<(.+)>/);
+    if (match) {
+      senderName = match[1].replace(/"/g, '').trim() || senderName;
+      senderEmail = match[2].trim();
+    } else {
+      senderEmail = MAIL_FROM.trim();
+    }
+  }
+
   try {
-    const info = await transporter.sendMail({
-      from: MAIL_FROM || 'Epion <no-reply@epion.app>',
-      to: opts.to,
+    const payload: any = {
+      sender: { email: senderEmail, name: senderName },
+      to: [{ email: opts.to }],
       subject: opts.subject,
-      text: opts.text,
-      html: opts.html,
+      htmlContent: opts.html,
+    };
+    if (opts.text) {
+      payload.textContent = opts.text;
+    }
+
+    const response = await fetch('https://api.brevo.com/v3/smtp/email', {
+      method: 'POST',
+      headers: {
+        'Accept': 'application/json',
+        'Content-Type': 'application/json',
+        'api-key': SMTP_PASS as string,
+      },
+      body: JSON.stringify(payload),
     });
-    logger.info('Email sent via SMTP', { module: 'Mailer', messageId: info.messageId, response: info.response });
+
+    if (!response.ok) {
+      const errorData = await response.json().catch(() => ({}));
+      throw new Error(`Brevo API Error (${response.status}): ${JSON.stringify(errorData)}`);
+    }
+
+    const info = await response.json();
+    logger.info('Email sent via Brevo API', { module: 'Mailer', messageId: info.messageId });
   } catch (err: any) {
     logger.error('Error while sending email', { module: 'Mailer', error: err.message });
     throw err; // important: on remonte l’erreur → le front verra un 500
