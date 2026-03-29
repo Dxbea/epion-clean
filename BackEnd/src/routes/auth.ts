@@ -231,8 +231,8 @@ router.post('/auth/request-verify', async (req, res, next) => {
       },
     });
 
-    const frontendUrl = process.env.FRONTEND_URL || process.env.FRONTEND_ORIGIN || 'http://localhost:5173';
-    const verifyUrl = `${frontendUrl}/verify-email?token=${encodeURIComponent(token)}`;
+    const frontendOrigin = process.env.FRONTEND_ORIGIN ?? 'http://localhost:5173';
+    const verifyUrl = `${frontendOrigin}/verify-email?token=${encodeURIComponent(token)}`;
 
 
     await sendMail({
@@ -482,9 +482,8 @@ router.post('/auth/email/verification-link', async (req, res, next) => {
     });
 
 
-    // auth.ts – dans router.post('/auth/email/verification-link', ...)
-    const frontendUrl = process.env.FRONTEND_URL || process.env.FRONTEND_ORIGIN || 'http://localhost:5173';
-    const verifyUrl = `${frontendUrl}/verify-email?token=${encodeURIComponent(token)}`;
+    const frontendOrigin = process.env.FRONTEND_ORIGIN ?? 'http://localhost:5173';
+    const verifyUrl = `${frontendOrigin}/verify-email?token=${encodeURIComponent(token)}`;
 
 
 
@@ -506,12 +505,12 @@ router.post('/auth/email/verification-link', async (req, res, next) => {
 
 
 
-// GET /api/auth/verify-email?token=...
-router.get('/auth/verify-email', async (req, res, next) => {
+// POST /api/auth/verify-email
+router.post('/auth/verify-email', async (req, res, next) => {
   try {
-    const token = String(req.query.token || '').trim();
+    const token = String(req.body?.token || '').trim();
     if (!token) {
-      return res.status(400).json({ error: 'Invalid verification link.' });
+      return res.status(400).json({ error: 'INVALID_LINK' });
     }
 
     const record = await prisma.emailVerificationToken.findUnique({
@@ -519,11 +518,11 @@ router.get('/auth/verify-email', async (req, res, next) => {
     });
 
     if (!record) {
-      return res.status(400).json({ error: 'Lien de vérification invalide ou expiré.' });
+      return res.status(400).json({ error: 'INVALID_LINK' });
     }
 
     if (record.expiresAt < new Date()) {
-      return res.status(400).json({ error: 'Le lien de vérification a expiré.' });
+      return res.status(400).json({ error: 'EXPIRED_LINK' });
     }
 
     await prisma.$transaction([
@@ -536,7 +535,7 @@ router.get('/auth/verify-email', async (req, res, next) => {
       }),
     ]);
 
-    return res.status(200).json({ message: 'Email vérifié avec succès' });
+    return res.json({ ok: true });
   } catch (e) {
     next(e);
   }

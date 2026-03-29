@@ -629,36 +629,6 @@ export default function Settings(): React.JSX.Element {
         }
       })();
     }
-
-    // 2. verify-email
-    const verifyToken = url.searchParams.get('verifyToken');
-    if (verifyToken) {
-      (async () => {
-        try {
-          const res = await fetch(
-            `${API_BASE}/api/auth/verify-email`,
-            {
-              method: 'POST',
-              headers: { 'Content-Type': 'application/json' },
-              credentials: 'include',
-              body: JSON.stringify({ token: verifyToken }),
-            }
-          );
-
-          if (!res.ok) throw new Error('HTTP ' + res.status);
-          await refresh();
-          push('Email verified. Thanks!', 'success');
-
-          // nettoyer l’URL
-          url.searchParams.delete('verifyToken');
-          window.location.replace(url.toString());
-        } catch {
-          push('Invalid or expired verification link.', 'error');
-          url.searchParams.delete('verifyToken');
-          history.replaceState(null, '', url.toString());
-        }
-      })();
-    }
   }, [push, refresh]);
 
   return (
