@@ -1,5 +1,6 @@
 // BackEnd/src/lib/mailer.ts
 import { logger } from './logger';
+import axios from 'axios';
 
 const {
   SMTP_PASS, // fallback
@@ -66,23 +67,21 @@ export async function sendMail(opts: MailOpts) {
       payload.textContent = opts.text;
     }
 
-    const response = await fetch('https://api.brevo.com/v3/smtp/email', {
-      method: 'POST',
-      headers: {
-        'Accept': 'application/json',
-        'Content-Type': 'application/json',
-        'api-key': actualApiKey as string,
-      },
-      body: JSON.stringify(payload),
-    });
-
-    if (!response.ok) {
-      const errorData = await response.json().catch(() => ({}));
-      throw new Error(`Brevo API Error (${response.status}): ${JSON.stringify(errorData)}`);
+    try {
+      const response = await axios.post('https://api.brevo.com/v3/smtp/email', payload, {
+        headers: {
+          'Accept': 'application/json',
+          'Content-Type': 'application/json',
+          'api-key': actualApiKey as string,
+        },
+      });
+      logger.info('Email sent via Brevo API', { module: 'Mailer', messageId: response.data.messageId });
+    } catch (apiErr: any) {
+      if (apiErr.response) {
+        throw new Error(`Brevo API Error (${apiErr.response.status}): ${JSON.stringify(apiErr.response.data)}`);
+      }
+      throw apiErr;
     }
-
-    const info = await response.json();
-    logger.info('Email sent via Brevo API', { module: 'Mailer', messageId: info.messageId });
   } catch (err: any) {
     logger.error('Error while sending email', { module: 'Mailer', error: err.message });
     throw err; // important: on remonte l’erreur → le front verra un 500
