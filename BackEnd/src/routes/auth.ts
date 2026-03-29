@@ -231,8 +231,8 @@ router.post('/auth/request-verify', async (req, res, next) => {
       },
     });
 
-    const appUrl = process.env.APP_URL ?? 'http://localhost:5173';
-    const verifyUrl = `${appUrl}/api/auth/verify-email?token=${encodeURIComponent(token)}`;
+    const frontendUrl = process.env.FRONTEND_URL || process.env.FRONTEND_ORIGIN || 'http://localhost:5173';
+    const verifyUrl = `${frontendUrl}/verify-email?token=${encodeURIComponent(token)}`;
 
 
     await sendMail({
@@ -483,7 +483,8 @@ router.post('/auth/email/verification-link', async (req, res, next) => {
 
 
     // auth.ts – dans router.post('/auth/email/verification-link', ...)
-    const verifyUrl = `${APP_URL}/api/auth/verify-email?token=${encodeURIComponent(token)}`;
+    const frontendUrl = process.env.FRONTEND_URL || process.env.FRONTEND_ORIGIN || 'http://localhost:5173';
+    const verifyUrl = `${frontendUrl}/verify-email?token=${encodeURIComponent(token)}`;
 
 
 
@@ -510,7 +511,7 @@ router.get('/auth/verify-email', async (req, res, next) => {
   try {
     const token = String(req.query.token || '').trim();
     if (!token) {
-      return res.status(400).send('Invalid verification link.');
+      return res.status(400).json({ error: 'Invalid verification link.' });
     }
 
     const record = await prisma.emailVerificationToken.findUnique({
@@ -518,11 +519,11 @@ router.get('/auth/verify-email', async (req, res, next) => {
     });
 
     if (!record) {
-      return res.status(400).send('Invalid or expired verification link.');
+      return res.status(400).json({ error: 'Lien de vérification invalide ou expiré.' });
     }
 
     if (record.expiresAt < new Date()) {
-      return res.status(400).send('Verification link has expired.');
+      return res.status(400).json({ error: 'Le lien de vérification a expiré.' });
     }
 
     await prisma.$transaction([
@@ -535,10 +536,7 @@ router.get('/auth/verify-email', async (req, res, next) => {
       }),
     ]);
 
-    const redirectBase =
-      process.env.APP_VERIFY_REDIRECT_URL ?? 'http://localhost:5173/account';
-
-    return res.redirect(`${redirectBase}?email_verified=1`);
+    return res.status(200).json({ message: 'Email vérifié avec succès' });
   } catch (e) {
     next(e);
   }

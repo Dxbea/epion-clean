@@ -42,6 +42,7 @@ const ModerationPolicy = React.lazy(() => import('../pages/ModerationPolicy'));
 const Press = React.lazy(() => import('../pages/Press'));
 const Cookies = React.lazy(() => import('../pages/Cookies'));
 const ResetPassword = React.lazy(() => import('../pages/ResetPassword'));
+const VerifyEmail = React.lazy(() => import('../pages/VerifyEmail'));
 
 
 import { useMe } from '@/contexts/MeContext';
@@ -194,6 +195,7 @@ export default function Router(): React.ReactElement {
 
                 {/* reset password */}
                 <Route path="/reset-password" element={<ResetPassword />} />
+                <Route path="/verify-email" element={<VerifyEmail />} />
               </Routes>
             </Suspense>
           }
