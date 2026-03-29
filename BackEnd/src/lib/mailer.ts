@@ -2,19 +2,23 @@
 import { logger } from './logger';
 
 const {
-  SMTP_PASS, // We use the SMTP_PASS as the Brevo API Key
+  SMTP_PASS, // fallback
+  BRAVO_API_KEY, // The actual API key the user added
+  BREVO_API_KEY,
   MAIL_FROM,
   APP_URL: APP_URL_ENV,
   APP_BASE_URL,
   FRONTEND_ORIGIN,
 } = process.env;
 
+const actualApiKey = BREVO_API_KEY || BRAVO_API_KEY || SMTP_PASS;
+
 // URL de base pour les liens dans les emails (vérif, reset, etc.)
 export const APP_URL =
   APP_URL_ENV || APP_BASE_URL || FRONTEND_ORIGIN || 'http://localhost:5173';
 
 // ---------- Transport API Brevo ----------
-const hasApiKey = Boolean(SMTP_PASS);
+const hasApiKey = Boolean(actualApiKey);
 
 // ---------- Helper générique ----------
 type MailOpts = {
@@ -67,7 +71,7 @@ export async function sendMail(opts: MailOpts) {
       headers: {
         'Accept': 'application/json',
         'Content-Type': 'application/json',
-        'api-key': SMTP_PASS as string,
+        'api-key': actualApiKey as string,
       },
       body: JSON.stringify(payload),
     });

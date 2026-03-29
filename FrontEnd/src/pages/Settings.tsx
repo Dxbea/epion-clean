@@ -64,8 +64,9 @@ function EmailAndVerificationBlock(): React.JSX.Element {
 
       push('If this address is valid, we sent a verification link.', 'success');
       setNewEmail('');
-    } catch {
-      push('If this address is valid, we sent a verification link.', 'success');
+    } catch (err: any) {
+      console.error(err);
+      push('Could not send verification email. Try again.', 'error');
     } finally {
       setBusyChangeEmail(false);
     }
@@ -85,8 +86,9 @@ function EmailAndVerificationBlock(): React.JSX.Element {
       });
       if (!res.ok) throw new Error('HTTP ' + res.status);
       push('Verification email sent.', 'success');
-    } catch {
-      push('Verification email sent (if possible).', 'success');
+    } catch (err: any) {
+      console.error(err);
+      push('Could not send verification email. Try again.', 'error');
     } finally {
       setBusyResend(false);
     }
