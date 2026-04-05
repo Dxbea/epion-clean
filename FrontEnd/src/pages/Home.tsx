@@ -186,7 +186,7 @@ export default function Home(): JSX.Element {
           ].map((item, idx) => (
             <div
               key={idx}
-              className={`why-block max-w-xl p-8 rounded-2xl bg-white/60 dark:bg-white/5 border border-gray-100 dark:border-gray-800 ${item.align === 'right' ? 'md:ml-auto' : 'md:mr-auto'
+              className={`why-block max-w-xl p-8 rounded-2xl bg-white dark:bg-neutral-900 border border-gray-100 dark:border-gray-800 ${item.align === 'right' ? 'md:ml-auto' : 'md:mr-auto'
                 }`}
             >
               <h3 className="mb-4 text-2xl md:text-3xl font-semibold text-gray-900 dark:text-white">

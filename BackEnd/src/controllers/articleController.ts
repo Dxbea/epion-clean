@@ -1,12 +1,14 @@
 import { type Request, type Response, type NextFunction } from 'express';
 import { prisma } from '../lib/db';
 import { getCurrentUserId } from '../lib/currentUser';
-import { generateArticleContent, transformTextWithAI } from '../services/articleGenerator';
+import { transformTextWithAI } from '../services/articleGenerator';
+import { runLiveAnalysisWithGeneration } from '../lib/live-analysis';
+import { getWikipediaImage } from '../lib/images/wikipedia-fetcher';
 
 export async function createAIArticle(req: Request, res: Response, next: NextFunction) {
     try {
         const userId = await getCurrentUserId(req, res);
-        const { topic, language, style, category, generateImage } = req.body;
+        const { topic, language, style, category, generateImage, imageUrl } = req.body;
 
         if (!topic || typeof topic !== 'string') {
             return res.status(400).json({ error: 'Topic is required and must be a string.' });
@@ -22,16 +24,25 @@ export async function createAIArticle(req: Request, res: Response, next: NextFun
             return res.status(403).json({ error: 'Email verification required.' });
         }
 
-        // 2. Call Generation Service
-        const requestData = {
-            topic,
+        // 2. Call Generation Service (Synchronous LiveAnalysis Pipeline)
+        const result = await runLiveAnalysisWithGeneration(topic, {
             language: language || 'fr',
-            style: style || 'neutral',
-            category,
-            generateImage: !!generateImage
-        };
+            style: style || 'neutral'
+        });
 
-        const generatedData = await generateArticleContent(requestData);
+        if (!result.generatedContent) {
+            return res.status(500).json({ error: "L'IA n'a pas pu générer l'article." });
+        }
+
+        const generatedData = result.generatedContent;
+
+        let coverImageUrl: string | null = imageUrl || null;
+        if (generateImage && generatedData.wikipedia_search_query) {
+            const wikiImg = await getWikipediaImage(generatedData.wikipedia_search_query);
+            if (wikiImg) {
+                coverImageUrl = wikiImg;
+            }
+        }
 
         // 3. Persist to Database
         // Slugify title for URL
@@ -45,16 +56,42 @@ export async function createAIArticle(req: Request, res: Response, next: NextFun
 
         // Store imagePrompt in generationConfig
         const generationConfig = {
-            style: requestData.style,
-            language: requestData.language,
+            style: style || 'neutral',
+            language: language || 'fr',
             imagePrompt: generatedData.imagePrompt || null
+        };
+
+        // Initialize sources as PENDING for the frontend
+        const sources = (result.sources || []).map((s, idx) => {
+            return {
+                id: idx + 1,
+                name: s.domain || 'Source inconnue',
+                url: s.url,
+                domain: s.domain,
+                trustScore: null,
+                flags: null,
+                type: 'PENDING',
+                logo: `https://logo.clearbit.com/${s.domain}`,
+                description: 'Analyse en cours...',
+                metrics: null
+            };
+        });
+
+        // Object containing both the LiveAnalysis data and pending sources
+        const initialFactCheckData = {
+            factScore: Math.round(result.globalScore || 50),
+            liveAnalysis: {
+                contentIntent: result.contentIntent,
+                pillarScores: result.pillarScores,
+                judges: result.judges,
+            },
+            sources: sources
         };
 
         // DEBUG: Vérification des données avant sauvegarde
         console.log("--- DEBUG SAVE ARTICLE ---");
-        console.log("Sources count:", generatedData.sources?.length);
-        console.log("First source sample:", generatedData.sources?.[0]);
-        console.log("Score computed:", generatedData.factScore);
+        console.log("Sources count:", sources.length);
+        console.log("Score computed:", result.globalScore);
 
         const newArticle = await prisma.article.create({
             data: {
@@ -71,15 +108,15 @@ export async function createAIArticle(req: Request, res: Response, next: NextFun
 
                 // IA Fields
                 aiSummary: generatedData.summary,
-                factCheckScore: Math.round(generatedData.factScore || 0),
-                factCheckData: generatedData.sources, // WARNING: Must be a direct array/object, not wrapped if frontend expects direct access
+                factCheckScore: Math.round(result.globalScore || 50),
+                factCheckData: initialFactCheckData as any,
                 generatedAt: new Date(),
                 generationPrompt: topic,
                 generationConfig: generationConfig, // Stockage de la config et de l'image prompt
                 generationVersion: 1,
 
                 // Metadata
-                imageUrl: null, // L'image sera générée plus tard via l'imagePrompt stocké
+                imageUrl: coverImageUrl, // Generated directly from Wikipedia fetcher
 
                 // Connection de la catégorie si fournie
                 category: req.body.categoryId ? {
@@ -88,23 +125,26 @@ export async function createAIArticle(req: Request, res: Response, next: NextFun
             }
         });
 
-        // 4. Background Job: Live Analysis Pipeline (Epion 2.0)
-        // The live-analysis worker runs the 3-model pipeline, then chains to source-enrichment automatically.
-        const citationUrls = generatedData.metadata?.citationUrls || [];
+        // 4. Background Job: Source Enrichment
+        // Since LiveAnalysis is synchronous, we directly chain to source enrichment
+        const citationUrls = (result.sources || []).map(s => s.url);
 
-        console.log(`[Controller] Dispatching live analysis for article ${newArticle.id} (${citationUrls.length} citation URLs)`);
+        console.log(`[Controller] Dispatching source enrichment for article ${newArticle.id} (${citationUrls.length} citation URLs)`);
 
-        // Fire and forget — don't block the response
-        import('../lib/queue').then(({ liveAnalysisQueue }) => {
-            liveAnalysisQueue.add('article-generation', {
+        import('../lib/queue').then(({ sourceEnrichmentQueue }) => {
+            sourceEnrichmentQueue.add('enrich', {
                 articleId: newArticle.id,
-                title: generatedData.title,
-                content: generatedData.content,
-                citationUrls,
+                sources: citationUrls,
+                scoreLiveBrut: result.globalScore,
+                liveAnalysis: {
+                    contentIntent: result.contentIntent,
+                    pillarScores: result.pillarScores,
+                    judges: result.judges,
+                },
             }, {
                 removeOnComplete: true,
                 attempts: 2
-            }).catch(err => console.error('[Controller] Live analysis queue dispatch failed:', err));
+            }).catch(err => console.error('[Controller] source enrichment queue dispatch failed:', err));
         });
 
         // 4. Return to Frontend

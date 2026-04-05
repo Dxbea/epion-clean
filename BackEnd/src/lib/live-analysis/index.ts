@@ -1,59 +1,112 @@
 /**
  * Live Analysis Pipeline — Orchestrator
  * 
- * Sequential "Relay Race": Perplexity → GPT-4o-mini → Mistral
+ * Two modes:
+ * 1. ANALYZE mode: Smart Router → Tavily → GPT-4o-mini (DISARM) → Mistral (Audit)
+ * 2. GENERATE mode: Smart Router → Tavily → GPT-4o-mini (Generate + DISARM) → Mistral (Audit)
  * 
- * Flow:
- * 1. Perplexity investigates claims and gathers web context (no scoring)
- * 2. GPT-4o-mini classifies Content Intent and scores 4 pillars
- * 3. Mistral audits GPT's work, can contest Intent, and corrects scores
- * 4. Final score = median of both judges (robust against outliers)
+ * v3.0 — Article generation merged into the Primary Judge call.
  */
 import { logger } from '../logger';
 import { investigateArticle } from './fact-investigator';
-import { runPrimaryJudge } from './primary-judge';
+import { runPrimaryJudge, runPrimaryJudgeWithGeneration } from './primary-judge';
 import { runAuditorJudge } from './auditor-judge';
 import { LiveAnalysisResult, PillarScore, ContentIntent, calculateWeightedScore } from './types';
 
 /**
- * Run the full live analysis pipeline on an article.
- * Returns the final ScoreLiveBrut and all pillar details.
+ * Run the full live analysis pipeline on an EXISTING article.
  */
 export async function runLiveAnalysis(
     title: string,
     content: string
 ): Promise<LiveAnalysisResult> {
     const startTime = Date.now();
-    logger.info(`🚀 Live Analysis Pipeline starting for: "${title.slice(0, 60)}..."`, { module: 'LiveAnalysis' });
+    logger.info(`🚀 Live Analysis Pipeline v3.0 (ANALYZE) starting for: "${title.slice(0, 60)}..."`, {
+        module: 'LiveAnalysis'
+    });
 
-    // === STEP 2A: Perplexity Investigation ===
+    // STEP 2A: Smart Router + Tavily Investigation
     const factCheckContext = await investigateArticle(title, content);
-    logger.info(`📋 Investigation complete (${Date.now() - startTime}ms)`, { module: 'LiveAnalysis' });
+    logger.info(`📋 Investigation complete: ${factCheckContext.sources.length} sources (${Date.now() - startTime}ms)`, {
+        module: 'LiveAnalysis',
+        route: factCheckContext.routingDecision.route,
+    });
 
-    // === STEP 2B: Primary Judge (GPT-4o-mini) ===
+    // STEP 2B: Primary Judge (analyze only)
     const primaryVerdict = await runPrimaryJudge(title, content, factCheckContext);
     logger.info(`⚖️ Primary Judge complete (${Date.now() - startTime}ms)`, { module: 'LiveAnalysis' });
 
-    // === STEP 2C: Auditor Judge (Mistral) ===
+    // STEP 2C: Auditor Judge
     const auditorVerdict = await runAuditorJudge(title, content, factCheckContext, primaryVerdict);
     logger.info(`🔎 Auditor Judge complete (${Date.now() - startTime}ms)`, { module: 'LiveAnalysis' });
 
-    // === SYNTHESIS: Median of both judges ===
-    // Use the auditor's Content Intent (they have the final word, including right to contest)
+    // SYNTHESIS
+    return synthesize(primaryVerdict, auditorVerdict, factCheckContext, startTime);
+}
+
+/**
+ * Run the full pipeline in GENERATE mode.
+ * The Primary Judge generates the article Markdown AND DISARM-scores it in one call.
+ * Returns everything needed to create the article in DB.
+ */
+export async function runLiveAnalysisWithGeneration(
+    topic: string,
+    options: { language?: string; style?: string } = {}
+): Promise<LiveAnalysisResult> {
+    const startTime = Date.now();
+    logger.info(`🚀 Live Analysis Pipeline v3.0 (GENERATE) starting for topic: "${topic.slice(0, 60)}..."`, {
+        module: 'LiveAnalysis'
+    });
+
+    // STEP 2A: Smart Router + Tavily Investigation (uses topic as title/content)
+    const factCheckContext = await investigateArticle(topic, topic);
+    logger.info(`📋 Investigation complete: ${factCheckContext.sources.length} sources (${Date.now() - startTime}ms)`, {
+        module: 'LiveAnalysis',
+        route: factCheckContext.routingDecision.route,
+    });
+
+    // STEP 2B: Primary Judge — Generate + Analyze (dual mode)
+    const primaryVerdict = await runPrimaryJudgeWithGeneration(topic, factCheckContext, options);
+    logger.info(`⚖️📝 Primary Judge (Generate + DISARM) complete (${Date.now() - startTime}ms)`, { module: 'LiveAnalysis' });
+
+    // Use the generated article content for the auditor (if available)
+    const articleTitle = primaryVerdict.generatedContent?.title || topic;
+    const articleContent = primaryVerdict.generatedContent?.content || topic;
+
+    // STEP 2C: Auditor Judge — Audit the generated article
+    const auditorVerdict = await runAuditorJudge(articleTitle, articleContent, factCheckContext, primaryVerdict);
+    logger.info(`🔎 Auditor Judge complete (${Date.now() - startTime}ms)`, { module: 'LiveAnalysis' });
+
+    // SYNTHESIS
+    const result = synthesize(primaryVerdict, auditorVerdict, factCheckContext, startTime);
+
+    // Attach generated content to the result
+    result.generatedContent = primaryVerdict.generatedContent;
+    result.sources = factCheckContext.sources;
+
+    return result;
+}
+
+// ─── Shared synthesis logic ─────────────────────────────────────────────────
+
+function synthesize(
+    primaryVerdict: any,
+    auditorVerdict: any,
+    factCheckContext: any,
+    startTime: number
+): LiveAnalysisResult {
     const finalIntent = auditorVerdict.contentIntent;
-
-    // Median per pillar (robust against one judge being an outlier)
     const finalPillarScores = medianPillars(primaryVerdict.pillarScores, auditorVerdict.pillarScores);
-
-    // Recalculate global score with the final intent weights
     const globalScore = calculateWeightedScore(finalPillarScores, finalIntent);
 
     const totalTime = Date.now() - startTime;
-    logger.info(`✅ Live Analysis complete in ${totalTime}ms. Intent=${finalIntent}, Score=${globalScore}`, {
+    logger.info(`✅ Live Analysis v3.0 complete in ${totalTime}ms. Intent=${finalIntent}, Score=${globalScore}`, {
         module: 'LiveAnalysis',
         primary: primaryVerdict.globalScore,
         auditor: auditorVerdict.globalScore,
-        final: globalScore
+        final: globalScore,
+        sourceCount: factCheckContext.sources.length,
+        route: factCheckContext.routingDecision.route,
     });
 
     return {
@@ -64,15 +117,12 @@ export async function runLiveAnalysis(
             primary: primaryVerdict,
             auditor: auditorVerdict,
         },
+        sources: factCheckContext.sources,
     };
 }
 
-/**
- * Calculate the median pillar scores from two judges.
- * With 2 judges, the median is the average.
- * If one score is significantly more extreme than the other (>25 point gap),
- * we pull towards the more moderate score.
- */
+// ─── Median calculation ─────────────────────────────────────────────────────
+
 function medianPillars(
     a: { transparency: PillarScore; editorial: PillarScore; semantic: PillarScore; logic: PillarScore },
     b: { transparency: PillarScore; editorial: PillarScore; semantic: PillarScore; logic: PillarScore }
@@ -90,20 +140,17 @@ function medianPillar(a: PillarScore, b: PillarScore): PillarScore {
 
     let score: number;
     if (gap > 25) {
-        // Large disagreement: pull towards the more moderate score (closer to 50)
         const moderateScore = Math.abs(a.score - 50) < Math.abs(b.score - 50) ? a.score : b.score;
         const extremeScore = moderateScore === a.score ? b.score : a.score;
-        // Weight: 60% moderate, 40% extreme
         score = Math.round(moderateScore * 0.6 + extremeScore * 0.4);
     } else {
-        // Normal: simple average
         score = Math.round((a.score + b.score) / 2);
     }
 
-    // Use the auditor's quote and reasoning (they have the last word)
     return {
         score,
         quote: b.quote || a.quote,
         reasoning: b.reasoning || a.reasoning,
+        disarmCodes: a.disarmCodes || [],
     };
 }

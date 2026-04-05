@@ -26,7 +26,7 @@ export default function TrustHeader({
     const finalScore = score || 0;
 
     return (
-        <div className={`flex items-center justify-start gap-2 border-b border-black/5 pb-3 dark:border-white/5 ${className}`}>
+        <div className={`flex items-center justify-start gap-2 ${className}`}>
             {/* Badge Fiabilité */}
             {finalScore > 0 ? (
                 <button
@@ -57,23 +57,6 @@ export default function TrustHeader({
                 <Info className="h-3 w-3" />
                 <span>{sources.length} sources analysées</span>
             </button>
-
-            {/* Bouton Surligner (Optionnel) */}
-            {onHighlightClick && (
-                <button
-                    onClick={onHighlightClick}
-                    className={`
-            flex items-center gap-1.5 rounded-full border px-2.5 py-1 text-[11px] font-medium transition
-            ${isHighlightActive
-                            ? 'bg-yellow-50 border-yellow-200 text-yellow-700 dark:bg-yellow-900/20 dark:border-yellow-700/50 dark:text-yellow-200'
-                            : 'border-transparent bg-transparent text-gray-400 hover:text-gray-600 hover:bg-black/5 dark:text-gray-500 dark:hover:text-gray-300 dark:hover:bg-white/5'
-                        }
-          `}
-                >
-                    <Highlighter className="h-3 w-3" />
-                    <span>Surligner</span>
-                </button>
-            )}
         </div>
     );
 }

@@ -533,3 +533,17 @@ model InviteCode {
 
   users     User[]    @relation("UserInvite")
 }
+
+// -----------------------------------------------------------------------------
+// NEWS CACHE
+// -----------------------------------------------------------------------------
+model NewsCache {
+  id          String   @id @default(cuid())
+  url         String   @unique
+  domain      String
+  title       String
+  content     String   // Markdown extrait par Jina
+  publishedAt DateTime
+  createdAt   DateTime @default(now())
+  // Les vecteurs et MinHash seront gérés en SQL pur
+}

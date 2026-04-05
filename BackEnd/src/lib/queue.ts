@@ -71,3 +71,23 @@ liveAnalysisQueue.on('error', (err) => {
 });
 
 logger.info('Live Analysis Queue initialized', { module: 'Queue' });
+
+// RSS Ingestion Queue (Sprint 2)
+export const rssIngestionQueue = new Queue('rss-ingestion-queue', {
+    connection: connection as any,
+    defaultJobOptions: {
+        attempts: 2,
+        backoff: {
+            type: 'exponential',
+            delay: 5000,
+        },
+        removeOnComplete: 10,
+        removeOnFail: 50,
+    },
+});
+
+rssIngestionQueue.on('error', (err) => {
+    logger.error('RSS Ingestion Queue error', { module: 'Queue', error: err.message });
+});
+
+logger.info('RSS Ingestion Queue initialized', { module: 'Queue' });

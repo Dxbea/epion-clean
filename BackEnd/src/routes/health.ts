@@ -7,6 +7,12 @@ import { logger } from '../lib/logger';
 
 export const router = Router();
 
+// 🏓 Ping léger pour UptimeRobot (pas de DB, pas d'API)
+// Monté sur /api/health → GET /api/health
+router.get('/', (_req, res) => {
+  res.json({ status: 'ok' });
+});
+
 router.get('/diagnostics', async (req, res) => {
   const start = Date.now();
 

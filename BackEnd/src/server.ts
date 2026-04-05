@@ -30,6 +30,7 @@ import { initializeCron } from './cron/dailyReset';
 import './workers/embedding.worker'; // 🧠 Initialize Embedding Worker
 import './workers/source-enrichment.worker'; // 🔍 Initialize Source Enrichment Worker
 import './workers/live-analysis.worker'; // ⚖️ Initialize Live Analysis Worker (Epion 2.0)
+import './workers/rss-ingestion.worker'; // 📡 Initialize RSS Worker
 
 // ... (existing code)
 
@@ -203,6 +204,24 @@ const PORT = Number(process.env.PORT) || 5175;
 
 // Initialize Cron Jobs
 initializeCron();
+
+// Initialize BullMQ Recurring Jobs
+import { rssIngestionQueue } from './lib/queue';
+(async () => {
+    logger.info('Scheduling RSS Ingestion Job (every 30 mins)');
+    await rssIngestionQueue.add('ingest-rss', {}, {
+        repeat: {
+            pattern: '*/30 * * * *',
+        },
+    });
+
+    logger.info('Scheduling Daily RSS Cleanup Job (at 3 AM)');
+    await rssIngestionQueue.add('cleanup-news', {}, {
+        repeat: {
+            pattern: '0 3 * * *',
+        },
+    });
+})();
 
 // Auto-seed categories
 import { prisma } from './lib/db';

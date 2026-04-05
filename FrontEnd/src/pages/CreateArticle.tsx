@@ -144,7 +144,8 @@ export default function CreateArticlePage() {
         style: tone,
         categoryId, // ⬅️ ID officiel pour la liaison BDD
         categoryName: cat ? cat.name : '', // ⬅️ Nom pour le prompt context IA
-        generateImage: imageMode === 'auto'
+        generateImage: imageMode === 'auto',
+        imageUrl: imageMode === 'url' ? imageUrl.trim() : (imageMode === 'stock' && pickedStock ? pickedStock : undefined)
       });
 
       // Redirection vers l'édition

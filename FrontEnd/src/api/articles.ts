@@ -9,6 +9,7 @@ export interface GenerateArticleParams {
     categoryName?: string; // context for AI
     categoryId?: string; // ID for DB relation
     generateImage: boolean;
+    imageUrl?: string;
 }
 
 /**

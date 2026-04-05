@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { Sparkles, MessageSquare, MessageCircle, Share2, Info, X, Copy, Check } from 'lucide-react';
+import { Sparkles, MessageSquare, MessageCircle, Share2, Info, X, Copy, Check, Highlighter } from 'lucide-react';
 import ReactionButtons from '@/components/ui/ReactionButtons';
 import SaveButton from '@/components/ui/SaveButton';
 
@@ -14,6 +14,8 @@ type Props = {
     summaryText?: string;
     summaryLoading?: boolean;
     promptText?: string;
+    isHighlightActive?: boolean;
+    onHighlightClick?: () => void;
 };
 
 type Section = 'interactions' | 'summarize' | 'info' | null;
@@ -28,7 +30,9 @@ export default function ArticleActionBar({
     onShowPrompt,
     summaryText,
     summaryLoading,
-    promptText
+    promptText,
+    isHighlightActive,
+    onHighlightClick
 }: Props) {
     const [activeSection, setActiveSection] = useState<Section>(null);
     const [copied, setCopied] = useState(false);
@@ -58,8 +62,8 @@ export default function ArticleActionBar({
 
     // Responsive width logic
     const getWidth = () => {
-        if (!activeSection) return '280px';
-        if (activeSection === 'interactions') return '280px';
+        if (!activeSection) return '330px';
+        if (activeSection === 'interactions') return '330px';
         // For summarize/info: 85vw on mobile, 75vw on desktop
         return 'var(--expanded-width, 75vw)';
     };
@@ -91,6 +95,10 @@ export default function ArticleActionBar({
                     <linearGradient id="grad-check" x1="0" y1="0" x2="24" y2="24" gradientUnits="userSpaceOnUse">
                         <stop offset="0%" stopColor="#3b82f6" />
                         <stop offset="100%" stopColor="#4f46e5" />
+                    </linearGradient>
+                    <linearGradient id="grad-highlight" x1="0" y1="0" x2="24" y2="24" gradientUnits="userSpaceOnUse">
+                        <stop offset="0%" stopColor="#14b8a6" />
+                        <stop offset="100%" stopColor="#3b82f6" />
                     </linearGradient>
                 </defs>
             </svg>
@@ -245,6 +253,18 @@ export default function ArticleActionBar({
                             <MessageSquare
                                 className="h-5 w-5 transition-transform group-hover:scale-110"
                                 style={{ stroke: 'url(#grad-chat)' }}
+                            />
+                        </button>
+
+                        <button
+                            className={`group relative flex h-10 w-10 items-center justify-center rounded-full transition-all flex-shrink-0 ${isHighlightActive ? 'bg-cyan-50 dark:bg-cyan-900/30' : 'hover:bg-black/5 dark:hover:bg-white/10 dark:hover:bg-white/5'
+                                }`}
+                            title="Surligner"
+                            onClick={onHighlightClick}
+                        >
+                            <Highlighter
+                                className="h-5 w-5 transition-transform group-hover:scale-110"
+                                style={{ stroke: 'url(#grad-highlight)' }}
                             />
                         </button>
 

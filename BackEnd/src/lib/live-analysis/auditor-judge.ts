@@ -1,17 +1,25 @@
 /**
  * Phase 2C — The Auditor Judge (Mistral mistral-small-latest)
  * 
- * Receives the Primary Judge's verdict + FactCheckContext.
- * Verifies reasoning, can contest Content Intent, and corrects unjustified scores.
+ * Anti-hallucination guard-rail.
+ * Receives the Primary Judge's verdict + the raw source text from Tavily.
+ * 
+ * SINGLE MISSION: Verify that every citation (quote) used by the Primary Judge
+ * to justify a bias actually exists in the provided source text.
+ * If a citation is fabricated, the Auditor penalizes the score.
+ * 
+ * v2.0 — Sprint 1: Recentered from full re-scoring to citation auditing.
  */
 import { Mistral } from '@mistralai/mistralai';
 import { logger } from '../logger';
 import {
     FactCheckContext,
     JudgeVerdict,
+    PillarScore,
     ContentIntent,
     VALID_INTENTS,
     calculateWeightedScore,
+    formatSourcesForPrompt,
 } from './types';
 
 const mistral = new Mistral({
@@ -19,7 +27,7 @@ const mistral = new Mistral({
 });
 
 /**
- * Run the Auditor Judge to verify and potentially correct the Primary Judge's verdict.
+ * Run the Auditor Judge to verify the Primary Judge's citations against source text.
  */
 export async function runAuditorJudge(
     title: string,
@@ -27,61 +35,75 @@ export async function runAuditorJudge(
     factCheckContext: FactCheckContext,
     primaryVerdict: JudgeVerdict
 ): Promise<JudgeVerdict> {
-    logger.info(`🔎 Auditor Judge starting for: "${title.slice(0, 60)}..."`, { module: 'AuditorJudge' });
+    logger.info(`🔎 Auditor Judge (Anti-Hallucination) starting for: "${title.slice(0, 60)}..."`, {
+        module: 'AuditorJudge'
+    });
 
     const truncatedContent = content.length > 4000
         ? content.slice(0, 4000) + '\n[... contenu tronqué ...]'
         : content;
 
-    const prompt = `
-Tu es un auditeur éditorial indépendant. Un premier juge (GPT) a évalué l'article ci-dessous. Tu dois vérifier son travail.
+    const sourcesBlock = formatSourcesForPrompt(factCheckContext.sources);
 
-## ARTICLE
+    const systemPrompt = `Tu es l'Auditeur Garde-Fou d'Epion — un vérificateur anti-hallucination rigoureux.
+
+## TA MISSION UNIQUE
+Vérifier que chaque citation (champ "quote") utilisée par le Juge Primaire existe réellement dans :
+1. Le texte de l'article analysé, OU
+2. Le texte brut des sources fournies
+
+## RÈGLES STRICTES
+- Une citation est VALIDE si elle apparaît mot-pour-mot (ou quasi mot-pour-mot) dans l'un des textes fournis
+- Une citation est INVENTÉE si elle n'apparaît nulle part dans les textes fournis
+- Si une citation est inventée → PÉNALISE le score du pilier de -15 points
+- Si AUCUNE citation n'est inventée → CONFIRME les scores du Juge Primaire
+- Tu peux aussi contester le Content Intent si tu es en désaccord (REPORT, INVESTIGATION, OPINION, PROMO, ACADEMIC)
+
+## IMPORTANT
+- Ne juge PAS la qualité de l'article — le Juge Primaire l'a déjà fait
+- Tu vérifies UNIQUEMENT l'honnêteté du Juge Primaire
+- Corrige les quotes inventées avec de vraies citations du texte si possible
+
+Tu réponds UNIQUEMENT en JSON valide.`;
+
+    const userPrompt = `
+## ARTICLE ORIGINAL
 **Titre :** "${title}"
 **Contenu :**
 """
 ${truncatedContent}
 """
 
-## DOSSIER D'ENQUÊTE (vérification web par Perplexity)
-${JSON.stringify(factCheckContext, null, 2)}
+## SOURCES BRUTES (texte fourni par Tavily)
+${sourcesBlock}
 
-## VERDICT DU JUGE PRIMAIRE (GPT)
+## VERDICT DU JUGE PRIMAIRE À AUDITER
 ${JSON.stringify(primaryVerdict, null, 2)}
-
-## TES MISSIONS D'AUDIT
-
-1. **Vérifier le Content Intent** : Le juge primaire a classé cet article comme "${primaryVerdict.contentIntent}". Si tu penses que c'est incorrect, corrige-le avec la bonne catégorie (REPORT, INVESTIGATION, OPINION, PROMO, ACADEMIC).
-
-2. **Vérifier chaque pilier** : Pour chaque score, vérifie que :
-   - Le "reasoning" est prouvé par le dossier d'enquête
-   - Le score n'est pas extrême (< 20 ou > 90) sans justification solide
-   - S'il y a une erreur, CORRIGE le score avec ta propre évaluation
-
-3. **Produire ton propre verdict** : Remplis le même format JSON avec tes scores corrigés (ou confirmés).
 
 ## FORMAT DE RÉPONSE (JSON strict)
 {
-  "contentIntent": "REPORT" | "INVESTIGATION" | "OPINION" | "PROMO" | "ACADEMIC",
+  "contentIntent": "${primaryVerdict.contentIntent}",
   "pillarScores": {
-    "transparency": { "score": 0-100, "quote": "...", "reasoning": "..." },
-    "editorial": { "score": 0-100, "quote": "...", "reasoning": "..." },
-    "semantic": { "score": 0-100, "quote": "...", "reasoning": "..." },
-    "logic": { "score": 0-100, "quote": "...", "reasoning": "..." }
-  }
+    "transparency": { "score": 75, "quote": "citation corrigée ou confirmée...", "reasoning": "Citation vérifiée/inventée car..." },
+    "editorial": { "score": 70, "quote": "...", "reasoning": "..." },
+    "semantic": { "score": 80, "quote": "...", "reasoning": "..." },
+    "logic": { "score": 65, "quote": "...", "reasoning": "..." }
+  },
+  "auditLog": [
+    { "pillar": "semantic", "originalQuote": "...", "status": "VALID" | "FABRICATED", "correction": "..." }
+  ]
 }
 
-Réponds UNIQUEMENT le JSON.
-`;
+Réponds UNIQUEMENT le JSON.`;
 
     try {
         const response = await mistral.chat.complete({
             model: 'mistral-small-latest',
             messages: [
-                { role: 'system', content: 'Tu es un auditeur éditorial indépendant. Tu réponds UNIQUEMENT en JSON valide.' },
-                { role: 'user', content: prompt }
+                { role: 'system', content: systemPrompt },
+                { role: 'user', content: userPrompt }
             ],
-            temperature: 0.3,
+            temperature: 0.2,
             responseFormat: { type: 'json_object' },
         });
 
@@ -91,7 +113,6 @@ Réponds UNIQUEMENT le JSON.
         if (typeof rawMessage === 'string') {
             rawContent = rawMessage;
         } else if (Array.isArray(rawMessage)) {
-            // ContentChunk array — extract text from each chunk
             rawContent = rawMessage.map((chunk: any) => chunk.text || '').join('');
         } else {
             rawContent = '{}';
@@ -105,10 +126,11 @@ Réponds UNIQUEMENT le JSON.
 
         // Validate pillar scores
         const clamp = (v: number) => Math.min(100, Math.max(0, Math.round(v || 50)));
-        const safePillar = (p: any, fallback: any) => ({
-            score: clamp(p?.score ?? fallback?.score),
-            quote: p?.quote || fallback?.quote || '',
-            reasoning: p?.reasoning || fallback?.reasoning || '',
+        const safePillar = (p: any, fallback: PillarScore): PillarScore => ({
+            score: clamp(p?.score ?? fallback.score),
+            quote: typeof p?.quote === 'string' ? p.quote : fallback.quote,
+            reasoning: typeof p?.reasoning === 'string' ? p.reasoning : fallback.reasoning,
+            disarmCodes: fallback.disarmCodes || [], // Preserve primary's DISARM codes
         });
 
         const pillarScores = {
@@ -120,7 +142,14 @@ Réponds UNIQUEMENT le JSON.
 
         const globalScore = calculateWeightedScore(pillarScores, contentIntent);
 
-        logger.info(`✅ Auditor Judge verdict: Intent=${contentIntent}, Score=${globalScore} (Primary was: ${primaryVerdict.globalScore})`, { module: 'AuditorJudge' });
+        // Log audit results
+        const auditLog = parsed.auditLog || [];
+        const fabricatedCount = auditLog.filter((a: any) => a.status === 'FABRICATED').length;
+
+        logger.info(`✅ Auditor Judge complete: Intent=${contentIntent}, Score=${globalScore} (Primary was: ${primaryVerdict.globalScore}), Fabricated=${fabricatedCount}`, {
+            module: 'AuditorJudge',
+            auditLog,
+        });
 
         return {
             contentIntent,
@@ -129,7 +158,10 @@ Réponds UNIQUEMENT le JSON.
         };
 
     } catch (error: any) {
-        logger.error(`❌ Auditor Judge failed, falling back to Primary verdict`, { module: 'AuditorJudge', error: error.message });
+        logger.error(`❌ Auditor Judge failed, falling back to Primary verdict`, {
+            module: 'AuditorJudge',
+            error: error.message,
+        });
 
         // If Mistral fails, return the primary verdict as-is (degraded mode)
         return primaryVerdict;

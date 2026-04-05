@@ -11,6 +11,8 @@ const envSchema = z.object({
   BCRYPT_ROUNDS: z.coerce.number().default(12),
   OPENAI_API_KEY: z.string().optional(),
   PERPLEXITY_API_KEY: z.string().optional(),
+  TAVILY_API_KEY: z.string().optional(),
+  MISTRAL_API_KEY: z.string().optional(),
   SENTRY_DSN: z.string().optional(),
 });
 

@@ -502,86 +502,9 @@ export default function Article() {
         {/* Title + Actions */}
         <header className="space-y-4">
           <SectionHeader title={title} />
-
-          <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
-            {/* Author Pill */}
-            <ArticleAuthorPill author={author} />
-
-            {/* Action Buttons */}
-            <div className="flex flex-wrap items-center gap-2 sm:gap-3">
-              {/* Edit (dropdown) */}
-              {isAuthor && (
-                <div className="relative" ref={editMenuRef}>
-                  <button
-                    type="button"
-                    aria-haspopup="menu"
-                    aria-expanded={isEditOpen}
-                    onClick={() => setIsEditOpen((o) => !o)}
-                    className="inline-flex h-9 items-center justify-center rounded-full border px-4 text-sm shadow-sm hover:bg-black/5 dark:border-white/10"
-                  >
-                    Edit
-                    <svg className="ml-1 h-4 w-4 opacity-70" viewBox="0 0 20 20" fill="currentColor">
-                      <path
-                        fillRule="evenodd"
-                        d="M5.23 7.21a.75.75 0 011.06.02L10 10.94l3.71-3.71a.75.75 0 111.06 1.06l-4.24 4.24a.75.75 0 01-1.06 0L5.21 8.29a.75.75 0 01.02-1.08z"
-                        clipRule="evenodd"
-                      />
-                    </svg>
-                  </button>
-
-                  {isEditOpen && (
-                    <div
-                      role="menu"
-                      aria-label="Edit menu"
-                      className="absolute right-0 z-50 mt-2 w-48 overflow-hidden rounded-2xl border bg-white shadow-lg ring-1 ring-black/5 dark:border-white/10 dark:bg-neutral-950"
-                    >
-                      <Link
-                        to={`/news/article/${article.slug}/edit`}
-                        role="menuitem"
-                        className="block w-full px-3 py-2 text-left text-sm hover:bg-black/5 dark:hover:bg-white/10"
-                        onClick={() => setIsEditOpen(false)}
-                      >
-                        Edit article
-                      </Link>
-
-                      <button
-                        role="menuitem"
-                        className="block w-full px-3 py-2 text-left text-sm hover:bg-black/5 dark:hover:bg-white/10"
-                        onClick={() => {
-                          navigator.clipboard?.writeText(window.location.href).catch(() => { });
-                          setIsEditOpen(false);
-                        }}
-                      >
-                        Copy link
-                      </button>
-
-                      <div className="my-1 h-px bg-black/5 dark:bg-white/10" />
-
-                      <button
-                        role="menuitem"
-                        className="block w-full px-3 py-2 text-left text-sm text-red-600 hover:bg-red-50 dark:hover:bg-red-500/10"
-                        onClick={async () => {
-                          setIsEditOpen(false);
-                          if (!confirm('Delete this article?')) return;
-                          await fetch(`${API_BASE}/api/articles/${article.id}`, { method: 'DELETE', credentials: 'include' });
-                          navigate('/news');
-                        }}
-                      >
-                        Delete
-                      </button>
-                    </div>
-                  )}
-                </div>
-              )}
-            </div>
-          </div>
         </header>
 
-        {/* Meta */}
-        <div className="text-sm opacity-70">
-          {category?.name ?? '—'} • {new Date(publishedAt).toLocaleDateString()}
-          {typeof viewsAll === 'number' && <> • {Intl.NumberFormat().format(viewsAll)} views</>}
-        </div>
+        {/* Meta (Maintenant sous le Trust Header, remis ici plus tard) */}
 
         {/* Illustration */}
         <ArticleThumbnail
@@ -602,14 +525,92 @@ export default function Article() {
           <TrustHeader
             score={displayScore}
             sources={normalizedSources}
-            isHighlightActive={isHighlightActive}
-            onHighlightClick={() => {
-              console.log("🔦 TOGGLE HIGHLIGHT CLICKED! New State:", !isHighlightActive);
-              setIsHighlightActive(!isHighlightActive);
-            }}
             onShowSources={() => setActiveModal('sources')}
             onShowScoreDetails={() => setActiveModal('reliability')}
           />
+        </div>
+
+        {/* Méta infos */}
+        <div className="mt-4 flex flex-wrap items-center justify-start gap-1.5 text-sm text-black/70 dark:text-white/70">
+          {category?.name && <span>{category?.name}</span>}
+          <span className="opacity-50">•</span>
+          <span>{new Date(publishedAt).toLocaleDateString()}</span>
+          {typeof viewsAll === 'number' && (
+            <>
+              <span className="opacity-50">•</span>
+              <span>{Intl.NumberFormat().format(viewsAll)} views</span>
+            </>
+          )}
+
+          {/* Author */}
+          {author && (
+            <>
+              <span className="opacity-50">•</span>
+              <Link to={`/u/${author.username || author.id}`} className="hover:underline hover:text-black dark:hover:text-white transition-colors">
+                {author.name || author.username || 'Unknown'}
+              </Link>
+            </>
+          )}
+
+          {/* Edit (dropdown inline) */}
+          {isAuthor && (
+            <>
+              <span className="opacity-50">•</span>
+              <div className="relative" ref={editMenuRef}>
+                <button
+                  type="button"
+                  aria-haspopup="menu"
+                  aria-expanded={isEditOpen}
+                  onClick={() => setIsEditOpen((o) => !o)}
+                  className="inline-flex items-center hover:text-black dark:hover:text-white transition-colors"
+                >
+                  Edit
+                  <svg className="ml-1 h-3.5 w-3.5 opacity-70" viewBox="0 0 20 20" fill="currentColor">
+                    <path fillRule="evenodd" d="M5.23 7.21a.75.75 0 011.06.02L10 10.94l3.71-3.71a.75.75 0 111.06 1.06l-4.24 4.24a.75.75 0 01-1.06 0L5.21 8.29a.75.75 0 01.02-1.08z" clipRule="evenodd" />
+                  </svg>
+                </button>
+
+                {isEditOpen && (
+                  <div
+                    role="menu"
+                    className="absolute left-0 mt-2 w-48 overflow-hidden rounded-2xl border bg-white shadow-lg ring-1 ring-black/5 dark:border-white/10 dark:bg-neutral-950 z-50 text-black dark:text-white"
+                  >
+                    <Link
+                      to={`/news/article/${article.slug}/edit`}
+                      role="menuitem"
+                      className="block w-full px-3 py-2 text-left text-sm hover:bg-black/5 dark:hover:bg-white/10"
+                      onClick={() => setIsEditOpen(false)}
+                    >
+                      Edit article
+                    </Link>
+                    <button
+                      role="menuitem"
+                      className="block w-full px-3 py-2 text-left text-sm hover:bg-black/5 dark:hover:bg-white/10"
+                      onClick={() => {
+                        navigator.clipboard?.writeText(window.location.href).catch(() => { });
+                        setIsEditOpen(false);
+                      }}
+                    >
+                      Copy link
+                    </button>
+                    <div className="my-1 h-px bg-black/5 dark:bg-white/10" />
+                    <button
+                      role="menuitem"
+                      className="block w-full px-3 py-2 text-left text-sm text-red-600 hover:bg-red-50 dark:hover:bg-red-500/10"
+                      onClick={async () => {
+                        setIsEditOpen(false);
+                        if (!confirm('Delete this article?')) return;
+                        await fetch(`${API_BASE}/api/articles/${article.id}`, { method: 'DELETE', credentials: 'include' });
+                        navigate('/news');
+                      }}
+                    >
+                      Delete
+                    </button>
+                  </div>
+                )}
+              </div>
+            </>
+          )}
         </div>
 
         {/* Content – rendu en texte, sans innerHTML pour éviter tout XSS */}
@@ -675,6 +676,11 @@ export default function Article() {
         summaryText={summaryText}
         summaryLoading={summaryLoading}
         promptText={article?.generationPrompt || ''}
+        isHighlightActive={isHighlightActive}
+        onHighlightClick={() => {
+            console.log("🔦 TOGGLE HIGHLIGHT CLICKED! New State:", !isHighlightActive);
+            setIsHighlightActive(!isHighlightActive);
+        }}
       />
 
       <CommentsDrawer
