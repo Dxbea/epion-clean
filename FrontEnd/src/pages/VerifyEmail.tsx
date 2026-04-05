@@ -2,6 +2,7 @@
 import React, { useEffect, useState } from 'react';
 import { useSearchParams, Link, useNavigate } from 'react-router-dom';
 import { useI18n } from '@/i18n/I18nContext';
+import { useMe } from '@/contexts/MeContext';
 import { API_BASE } from '@/config/api';
 import PageContainer from '@/components/ui/PageContainer';
 import { H2, Body, Button } from '@/components/ui';
@@ -10,6 +11,7 @@ export default function VerifyEmail() {
   const [searchParams] = useSearchParams();
   const token = searchParams.get('token');
   const { t } = useI18n();
+  const { refresh } = useMe();
   const navigate = useNavigate();
 
   const [status, setStatus] = useState<'loading' | 'success' | 'error'>('loading');
@@ -37,6 +39,7 @@ export default function VerifyEmail() {
 
         if (res.ok) {
           setStatus('success');
+          await refresh(); // Force the React context to fetch the updated user with emailVerifiedAt
         } else {
           const data = await res.json().catch(() => ({}));
           setStatus('error');
