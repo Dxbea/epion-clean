@@ -231,8 +231,7 @@ router.post('/auth/request-verify', async (req, res, next) => {
       },
     });
 
-    const frontendOrigin = process.env.FRONTEND_ORIGIN ?? 'http://localhost:5173';
-    const verifyUrl = `${frontendOrigin}/verify-email?token=${encodeURIComponent(token)}`;
+    const verifyUrl = `${APP_URL}/verify-email?token=${encodeURIComponent(token)}`;
 
 
     await sendMail({
@@ -482,8 +481,7 @@ router.post('/auth/email/verification-link', async (req, res, next) => {
     });
 
 
-    const frontendOrigin = process.env.FRONTEND_ORIGIN ?? 'http://localhost:5173';
-    const verifyUrl = `${frontendOrigin}/verify-email?token=${encodeURIComponent(token)}`;
+    const verifyUrl = `${APP_URL}/verify-email?token=${encodeURIComponent(token)}`;
 
 
 
