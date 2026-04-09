@@ -1,17 +1,17 @@
 // Frontend/src/lib/color-utils.ts
 
 // PALETTE VIVID (Couleurs vives type néon/saturées)
-const VIVID_RED_START = '#EF4444';    // Red 500
-const VIVID_RED_END = '#F87171';      // Red 400
+export const VIVID_RED_START = '#EF4444';    // Red 500
+export const VIVID_RED_END = '#F87171';      // Red 400
 
-const VIVID_ORANGE_START = '#F97316'; // Orange 500
-const VIVID_ORANGE_END = '#FB923C';   // Orange 400
+export const VIVID_ORANGE_START = '#F97316'; // Orange 500
+export const VIVID_ORANGE_END = '#FB923C';   // Orange 400
 
-const VIVID_YELLOW_START = '#EAB308'; // Yellow 500 (NEW: Medium)
-const VIVID_YELLOW_END = '#FACC15';   // Yellow 400
+export const VIVID_YELLOW_START = '#EAB308'; // Yellow 500 (NEW: Medium)
+export const VIVID_YELLOW_END = '#FACC15';   // Yellow 400
 
-const VIVID_GREEN_START = '#10B981';  // Emerald 500
-const VIVID_GREEN_END = '#34D399';    // Emerald 400
+export const VIVID_GREEN_START = '#10B981';  // Emerald 500
+export const VIVID_GREEN_END = '#34D399';    // Emerald 400
 
 import { TRUST_SCORE_RANGES } from "../config/trust-constants";
 
@@ -32,6 +32,19 @@ export function getScoreColor(score: number): string {
     if (s < TRUST_SCORE_RANGES.MIXED.min) return VIVID_ORANGE_START; // Low (20-44)
     if (s < TRUST_SCORE_RANGES.HIGH.min) return VIVID_YELLOW_START; // Mixed (45-79)
     return VIVID_GREEN_START; // High (80+)
+}
+
+/**
+ * Retourne le couple de couleurs (Start, End) pour un score donné.
+ * Utile pour les gradients SVG ou complexes.
+ */
+export function getScoreColorPair(score: number): { start: string; end: string } {
+    const s = Math.max(0, Math.min(100, score));
+
+    if (s < TRUST_SCORE_RANGES.LOW.min) return { start: VIVID_RED_START, end: VIVID_RED_END };
+    if (s < TRUST_SCORE_RANGES.MIXED.min) return { start: VIVID_ORANGE_START, end: VIVID_ORANGE_END };
+    if (s < TRUST_SCORE_RANGES.HIGH.min) return { start: VIVID_YELLOW_START, end: VIVID_YELLOW_END };
+    return { start: VIVID_GREEN_START, end: VIVID_GREEN_END };
 }
 
 /**

@@ -1,6 +1,6 @@
 
 import { logger } from "../logger";
-import { callPerplexity } from "../perplexity";
+import { callWebSearchLLM } from "../web-chat";
 import { JSDOM } from 'jsdom';
 
 interface PluralismResult {
@@ -124,7 +124,9 @@ async function analyzeContentStrategies(content: string): Promise<PluralismResul
     `;
 
     try {
-        const { answer } = await callPerplexity([{ role: 'user', content: prompt }], 'sonar');
+        const { answer } = await callWebSearchLLM([{ role: 'user', content: prompt }], {
+            useSearch: false,
+        });
         const parsed = parseLLMResponse(answer);
 
         const entityScore = (Number(parsed.entityDiversityScore) || 0) * 4;
@@ -147,10 +149,10 @@ async function analyzeContentStrategies(content: string): Promise<PluralismResul
 /**
  * Strategy B: Online Search Analysis (LLM Browsing)
  * Used when we cannot read the site (paywall, anti-bot).
- * we ask Perplexity to 'read' the site via its search index.
+ * we ask the Tavily + LLM pipeline to inspect recent indexed coverage for the site.
  */
 async function analyzeContentViaSearchStrategy(domain: string): Promise<PluralismResult> {
-    // We explicitly ask Perplexity to search for *recent* content to base the score on text, not just reputation.
+    // We explicitly ask the web search pipeline to inspect recent content to base the score on text, not just reputation.
     const prompt = `
     You are an impartial media auditor. The user wants to check the **PLURALISM** of the website: ${domain}.
     We cannot access the homepage directly (blocked). 
@@ -178,7 +180,11 @@ async function analyzeContentViaSearchStrategy(domain: string): Promise<Pluralis
     `;
 
     try {
-        const { answer } = await callPerplexity([{ role: 'user', content: prompt }], 'sonar'); // Sonar = Online Search
+        const { answer } = await callWebSearchLLM([{ role: 'user', content: prompt }], {
+            useSearch: true,
+            searchQuery: `site:${domain}`,
+            profile: 'standard',
+        });
         const parsed = parseLLMResponse(answer);
 
         // Map fields to our structure. Safe fallbacks.

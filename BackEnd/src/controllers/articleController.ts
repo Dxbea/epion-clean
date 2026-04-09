@@ -1,9 +1,12 @@
 import { type Request, type Response, type NextFunction } from 'express';
 import { prisma } from '../lib/db';
+import { checkArticleQuota } from '../lib/billing-service';
 import { getCurrentUserId } from '../lib/currentUser';
+import { logger } from '../lib/logger';
+import { embeddingQueue, sourceEnrichmentQueue } from '../lib/queue';
 import { transformTextWithAI } from '../services/articleGenerator';
 import { runLiveAnalysisWithGeneration } from '../lib/live-analysis';
-import { getWikipediaImage } from '../lib/images/wikipedia-fetcher';
+import { getArticleImageProposals } from '../lib/images/proposals';
 
 export async function createAIArticle(req: Request, res: Response, next: NextFunction) {
     try {
@@ -24,7 +27,21 @@ export async function createAIArticle(req: Request, res: Response, next: NextFun
             return res.status(403).json({ error: 'Email verification required.' });
         }
 
-        // 2. Call Generation Service (Synchronous LiveAnalysis Pipeline)
+        // 2. Weekly quota / billing gate
+        try {
+            await checkArticleQuota(userId);
+            logger.info('[ArticleGenerate] Weekly quota accepted', { userId });
+        } catch (error: any) {
+            if (error.message === 'WEEKLY_QUOTA_EXCEEDED') {
+                return res.status(403).json({
+                    error: "Quota hebdomadaire d'articles atteint.",
+                    code: "QUOTA_ARTICLE_EXCEEDED"
+                });
+            }
+            throw error;
+        }
+
+        // 3. Call Generation Service (Synchronous LiveAnalysis Pipeline)
         const result = await runLiveAnalysisWithGeneration(topic, {
             language: language || 'fr',
             style: style || 'neutral'
@@ -37,14 +54,17 @@ export async function createAIArticle(req: Request, res: Response, next: NextFun
         const generatedData = result.generatedContent;
 
         let coverImageUrl: string | null = imageUrl || null;
-        if (generateImage && generatedData.wikipedia_search_query) {
-            const wikiImg = await getWikipediaImage(generatedData.wikipedia_search_query);
-            if (wikiImg) {
-                coverImageUrl = wikiImg;
+        if (generateImage) {
+            const topicOrWikiQuery = generatedData.wikipedia_search_query || generatedData.title;
+            const articleLang = language || 'fr';
+            const sourceUrls = result.sources?.map((s: any) => s.url).filter((u: any) => u) || [];
+            const proposals = await getArticleImageProposals(sourceUrls, topicOrWikiQuery, articleLang);
+            if (proposals.length > 0) {
+                coverImageUrl = proposals[0].url;
             }
         }
 
-        // 3. Persist to Database
+        // 4. Persist to Database
         // Slugify title for URL
         const slugBase = generatedData.title
             .toLowerCase()
@@ -54,11 +74,12 @@ export async function createAIArticle(req: Request, res: Response, next: NextFun
             .replace(/^-+|-+$/g, '');
         const uniqueSlug = `${slugBase}-${Date.now().toString().slice(-6)}`;
 
-        // Store imagePrompt in generationConfig
+        // Store imagePrompt and wikipedia_search_query in generationConfig
         const generationConfig = {
             style: style || 'neutral',
             language: language || 'fr',
-            imagePrompt: generatedData.imagePrompt || null
+            imagePrompt: generatedData.imagePrompt || null,
+            wikipedia_search_query: generatedData.wikipedia_search_query || null
         };
 
         // Initialize sources as PENDING for the frontend
@@ -89,9 +110,11 @@ export async function createAIArticle(req: Request, res: Response, next: NextFun
         };
 
         // DEBUG: Vérification des données avant sauvegarde
-        console.log("--- DEBUG SAVE ARTICLE ---");
-        console.log("Sources count:", sources.length);
-        console.log("Score computed:", result.globalScore);
+        logger.info('[ArticleGenerate] Article payload ready for save', {
+            userId,
+            sourceCount: sources.length,
+            score: result.globalScore
+        });
 
         const newArticle = await prisma.article.create({
             data: {
@@ -124,30 +147,62 @@ export async function createAIArticle(req: Request, res: Response, next: NextFun
                 } : undefined
             }
         });
+        logger.info('[ArticleGenerate] Article created', {
+            articleId: newArticle.id,
+            userId,
+            status: newArticle.status
+        });
 
-        // 4. Background Job: Source Enrichment
+        // 5. Background Job: Source Enrichment
         // Since LiveAnalysis is synchronous, we directly chain to source enrichment
         const citationUrls = (result.sources || []).map(s => s.url);
 
-        console.log(`[Controller] Dispatching source enrichment for article ${newArticle.id} (${citationUrls.length} citation URLs)`);
-
-        import('../lib/queue').then(({ sourceEnrichmentQueue }) => {
-            sourceEnrichmentQueue.add('enrich', {
+        logger.info('[ArticleGenerate] Queueing source enrichment', {
+            articleId: newArticle.id,
+            citationUrlCount: citationUrls.length
+        });
+        sourceEnrichmentQueue.add('enrich', {
+            articleId: newArticle.id,
+            sources: citationUrls,
+            scoreLiveBrut: result.globalScore,
+            liveAnalysis: {
+                contentIntent: result.contentIntent,
+                pillarScores: result.pillarScores,
+                judges: result.judges,
+            },
+        }, {
+            removeOnComplete: true,
+            attempts: 2
+        }).then(() => {
+            logger.info('[ArticleGenerate] Source enrichment queued', {
+                articleId: newArticle.id
+            });
+        }).catch(err => {
+            logger.error('[ArticleGenerate] Source enrichment queue dispatch failed', {
                 articleId: newArticle.id,
-                sources: citationUrls,
-                scoreLiveBrut: result.globalScore,
-                liveAnalysis: {
-                    contentIntent: result.contentIntent,
-                    pillarScores: result.pillarScores,
-                    judges: result.judges,
-                },
-            }, {
-                removeOnComplete: true,
-                attempts: 2
-            }).catch(err => console.error('[Controller] source enrichment queue dispatch failed:', err));
+                error: err.message
+            });
         });
 
-        // 4. Return to Frontend
+        // 6. Background Job: RAG Embedding
+        logger.info('[ArticleGenerate] Queueing embedding generation', {
+            articleId: newArticle.id
+        });
+        embeddingQueue.add('generate-vector', {
+            articleId: newArticle.id,
+            contentSize: generatedData.content?.length ?? 0
+        }).then(() => {
+            logger.info('[ArticleGenerate] Embedding queued', {
+                articleId: newArticle.id
+            });
+        }).catch(err => {
+            logger.error('[ArticleGenerate] Embedding queue dispatch failed', {
+                articleId: newArticle.id,
+                error: err.message
+            });
+        });
+
+        // 7. Return to Frontend
         return res.status(201).json({
             article: newArticle,
             message: "Article generated successfully."

@@ -1,94 +1,134 @@
 import React, { useState, useEffect } from 'react';
-import { Instagram, Info, ArrowRight, Github } from 'lucide-react';
-import Modal from './ui/Modal';
+import { Instagram, ArrowRight, Github, X } from 'lucide-react';
 import { useTranslation } from 'react-i18next';
-import Button from './ui/Button';
+import { createPortal } from 'react-dom';
 
+/**
+ * BetaNotificationPopup - Theme-aware Compact version.
+ * Now supports both Light and Dark modes using Tailwind's dark: classes.
+ * Follows the 90/10 design rule: 90% neutral structure, 10% vivid branding.
+ */
 export default function BetaNotificationPopup() {
   const { t } = useTranslation();
   const [isOpen, setIsOpen] = useState(false);
 
   useEffect(() => {
-    // Show the popup on mount
-    setIsOpen(true);
+    // Smooth reveal
+    const timer = setTimeout(() => setIsOpen(true), 150);
+    return () => clearTimeout(timer);
   }, []);
+
+  useEffect(() => {
+    if (isOpen) {
+      document.body.style.overflow = 'hidden';
+    } else {
+      document.body.style.overflow = '';
+    }
+    return () => {
+      document.body.style.overflow = '';
+    };
+  }, [isOpen]);
+
+  if (!isOpen) return null;
 
   const handleClose = () => {
     setIsOpen(false);
   };
 
-  return (
-    <Modal
-      isOpen={isOpen}
-      onClose={handleClose}
-      title={t('beta_popup_title')}
-    >
-      <div className="flex flex-col gap-6 py-2">
-        {/* Icon / Hero area */}
-        <div className="flex items-center justify-center w-16 h-16 mx-auto rounded-full bg-blue-50 dark:bg-blue-900/20">
-          <Info className="w-8 h-8 text-blue-600 dark:text-blue-400" />
-        </div>
+  return createPortal(
+    <div className="fixed inset-0 z-[10000] flex items-center justify-center p-4">
+      {/* Dynamic backdrop - keeps focus with a darkened blur in both modes */}
+      <div 
+        className="absolute inset-0 bg-black/60 dark:bg-black/80 backdrop-blur-xl transition-opacity animate-in fade-in duration-500" 
+        onClick={handleClose} 
+      />
 
-        {/* Message */}
-        <div className="space-y-4">
-          <p className="text-base text-neutral-600 dark:text-neutral-300 text-center leading-relaxed">
-            {/* We could use dangerouslySetInnerHTML if we want to render the **bold** parts, 
-                but let's keep it safe or split the translation if needed. 
-                For now, simple text or split. */}
-            {t('beta_popup_message').split('**').map((part, i) => 
-               i % 2 === 1 ? <strong key={i} className="text-neutral-900 dark:text-white font-semibold">{part}</strong> : part
-            )}
-          </p>
-        </div>
+      {/* Theme-aware Modal Container */}
+      <div 
+        className="relative w-full max-w-[440px] max-h-[95vh] bg-brand-white dark:bg-black border border-black/10 dark:border-white/10 rounded-[2rem] px-10 py-10 shadow-[0_64px_128px_-16px_rgba(0,0,0,0.3)] dark:shadow-[0_64px_128px_-16px_rgba(0,0,0,1)] flex flex-col items-stretch overflow-hidden animate-in zoom-in-95 fade-in duration-300"
+        onClick={(e) => e.stopPropagation()}
+      >
+        <div className="flex flex-col h-full overflow-y-auto thin-scroll pr-1">
+          {/* Header Section */}
+          <div className="flex items-center justify-between mb-8 flex-shrink-0">
+            <h1 className="text-2xl font-bold text-gray-900 dark:text-white tracking-tight leading-none">
+              {t('beta_popup_title')}
+            </h1>
+            <button 
+              onClick={handleClose}
+              className="p-1 hover:opacity-50 transition-opacity"
+              aria-label="Close"
+            >
+              <X className="w-5 h-5 text-gray-400 dark:text-neutral-600" />
+            </button>
+          </div>
 
-        {/* Instagram promo */}
-        <div className="p-4 rounded-2xl bg-gradient-to-br from-purple-50 to-pink-50 dark:from-purple-900/10 dark:to-pink-900/10 border border-purple-100 dark:border-purple-900/20">
-          <p className="text-sm font-medium text-neutral-700 dark:text-neutral-200 mb-3 flex items-center gap-2">
-            <Instagram className="w-4 h-4 text-pink-500" />
-            {t('beta_popup_insta_label')}
-          </p>
-          <a
-            href="https://www.instagram.com/epion.app"
-            target="_blank"
-            rel="noopener noreferrer"
-            className="flex items-center justify-between group bg-white dark:bg-neutral-800 p-3 rounded-xl border border-purple-100 dark:border-purple-900/30 hover:border-pink-300 dark:hover:border-pink-500/50 transition-all shadow-sm"
-          >
-            <span className="font-bold text-transparent bg-clip-text bg-gradient-to-r from-purple-600 to-pink-500">
-              {t('beta_popup_insta_handle')}
-            </span>
-            <ArrowRight className="w-4 h-4 text-neutral-400 group-hover:text-pink-500 group-hover:translate-x-1 transition-all" />
-          </a>
-        </div>
+          {/* Theme-aware Message Section */}
+          <div className="mb-10 flex-shrink-0">
+            <p className="text-[17px] text-gray-600 dark:text-neutral-400 leading-[1.6] font-light text-left">
+              {t('beta_popup_message').split('**').map((part, i) => 
+                i % 2 === 1 ? (
+                  <span key={i} className="text-gray-900 dark:text-white font-bold tracking-tight">{part}</span>
+                ) : (
+                  <span key={i}>{part}</span>
+                )
+              )}
+            </p>
+          </div>
 
-        {/* GitHub promo */}
-        <div className="p-4 rounded-2xl bg-gradient-to-br from-gray-50 to-neutral-50 dark:from-gray-900/10 dark:to-neutral-900/10 border border-gray-100 dark:border-gray-900/20">
-          <p className="text-sm font-medium text-neutral-700 dark:text-neutral-200 mb-3 flex items-center gap-2">
-            <Github className="w-4 h-4 text-neutral-900 dark:text-white" />
-            {t('beta_popup_github_label')}
-          </p>
-          <a
-            href="https://github.com/Dxbea/epion-clean"
-            target="_blank"
-            rel="noopener noreferrer"
-            className="flex items-center justify-between group bg-white dark:bg-neutral-800 p-3 rounded-xl border border-gray-100 dark:border-gray-900/30 hover:border-gray-300 dark:hover:border-gray-500/50 transition-all shadow-sm"
-          >
-            <span className="font-bold text-neutral-900 dark:text-white">
-              {t('beta_popup_github_repo')}
-            </span>
-            <ArrowRight className="w-4 h-4 text-neutral-400 group-hover:text-neutral-900 dark:group-hover:text-white group-hover:translate-x-1 transition-all" />
-          </a>
-        </div>
+          {/* Social Action Cards - Theme-aware */}
+          <div className="space-y-6 mb-10 flex-shrink-0">
+            {/* Instagram Entry */}
+            <div className="flex flex-col gap-3">
+              <div className="flex items-center gap-2.5 text-gray-500 dark:text-neutral-400 text-[11px] font-bold tracking-widest uppercase opacity-80">
+                <Instagram className="w-3.5 h-3.5 text-[#D946EF]" />
+                {t('beta_popup_insta_label')}
+              </div>
+              <a 
+                href="https://www.instagram.com/epion.app" 
+                target="_blank" 
+                rel="noopener noreferrer"
+                className="flex items-center justify-between bg-white dark:bg-neutral-900/50 hover:bg-gray-50 dark:hover:bg-neutral-900 p-4 rounded-xl transition-all border border-black/5 dark:border-white/[0.06] group active:scale-[0.98]"
+              >
+                <span className="text-[17px] font-bold text-[#D946EF] tracking-tight">
+                  {t('beta_popup_insta_handle')}
+                </span>
+                <ArrowRight className="w-4 h-4 text-gray-400 dark:text-neutral-700 group-hover:text-black dark:group-hover:text-white transition-all transform group-hover:translate-x-1" />
+              </a>
+            </div>
 
-        {/* CTA */}
-        <div className="mt-2">
-          <Button
-            onClick={handleClose}
-            className="w-full py-6 text-base font-semibold bg-neutral-900 dark:bg-white text-white dark:text-black hover:opacity-90 transition-opacity rounded-xl"
-          >
-            {t('beta_popup_cta')}
-          </Button>
+            {/* GitHub Entry */}
+            <div className="flex flex-col gap-3">
+              <div className="flex items-center gap-2.5 text-gray-500 dark:text-neutral-400 text-[11px] font-bold tracking-widest uppercase opacity-80">
+                <Github className="w-3.5 h-3.5 text-gray-900 dark:text-white" />
+                {t('beta_popup_github_label')}
+              </div>
+              <a 
+                href="https://github.com/Dxbea/epion-clean" 
+                target="_blank" 
+                rel="noopener noreferrer"
+                className="flex items-center justify-between bg-white dark:bg-neutral-900/50 hover:bg-gray-50 dark:hover:bg-neutral-900 p-4 rounded-xl transition-all border border-black/5 dark:border-white/[0.06] group active:scale-[0.98]"
+              >
+                <span className="text-[17px] font-bold text-gray-900 dark:text-white tracking-tight">
+                  {t('beta_popup_github_repo')}
+                </span>
+                <ArrowRight className="w-4 h-4 text-gray-400 dark:text-neutral-700 group-hover:text-black dark:group-hover:text-white transition-all transform group-hover:translate-x-1" />
+              </a>
+            </div>
+          </div>
+
+          {/* Theme-aware CTA Button */}
+          <div className="mt-auto pt-4 flex-shrink-0">
+            <button 
+              onClick={handleClose}
+              className="w-full bg-black text-white dark:bg-white dark:text-black font-bold py-4 rounded-xl text-lg tracking-tight transition-all hover:opacity-90 active:scale-[0.97] shadow-xl"
+            >
+              {t('beta_popup_cta')}
+            </button>
+          </div>
         </div>
       </div>
-    </Modal>
+    </div>,
+    document.body
   );
 }

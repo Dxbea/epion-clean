@@ -297,6 +297,7 @@ export async function searchSimilarChunks(query: string, limit: number = 5): Pro
             FROM "KnowledgeChunk" kc
             JOIN "Article" a ON kc."articleId" = a.id
             WHERE kc.embedding IS NOT NULL
+              AND a.status = 'PUBLISHED'
             ORDER BY kc.embedding <=> ${embeddingStr}::vector
             LIMIT ${limit}
         `;

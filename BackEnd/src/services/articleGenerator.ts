@@ -1,4 +1,4 @@
-import { callPerplexity, type PerplexityMessage } from '../lib/perplexity';
+import { callWebSearchLLM, type WebChatMessage } from '../lib/web-chat';
 import { getRichTrustScore } from '../lib/trust-score';
 import { buildArticlePrompt } from '../lib/prompts/articlePrompts';
 import { GenerateArticleRequest } from '../types/article';
@@ -26,7 +26,7 @@ Texte original :
 ${content}
 """`;
 
-    const messages: PerplexityMessage[] = [
+    const messages: WebChatMessage[] = [
         {
             role: 'system',
             content: systemPrompt
@@ -38,7 +38,7 @@ ${content}
     ];
 
     try {
-        const response = await callPerplexity(messages, 'sonar');
+        const response = await callWebSearchLLM(messages, { useSearch: false });
         let result = response.choices[0].message.content.trim();
 
         // Nettoyage basique si l'IA bavarde

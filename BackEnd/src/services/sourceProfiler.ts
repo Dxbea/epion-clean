@@ -1,5 +1,5 @@
 
-import { callPerplexity, PerplexityMessage } from '../lib/perplexity';
+import { callWebSearchLLM, type WebChatMessage } from '../lib/web-chat';
 
 /**
  * Génère une description objective et courte (bio) pour un domaine donné.
@@ -8,7 +8,7 @@ import { callPerplexity, PerplexityMessage } from '../lib/perplexity';
  */
 export async function generateSourceDescription(domain: string): Promise<string | null> {
     try {
-        const messages: PerplexityMessage[] = [
+        const messages: WebChatMessage[] = [
             {
                 role: 'system',
                 content: `Tu es un expert média objectif. Ta tâche est de fournir une courte bio factuelle pour un site web donné.
@@ -29,7 +29,11 @@ export async function generateSourceDescription(domain: string): Promise<string 
         console.log(`[SourceProfiler] Génération de la description pour ${domain}...`);
 
         // On utilise un modèle rapide si possible, ou le standard 'sonar'
-        const response = await callPerplexity(messages, 'sonar');
+        const response = await callWebSearchLLM(messages, {
+            useSearch: true,
+            searchQuery: domain,
+            profile: 'standard',
+        });
 
         let description = response.answer.trim();
 

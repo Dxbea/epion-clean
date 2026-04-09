@@ -18,7 +18,14 @@ import EpionSelect from '@/components/ui/EpionSelect';
 
 // Local STOCK_IMAGES removed
 
-type ImageMode = 'url' | 'stock' | 'auto';
+type ImageMode = 'proposals' | 'url' | 'stock';
+
+export type ImageProposal = {
+  url: string;
+  source: string;
+  credit: string;
+  description: string;
+};
 
 type Category = { id: string; name: string; slug: string };
 
@@ -57,9 +64,12 @@ export default function EditArticlePage() {
   const [authorId, setAuthorId] = React.useState<string | null>(null);
 
   // image
-  const [imageMode, setImageMode] = React.useState<ImageMode>('auto');
+  const [imageMode, setImageMode] = React.useState<ImageMode>('proposals');
   const [imageUrl, setImageUrl] = React.useState('');
   const [pickedStock, setPickedStock] = React.useState<string | null>(null);
+
+  const [proposals, setProposals] = React.useState<ImageProposal[]>([]);
+  const [proposalsLoading, setProposalsLoading] = React.useState(false);
 
   // catégories
   const [cats, setCats] = React.useState<Category[]>([]);
@@ -146,11 +156,11 @@ export default function EditArticlePage() {
         setCategoryId(a.category?.id ?? '');
 
         if (a.imageUrl) {
-          setImageMode('url');
           setImageUrl(a.imageUrl);
+          setImageMode('proposals');
           setPickedStock(null);
         } else {
-          setImageMode('auto');
+          setImageMode('proposals');
           setImageUrl('');
           setPickedStock(null);
         }
@@ -192,11 +202,28 @@ export default function EditArticlePage() {
   const stockList = STOCK_IMAGES[catKey] || STOCK_IMAGES.news;
 
   const previewSrc =
-    imageMode === 'url'
+    (imageMode === 'url' || imageMode === 'proposals')
       ? imageUrl.trim() || ''
       : imageMode === 'stock'
         ? pickedStock || ''
         : '';
+
+  // 3b. Load proposals
+  React.useEffect(() => {
+    if (!articleId || forbidden) return;
+    let alive = true;
+    setProposalsLoading(true);
+    fetch(`${API_BASE}/api/articles/${articleId}/image-proposals`, { credentials: 'include' })
+      .then(res => res.json())
+      .then(data => {
+         if (alive && data.proposals) setProposals(data.proposals);
+      })
+      .catch()
+      .finally(() => {
+         if (alive) setProposalsLoading(false);
+      });
+    return () => { alive = false; };
+  }, [articleId, forbidden]);
 
   // 4. submit principal
   async function handleSubmit(e: React.FormEvent | null, forceStatus?: 'DRAFT' | 'PUBLISHED' | 'ARCHIVED') {
@@ -241,7 +268,7 @@ export default function EditArticlePage() {
       let finalImageUrl: string | null = null;
       if (imageMode === 'url' && imageUrl.trim()) finalImageUrl = imageUrl.trim();
       if (imageMode === 'stock' && pickedStock) finalImageUrl = pickedStock;
-      if (imageMode === 'auto') finalImageUrl = null;
+      if (imageMode === 'proposals' && imageUrl) finalImageUrl = imageUrl;
 
       const res = await fetch(
         `${API_BASE}/api/articles/${articleId}`,
@@ -325,6 +352,7 @@ export default function EditArticlePage() {
         let draftImageUrl: string | null = null;
         if (imageMode === 'url' && imageUrl.trim()) draftImageUrl = imageUrl.trim();
         else if (imageMode === 'stock' && pickedStock) draftImageUrl = pickedStock;
+        else if (imageMode === 'proposals' && imageUrl) draftImageUrl = imageUrl;
         else draftImageUrl = null;
 
         await fetch(
@@ -716,7 +744,7 @@ export default function EditArticlePage() {
                 <div className="flex items-center justify-between">
                   {/* Segmented Control */}
                   <div className="flex rounded-lg bg-neutral-100 p-1 dark:bg-neutral-800">
-                    {(['auto', 'url', 'stock'] as const).map((m) => (
+                    {(['proposals', 'url', 'stock'] as const).map((m) => (
                       <button
                         key={m}
                         type="button"
@@ -727,11 +755,52 @@ export default function EditArticlePage() {
                           : 'text-neutral-500 hover:text-neutral-900 dark:text-neutral-400 dark:hover:text-white'
                           } ${forbidden ? 'opacity-50 cursor-not-allowed' : ''}`}
                       >
-                        {m === 'auto' ? 'Auto' : m === 'url' ? 'URL' : 'Library'}
+                        {m === 'proposals' ? 'Proposals' : m === 'url' ? 'URL' : 'Library'}
                       </button>
                     ))}
                   </div>
                 </div>
+
+                {imageMode === 'proposals' && (
+                  <div className="space-y-4 pt-2">
+                    {proposalsLoading ? (
+                       <p className="text-sm opacity-60">Searching images...</p>
+                    ) : proposals.length === 0 ? (
+                       <p className="text-sm opacity-60">No image proposals found.</p>
+                    ) : (
+                      <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
+                        {proposals.map((p, idx) => (
+                          <button
+                            key={idx}
+                            type="button"
+                            onClick={() => {
+                              setImageUrl(p.url);
+                              setDirty(true);
+                            }}
+                            disabled={forbidden}
+                            className={`group relative aspect-video overflow-hidden rounded-xl border-2 transition-all ${imageUrl === p.url
+                              ? 'border-black ring-2 ring-black/20 dark:border-white dark:ring-white/20'
+                              : 'border-transparent hover:border-black/10 dark:hover:border-white/10'
+                              } ${forbidden ? 'opacity-50 cursor-not-allowed' : ''}`}
+                            title={p.description + " — " + p.credit}
+                          >
+                            <img src={p.url} className="h-full w-full object-cover" />
+                            <div className="absolute bottom-0 w-full bg-black/60 p-1 text-[10px] text-white backdrop-blur-sm truncate">
+                              {p.source === 'OPEN_GRAPH' ? 'URL Source' : p.source}
+                            </div>
+                            {imageUrl === p.url && (
+                                <div className="absolute inset-0 flex items-center justify-center bg-black/20 transition-all">
+                                  <div className="rounded-full bg-white p-1 text-black">
+                                    <svg className="h-3 w-3" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={3}><path d="M5 13l4 4L19 7" /></svg>
+                                  </div>
+                                </div>
+                            )}
+                          </button>
+                        ))}
+                      </div>
+                    )}
+                  </div>
+                )}
 
                 {imageMode === 'url' && (
                   <input

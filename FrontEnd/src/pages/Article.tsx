@@ -66,7 +66,18 @@ export default function Article() {
   const [focusedSourceId, setFocusedSourceId] = React.useState<number | null>(null);
   const [factCheckResult, setFactCheckResult] = React.useState<any | null>(null);
   const [factCheckLoading, setFactCheckLoading] = React.useState(false);
+  const [factCheckError, setFactCheckError] = React.useState<string | null>(null);
   const [isHighlightActive, setIsHighlightActive] = React.useState(false);
+  const factCheckPollRef = React.useRef<number | null>(null);
+  const factCheckPollInFlightRef = React.useRef(false);
+
+  const clearFactCheckPolling = React.useCallback(() => {
+    if (factCheckPollRef.current !== null) {
+      window.clearInterval(factCheckPollRef.current);
+      factCheckPollRef.current = null;
+    }
+    factCheckPollInFlightRef.current = false;
+  }, []);
 
   // --- TOP LEVEL LOGIC: Source Parsing & Scoring ---
   // Must be here to avoid "Rendered more hooks" errors (cannot be after early returns)
@@ -170,13 +181,69 @@ export default function Article() {
     };
   }, [article]); // Safe dependency (article is state)
 
+  const storeFactCheckResult = React.useCallback((result: any, score?: number | null) => {
+    setFactCheckResult(result);
+    setFactCheckError(null);
+    setFactCheckLoading(false);
+    setArticle(prev => {
+      if (!prev) return prev;
+      return {
+        ...prev,
+        factCheckData: result,
+        factCheckScore: typeof score === 'number'
+          ? score
+          : typeof result?.factScore === 'number'
+            ? result.factScore
+            : prev.factCheckScore,
+      };
+    });
+  }, []);
+
+  const factCheckSummary = React.useMemo(() => {
+    if (!factCheckResult || typeof factCheckResult !== 'object' || Array.isArray(factCheckResult)) {
+      return null;
+    }
+
+    const liveAnalysis = factCheckResult.liveAnalysis || null;
+    const pillarScores = liveAnalysis?.pillarScores || null;
+    const sourceCount = Array.isArray(factCheckResult.sources) ? factCheckResult.sources.length : 0;
+
+    return {
+      factScore: typeof factCheckResult.factScore === 'number'
+        ? factCheckResult.factScore
+        : article?.factCheckScore ?? null,
+      contentIntent: liveAnalysis?.contentIntent || null,
+      sourceCount,
+      pillarScores,
+    };
+  }, [factCheckResult, article?.factCheckScore]);
+
   // Initialize state from article when loaded
   React.useEffect(() => {
     if (article) {
       if (article.aiSummary) setSummaryText(article.aiSummary);
-      if (article.factCheckData) setFactCheckResult(article.factCheckData);
+      if (article.factCheckData) {
+        setFactCheckResult(article.factCheckData);
+        setFactCheckError(null);
+        setFactCheckLoading(false);
+        clearFactCheckPolling();
+      }
     }
-  }, [article]);
+  }, [article, clearFactCheckPolling]);
+
+  React.useEffect(() => {
+    return () => {
+      clearFactCheckPolling();
+    };
+  }, [clearFactCheckPolling]);
+
+  React.useEffect(() => {
+    clearFactCheckPolling();
+    setFactCheckResult(null);
+    setFactCheckError(null);
+    setFactCheckLoading(false);
+    setShowFactCheck(false);
+  }, [slug, clearFactCheckPolling]);
 
   // ----------------------------------------
   // Sécurité : referme le menu "Edit" au clic extérieur ou Esc
@@ -387,24 +454,90 @@ export default function Article() {
     setShowFactCheck(true);
     window.scrollTo({ top: 0, behavior: 'smooth' });
 
-    if (!factCheckResult && article?.id) {
-      setFactCheckLoading(true);
-      try {
-        const res = await fetch(`${API_BASE}/api/ai/fact-check`, {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ articleId: article.id }),
-          credentials: 'include'
-        });
-        const data = await res.json();
-        if (data.analysis) {
-          setFactCheckResult(data.analysis);
-        }
-      } catch (err) {
-        console.error(err);
-      } finally {
-        setFactCheckLoading(false);
+    if (factCheckResult || !article?.id) {
+      return;
+    }
+
+    setFactCheckError(null);
+    setFactCheckLoading(true);
+    clearFactCheckPolling();
+
+    try {
+      const res = await fetch(`${API_BASE}/api/ai/fact-check`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ articleId: article.id }),
+        credentials: 'include'
+      });
+
+      const data = await res.json().catch(() => ({}));
+
+      if (!res.ok) {
+        throw new Error(data?.error || data?.message || 'Fact-check failed');
       }
+
+      if (data.cached && data.analysis) {
+        storeFactCheckResult(data.analysis);
+        return;
+      }
+
+      if (data.status === 'processing' && data.jobId) {
+        const jobId = String(data.jobId);
+        let shouldStartPolling = true;
+
+        const pollJob = async () => {
+          if (factCheckPollInFlightRef.current) return;
+          factCheckPollInFlightRef.current = true;
+
+          try {
+            const pollRes = await fetch(`${API_BASE}/api/ai/fact-check/${jobId}`, {
+              credentials: 'include'
+            });
+            const pollData = await pollRes.json().catch(() => ({}));
+
+            if (!pollRes.ok) {
+              throw new Error(pollData?.error || pollData?.message || 'Fact-check polling failed');
+            }
+
+            if (pollData.status === 'completed') {
+              shouldStartPolling = false;
+              clearFactCheckPolling();
+              storeFactCheckResult(pollData.result, pollData.score ?? null);
+              fetchArticle(true).catch(() => { });
+              return;
+            }
+
+            if (pollData.status === 'failed') {
+              shouldStartPolling = false;
+              clearFactCheckPolling();
+              setFactCheckLoading(false);
+              setFactCheckError(pollData.error || 'Fact-check failed');
+            }
+          } catch (err: any) {
+            shouldStartPolling = false;
+            clearFactCheckPolling();
+            setFactCheckLoading(false);
+            setFactCheckError(err?.message || 'Fact-check polling failed');
+          } finally {
+            factCheckPollInFlightRef.current = false;
+          }
+        };
+
+        await pollJob();
+
+        if (shouldStartPolling && !factCheckPollRef.current) {
+          factCheckPollRef.current = window.setInterval(() => {
+            pollJob().catch(() => { });
+          }, 2500);
+        }
+        return;
+      }
+
+      throw new Error('Unexpected fact-check response');
+    } catch (err: any) {
+      console.error(err);
+      setFactCheckError(err?.message || 'Fact-check failed');
+      setFactCheckLoading(false);
     }
   };
 
@@ -463,9 +596,6 @@ export default function Article() {
 
 
   console.log('FactCheck State:', showFactCheck);
-
-  const factData = factCheckResult;
-
   // --- DEBUG CRITIQUE ---
   console.log("📢 ARTICLE DATA RECEIVED:", article);
   console.log("Sources field:", article.sources);
@@ -620,10 +750,58 @@ export default function Article() {
               <div className="p-4 rounded-2xl border border-black/10 bg-black/5 dark:border-white/5 mb-6 animate-pulse">
                 Analyzing article reliability...
               </div>
-            ) : factData && factData.analysis ? (
+            ) : factCheckError ? (
+              <div className="rounded-2xl border border-red-200 bg-red-50 px-5 py-4 text-sm text-red-700 dark:border-red-900/40 dark:bg-red-950/30 dark:text-red-300 shadow-sm mt-4">
+                {factCheckError}
+              </div>
+            ) : factCheckSummary ? (
               <div className="rounded-2xl border border-black/10 bg-white px-5 py-4 dark:border-white/10 dark:bg-neutral-900 shadow-sm mt-4">
-                <div className="whitespace-pre-wrap break-words text-gray-800 dark:text-gray-100 leading-7 text-[15px]">
-                  {factData.analysis}
+                <div className="space-y-4 text-gray-800 dark:text-gray-100">
+                  <div className="flex flex-wrap items-center gap-2 text-sm">
+                    {typeof factCheckSummary.factScore === 'number' && (
+                      <span className="rounded-full bg-black/5 px-3 py-1 font-medium dark:bg-white/10">
+                        Score: {factCheckSummary.factScore}%
+                      </span>
+                    )}
+                    {factCheckSummary.contentIntent && (
+                      <span className="rounded-full bg-black/5 px-3 py-1 font-medium dark:bg-white/10">
+                        Intent: {factCheckSummary.contentIntent}
+                      </span>
+                    )}
+                    <span className="rounded-full bg-black/5 px-3 py-1 font-medium dark:bg-white/10">
+                      Sources: {factCheckSummary.sourceCount}
+                    </span>
+                  </div>
+
+                  {factCheckSummary.pillarScores ? (
+                    <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
+                      {Object.entries(factCheckSummary.pillarScores).map(([pillar, value]: [string, any]) => (
+                        <div
+                          key={pillar}
+                          className="rounded-xl border border-black/10 bg-black/5 p-3 dark:border-white/10 dark:bg-white/5"
+                        >
+                          <div className="flex items-center justify-between gap-3">
+                            <span className="text-sm font-semibold capitalize">{pillar}</span>
+                            <span className="text-sm font-medium">{value?.score ?? 0}/100</span>
+                          </div>
+                          {value?.reasoning && (
+                            <p className="mt-2 text-sm leading-6 text-black/70 dark:text-white/70">
+                              {value.reasoning}
+                            </p>
+                          )}
+                          {value?.quote && (
+                            <p className="mt-2 text-xs italic text-black/60 dark:text-white/60">
+                              "{value.quote}"
+                            </p>
+                          )}
+                        </div>
+                      ))}
+                    </div>
+                  ) : (
+                    <p className="text-sm leading-6 text-black/70 dark:text-white/70">
+                      Fact-check complete. The trust panel above has been refreshed with the latest source analysis.
+                    </p>
+                  )}
                 </div>
               </div>
             ) : null}

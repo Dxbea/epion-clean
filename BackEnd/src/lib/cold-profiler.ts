@@ -1,5 +1,5 @@
-import { Reliability } from "@prisma/client";
-import { callPerplexity, PerplexityMessage } from "./perplexity";
+﻿import { Reliability } from "@prisma/client";
+import { callWebSearchLLM, type WebChatMessage } from "./web-chat";
 import { checkMediaReputation } from "./google-fact-check";
 import { logger } from "./logger";
 
@@ -14,64 +14,68 @@ export interface InvestigationResult {
 }
 
 /**
- * Enquête sur une source inconnue pour déterminer sa fiabilité et son type.
- * Utilise d'abord Google Fact Check, puis Perplexity (Sonar).
+ * EnquÃªte sur une source inconnue pour dÃ©terminer sa fiabilitÃ© et son type.
+ * Utilise d'abord Google Fact Check, puis Tavily + LLM.
  */
 export async function evaluateUnknownSource(domain: string): Promise<InvestigationResult> {
-    logger.info(`🔍 Investigating unknown source: ${domain}`, { module: 'ColdProfiler' });
+    logger.info(`ðŸ” Investigating unknown source: ${domain}`, { module: 'ColdProfiler' });
 
     // 1. Google Fact Check Pre-SCREENING ("Kill Switch")
-    // Si la source a déjà menti, pas besoin d'IA coûteuse : c'est LOW.
+    // Si la source a dÃ©jÃ  menti, pas besoin d'IA coÃ»teuse : c'est LOW.
     const factCheckResult = await checkMediaReputation(domain);
     if (factCheckResult.failureCount > 0) {
-        logger.warn(`❌ Source ${domain} has ${factCheckResult.failureCount} fact-check failures.`, { module: 'ColdProfiler' });
+        logger.warn(`âŒ Source ${domain} has ${factCheckResult.failureCount} fact-check failures.`, { module: 'ColdProfiler' });
         return {
             reliability: Reliability.LOW,
             sourceType: 'GENERAL',
-            reasoning: `Historique problématique : ${factCheckResult.failureCount} échecs de vérification factuelle détectés (via Google Fact Check).`
+            reasoning: `Historique problÃ©matique : ${factCheckResult.failureCount} Ã©checs de vÃ©rification factuelle dÃ©tectÃ©s (via Google Fact Check).`
         };
     }
 
-    // 2. Perplexity Investigation (Sonar)
-    // On demande à l'IA d'agir comme un expert en désinformation.
+    // 2. Web Investigation (Tavily + LLM)
+    // On demande Ã  l'IA d'agir comme un expert en dÃ©sinformation.
     const prompt = `
-Agis comme un expert en désinformation et analyse la fiabilité de la source : "${domain}".
-Recherche sa réputation, ses propriétaires, son historique sur le web et Wikipédia.
+Agis comme un expert en dÃ©sinformation et analyse la fiabilitÃ© de la source : "${domain}".
+Recherche sa rÃ©putation, ses propriÃ©taires, son historique sur le web et WikipÃ©dia.
 
 Verdict attendu (JSON strict) :
 {
   "reliability": "HIGH" | "MIXED" | "LOW" | "PROPAGANDA",
   "sourceType": "AGENCY" | "MEDIA" | "ACADEMIC" | "GOVERNMENT" | "BLOG" | "SOCIAL" | "COMMERCIAL" | "GENERAL",
-  "reasoning": "Court résumé des preuves trouvées (max 2 phrases)"
+  "reasoning": "Court rÃ©sumÃ© des preuves trouvÃ©es (max 2 phrases)"
 }
 
-Critères de classification (reliability) :
-- HIGH : Média reconnu (ex: Le Monde, NY Times), prix journalistiques, institution scientifique, ou agence de presse.
-- MIXED : Blog d'opinion, site partisan mais factuel, ou site récent sans historique clair.
-- LOW : Tabloïd sensationnaliste, clickbait avéré, ou manque de transparence total.
-- PROPAGANDA : Fake news, complotisme, ou satire non déclarée.
+CritÃ¨res de classification (reliability) :
+- HIGH : MÃ©dia reconnu (ex: Le Monde, NY Times), prix journalistiques, institution scientifique, ou agence de presse.
+- MIXED : Blog d'opinion, site partisan mais factuel, ou site rÃ©cent sans historique clair.
+- LOW : TabloÃ¯d sensationnaliste, clickbait avÃ©rÃ©, ou manque de transparence total.
+- PROPAGANDA : Fake news, complotisme, ou satire non dÃ©clarÃ©e.
 
-Critères de classification (sourceType) :
+CritÃ¨res de classification (sourceType) :
 - AGENCY : Agence de presse (AFP, Reuters, AP).
-- MEDIA : Journal, chaîne TV, radio, magazine d'information.
-- ACADEMIC : Université, revue scientifique, centre de recherche.
+- MEDIA : Journal, chaÃ®ne TV, radio, magazine d'information.
+- ACADEMIC : UniversitÃ©, revue scientifique, centre de recherche.
 - GOVERNMENT : Site gouvernemental, institution publique.
-- BLOG : Blog personnel, newsletter indépendante.
-- SOCIAL : Réseau social, plateforme communautaire.
+- BLOG : Blog personnel, newsletter indÃ©pendante.
+- SOCIAL : RÃ©seau social, plateforme communautaire.
 - COMMERCIAL : Site d'entreprise, e-commerce, RP.
 - GENERAL : Autre ou inclassable.
 
-Réponds UNIQUEMENT le JSON.
+RÃ©ponds UNIQUEMENT le JSON.
 `;
 
-    const messages: PerplexityMessage[] = [
+    const messages: WebChatMessage[] = [
         { role: 'user', content: prompt }
     ];
 
     try {
-        const { answer } = await callPerplexity(messages, 'sonar');
+        const { answer } = await callWebSearchLLM(messages, {
+            useSearch: true,
+            searchQuery: domain,
+            profile: 'standard',
+        });
 
-        // Nettoyage du JSON (au cas où il y a du markdown ```json ... ```)
+        // Nettoyage du JSON (au cas oÃ¹ il y a du markdown ```json ... ```)
         const cleanJson = answer.replace(/^```json/, '').replace(/```$/, '').trim();
         const parsed = JSON.parse(cleanJson);
 
@@ -86,21 +90,22 @@ Réponds UNIQUEMENT le JSON.
             ? parsed.sourceType as SourceType
             : 'GENERAL'; // Fallback
 
-        logger.info(`✅ Investigation complete for ${domain}: ${reliability} (${sourceType})`, { module: 'ColdProfiler' });
+        logger.info(`âœ… Investigation complete for ${domain}: ${reliability} (${sourceType})`, { module: 'ColdProfiler' });
 
         return {
             reliability,
             sourceType,
-            reasoning: parsed.reasoning || "Analyse IA basée sur la réputation web."
+            reasoning: parsed.reasoning || "Analyse IA basÃ©e sur la rÃ©putation web."
         };
 
     } catch (error: any) {
-        logger.error(`❌ Perplexity investigation failed for ${domain}`, { error: error.message });
+        logger.error(`âŒ Web investigation failed for ${domain}`, { error: error.message });
         // Fallback ultime : On reste sur MIXED + GENERAL
         return {
             reliability: Reliability.MIXED,
             sourceType: 'GENERAL',
-            reasoning: "Investigation échouée (Service indisponible). Classé MIXED par prudence."
+            reasoning: "Investigation Ã©chouÃ©e (Service indisponible). ClassÃ© MIXED par prudence."
         };
     }
 }
+

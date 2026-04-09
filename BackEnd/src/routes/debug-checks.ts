@@ -44,10 +44,10 @@ router.get('/audit', async (req, res) => {
         report.checks.push({ name: "Google Fact Check Resilience", status: "FAIL - CRASHED", error: e.message });
     }
 
-    // 3. Audit: Perplexity (Configuration)
-    const hasKey = !!process.env.PERPLEXITY_API_KEY;
+    // 3. Audit: Tavily (Configuration)
+    const hasKey = !!process.env.TAVILY_API_KEY;
     report.checks.push({
-        name: "Perplexity Configuration",
+        name: "Tavily Configuration",
         status: hasKey ? "PASS" : "FAIL",
         details: hasKey ? "API Key Present" : "API Key Missing"
     });

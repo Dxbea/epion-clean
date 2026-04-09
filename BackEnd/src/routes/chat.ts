@@ -8,16 +8,24 @@ import {
   type PlanId,
   type ChatLimits,
 } from '../config/chatLimits';
-import { checkAndChargeUser, hasSufficientFunds, chargeUser, COSTS } from '../lib/billing-service';
+import { hasSufficientFunds, chargeUser, COSTS } from '../lib/billing-service';
 import { PlanType } from '@prisma/client';
-import { callPerplexity, streamPerplexity, type PerplexityMessage, generateSystemPrompt } from '../lib/perplexity';
-import { getRichTrustScore } from '../lib/trust-score';
 import { analyzeOutputQuality } from '../lib/semantic-scanner';
-import { AI_MODELS } from '../config/ai-models';
 import { ChatOptions } from '../types/chat';
 import OpenAI from 'openai';
-import { searchSimilarChunks, type SearchResult } from '../lib/rag-service';
+import { searchSimilarChunks } from '../lib/rag-service';
 import { logger } from '../lib/logger';
+import {
+  formatWebSourcesForPrompt,
+  generateWebSystemPrompt,
+  mapWebSourcesToUiSources,
+  normalizeWebSearchProfile,
+  resolveWebLlmModel,
+  sanitizeWebChatMessages,
+  searchWebContext,
+  type WebChatMessage,
+  type WebPromptMode,
+} from '../lib/web-chat';
 
 // OpenAI Client for RAG mode (fast)
 // Verify API Key availability
@@ -30,7 +38,7 @@ const openai = new OpenAI({ apiKey: process.env.OPENAI_API_KEY });
 // ————————————————————————————————————————————————————————————————
 // PROMPTS SYSTEME DYNAMIQUES
 // ————————————————————————————————————————————————————————————————
-// (Fonction getSystemPrompt déplacée dans ../lib/perplexity.ts)
+// Web chat now uses Tavily for retrieval and OpenAI for generation/streaming.
 
 
 // ————————————————————————————————————————————————————————————————
@@ -420,7 +428,7 @@ router.post('/sessions/:id/messages', async (req, res, next) => {
     });
 
     // Remettre dans l'ordre chronologique
-    const history: PerplexityMessage[] = historyData
+    const history: WebChatMessage[] = historyData
       .reverse()
       .map((m) => ({
         role: m.role as 'user' | 'assistant',
@@ -448,6 +456,7 @@ router.post('/sessions/:id/messages', async (req, res, next) => {
     // ---------------------------------------------------------
     let actionType: keyof typeof COSTS;
     let modelName: string;
+    let webProfile = normalizeWebSearchProfile(req.body?.model);
 
     const userPlan = user.usage?.plan || PlanType.FREE;
 
@@ -455,13 +464,15 @@ router.post('/sessions/:id/messages', async (req, res, next) => {
       actionType = 'CHAT_FAST';
       modelName = 'gpt-4o-mini';
     } else {
-      // Mode WEB
-      if (userPlan === PlanType.PREMIUM) {
+      const wantsDeepWeb = req.body?.model === 'sonar-pro' && userPlan === PlanType.PREMIUM;
+      webProfile = wantsDeepWeb ? 'deep' : 'standard';
+
+      if (wantsDeepWeb) {
         actionType = 'CHAT_WEB_DEEP';
-        modelName = 'sonar-pro';
+        modelName = resolveWebLlmModel(webProfile);
       } else {
         actionType = 'CHAT_WEB_STANDARD';
-        modelName = 'sonar';
+        modelName = resolveWebLlmModel(webProfile);
       }
     }
 
@@ -498,6 +509,7 @@ router.post('/sessions/:id/messages', async (req, res, next) => {
     let sourcesMean = 0;
     let outputScore = 0;
     let diversityPenalty = 0;
+    let shouldCharge = true;
 
     // =========================================================================
     // CAS 1: MODE FAST (RAG + OpenAI GPT-4o-mini)
@@ -506,7 +518,7 @@ router.post('/sessions/:id/messages', async (req, res, next) => {
       // ... (Existing RAG Logic - keeping it awaiting for now but could be streamed later)
       // For consistency with the request "Check -> Service -> Settlement", we keep the current blocking logic here
       // BUT we need to support the "Settlement" phase at the end.
-      // The user request focused on Perplexity streaming.
+      // The current web flow still uses the legacy streaming adapter.
       // To avoid complexity, we keep RAG as is (it's fast/cheap) but apply charge at the end.
 
       // ... (Rest of RAG Logic is below, I will just wrap the charge call)
@@ -548,7 +560,7 @@ CONSIGNES DE RÉPONSE :
         }))
       ];
 
-      // 4. Appel OpenAI (NOT Perplexity!)
+      // 4. Appel OpenAI pour la reponse RAG interne
       try {
         const openaiResponse = await openai.chat.completions.create({
           model: 'gpt-4o-mini',
@@ -598,9 +610,16 @@ CONSIGNES DE RÉPONSE :
       sources = Array.from(uniqueSources.values());
     } else {
       // =========================================================================
-      // CAS 2: MODE WEB (Perplexity Stream) - Phase B: Service
+      // CAS 2: MODE WEB (Tavily + OpenAI streaming) - Phase B: Service
       // =========================================================================
-      logger.info('Mode WEB active (Stream)', { module: 'Chat', strategy: 'PerplexityStream', userId, sessionId, modelName });
+      logger.info('Mode WEB active (Stream)', {
+        module: 'Chat',
+        strategy: 'TavilyPlusOpenAI',
+        userId,
+        sessionId,
+        modelName,
+        webProfile,
+      });
 
       const chatOptions: ChatOptions = {
         filterSources: req.body.sourceRestricted || false,
@@ -608,39 +627,88 @@ CONSIGNES DE RÉPONSE :
         recentEvents: req.body.timeRecent || false
       };
 
-      const systemInstruction = generateSystemPrompt('balanced', chatOptions);
-      history.unshift({ role: 'system', content: systemInstruction });
-
       try {
-        const stream = streamPerplexity(history, modelName);
+        const promptMode: WebPromptMode =
+          req.body?.responseStyle === 'concise'
+            ? 'fast'
+            : req.body?.responseStyle === 'detailed'
+              ? 'precise'
+              : 'balanced';
 
-        for await (const chunk of stream) {
-          rawAnswer += chunk;
-          try {
-            res.write(chunk);
-          } catch (e) {
-            // Silent catch: Client disconnected, but we continue generation to validate service delivery
-            logger.debug('Client disconnected during stream', { userId });
+        const webSources = await searchWebContext(content, {
+          profile: webProfile,
+          chatOptions,
+        });
+
+        sources = mapWebSourcesToUiSources(webSources);
+        sourcesMean = sources.length > 0
+          ? Math.round(sources.reduce((sum, source) => sum + (source.score || 0), 0) / sources.length)
+          : 0;
+
+        if (webSources.length === 0) {
+          rawAnswer = "Information not available in the consulted sources.";
+          shouldCharge = false;
+          res.write(rawAnswer);
+        } else {
+          const systemInstruction = `${generateWebSystemPrompt(promptMode, chatOptions)}
+
+Use the following live Tavily search context for the current question.
+
+<context>
+${formatWebSourcesForPrompt(webSources)}
+</context>`;
+
+          const openaiMessages: Array<{ role: 'system' | 'user' | 'assistant'; content: string }> = [
+            { role: 'system', content: systemInstruction },
+            ...sanitizeWebChatMessages(history).filter((message) => message.role !== 'system'),
+          ];
+
+          const stream = await openai.chat.completions.create({
+            model: modelName,
+            messages: openaiMessages,
+            temperature: webProfile === 'deep' ? 0.15 : 0.2,
+            max_tokens: webProfile === 'deep' ? 2400 : 1600,
+            stream: true,
+          });
+
+          for await (const chunk of stream) {
+            const delta = chunk.choices[0]?.delta?.content || '';
+            if (!delta) continue;
+
+            rawAnswer += delta;
+            try {
+              res.write(delta);
+            } catch (e) {
+              logger.debug('Client disconnected during stream', { userId });
+            }
           }
         }
       } catch (err: any) {
-        logger.error('Stream failed', { error: err.message });
-        // If stream failed completely, we don't charge.
-        // We might have sent partial response though.
-        // Ensure we don't crash the server.
+        logger.error('Web chat pipeline failed', {
+          module: 'Chat',
+          error: err.message,
+          userId,
+          sessionId,
+        });
+        if (!rawAnswer) {
+          rawAnswer = "Le mode web est temporairement indisponible.";
+          try {
+            res.write(rawAnswer);
+          } catch (writeError) {
+            logger.debug('Client disconnected before fallback message could be written', { userId });
+          }
+        }
+        shouldCharge = false;
       }
 
-      // End of Stream
-      // citations logic needs to be handled differently or fetched separately? 
-      // Perplexity stream often sends citations at the end or embedded. 
-      // Current `streamPerplexity` yields text chunks. 
-      // `callPerplexity` returned citations separately.
-      // If we assume citations are part of the text or we fetch them differently...
-      // For now, let's assume we parse citations from the text or ignore them for the streaming MVP.
-      // Or we call `callPerplexity` non-stream to get citations? No, that defeats the purpose.
-      // `streamPerplexity` implementation I wrote just parses content.
-      // We will skip strict citation parsing for this step or parse basic [1] formatting if needed.
-      sources = []; // Placeholder for stream mode
+      outputAnalysis = analyzeOutputQuality(rawAnswer);
+      outputScore = outputAnalysis.score;
+      const uniqueDomains = new Set((sources || []).map((source: any) => source.domain)).size;
+      diversityPenalty = uniqueDomains >= 3 ? 0 : uniqueDomains === 2 ? 4 : 8;
+      finalGlobalScore = Math.max(
+        0,
+        Math.min(100, Math.round((sourcesMean * 0.75) + (outputScore * 0.25) - diversityPenalty))
+      );
     }
 
     // =========================================================================
@@ -661,7 +729,7 @@ CONSIGNES DE RÉPONSE :
         sessionId,
         role: 'assistant',
         content: rawAnswer,
-        sources: sources, // Might be empty in stream mode for now
+        sources: sources,
         metadata: {
           factScore: finalGlobalScore,
           mode: mode,
@@ -678,13 +746,21 @@ CONSIGNES DE RÉPONSE :
     }) as any;
 
     // 💰 CHARGE USER (Phase C: Settlement)
-    try {
-      await chargeUser(userId, actionType);
-      logger.info('User charged successfully', { userId, action: actionType, cost: COSTS[actionType] });
-    } catch (error: any) {
-      logger.error('CRITICAL: Charge failed after AI delivery', {
+    if (shouldCharge) {
+      try {
+        await chargeUser(userId, actionType);
+        logger.info('User charged successfully', { userId, action: actionType, cost: COSTS[actionType] });
+      } catch (error: any) {
+        logger.error('CRITICAL: Charge failed after AI delivery', {
+          userId,
+          error: error.message
+        });
+      }
+    } else {
+      logger.info('User not charged because web search context or generation was incomplete', {
+        module: 'Chat',
         userId,
-        error: error.message
+        action: actionType,
       });
     }
 

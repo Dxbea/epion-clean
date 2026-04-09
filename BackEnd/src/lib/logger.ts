@@ -26,9 +26,7 @@ export const logger = winston.createLogger({
     defaultMeta: { service: 'epion-api' },
     transports: [
         new winston.transports.Console(),
-        // Production: Add file transports or external services (Datadog, etc.)
-        // new winston.transports.File({ filename: 'error.log', level: 'error' }),
-        // new winston.transports.File({ filename: 'combined.log' }),
+        new winston.transports.File({ filename: 'logs/server.log' }),
     ],
 });
 

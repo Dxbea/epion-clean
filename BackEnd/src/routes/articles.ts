@@ -15,11 +15,50 @@ import { embeddingQueue } from '../lib/queue';
 
 
 import { env } from '../env';
+import { getArticleImageProposals } from '../lib/images/proposals';
 
 export const router = Router();
 const COOKIE_NAME = env.COOKIE_NAME || 'epion_session';
 
-// --- PUT /api/articles/:id  (update) ---------------------------------
+// --- GET /api/articles/:id/image-proposals ---------------------------
+router.get('/:id/image-proposals', async (req, res, next) => {
+  try {
+    const { id } = req.params;
+    let currentUserId: string;
+    try {
+      currentUserId = await getCurrentUserId(req, res);
+    } catch {
+      return res.status(401).json({ error: 'NO_SESSION' });
+    }
+
+    const a = await prisma.article.findUnique({
+      where: { id },
+      select: { authorId: true, title: true, generationPrompt: true, factCheckData: true, generationConfig: true }
+    });
+
+    if (!a) return res.status(404).json({ error: 'Not Found' });
+
+    if (a.authorId !== currentUserId) {
+      return res.status(403).json({ error: 'Forbidden' });
+    }
+
+    const config: any = a.generationConfig || {};
+    const topic = config.wikipedia_search_query || a.title;
+    const lang = config.language || 'en'; // Extract language
+    let sourceUrls: string[] = [];
+    if (a.factCheckData) {
+      const factData: any = a.factCheckData;
+      const sources = Array.isArray(factData) ? factData : (factData.sources || []);
+      sourceUrls = sources.map((s: any) => s.url).filter((u: any) => u);
+    }
+
+    const proposals = await getArticleImageProposals(sourceUrls, topic, lang);
+    res.json({ proposals });
+  } catch (err) {
+    next(err);
+  }
+});
+
 // --- PUT /api/articles/:id  (update) ---------------------------------
 router.put('/:id', async (req, res, next) => {
   try {

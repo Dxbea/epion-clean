@@ -1,70 +1,20 @@
-# EPION CONTEXT MASTER
-> ⚠️ **DOCUMENT DE RÉFÉRENCE ABSOLUE** - Ce fichier est le "Cerveau" du projet. Toute session de travail doit commencer par sa lecture.
+# 🧠 EPION CORE SYSTEM
+Rôle: Architecte Senior. 
+Règle absolue: Réponses concises, directes, code uniquement. Zéro politesse.
 
-## 1. Philosophie & Identité Visuelle (La Règle du 90/10)
-Epion est un instrument scientifique, pas un média de divertissement.
-*   **90% Neutre** : L'interface doit être invisible (Noir/Blanc strict).
-*   **10% Vivid** : Seule la DATA et l'INTELLIGENCE doivent "pop".
+## STACK TECHNIQUE
+- Front: React (Vite), TailwindCSS, TypeScript
+- Back: Node.js, Express, Prisma (Neon DB)
+- IA/Scraping: Tavily, Axios + Cheerio (Open Graph), Wikimedia API
 
-### La Double Hiérarchie Chromatique
-Il est IMPÉRATIF de ne pas confondre **l'Identité** (Marque) et **l'Outil** (Fonction).
+## RÈGLES D'ARCHITECTURE
+1. CORE LOCKED: `AuthContext` et `Layout` sont strictement interdits de modification (sauf bug critique).
+2. BUSINESS: Vérifier les droits (FREE, READER, PREMIUM) avant d'implémenter des requêtes IA.
+3. CODE: Composants fonctionnels purs. TS strict (pas de `any`). Requêtes API toujours englobées dans `try/catch`.
 
-| Rôle | Couleur / Dégradé | Usage Strict |
-| :--- | :--- | :--- |
-| **IDENTITÉ (Brand)** | **Gradient Signature**<br>`Sky Blue (#0EA5E9)` → `Turquoise (#2DD4BF)` → `Mint (#34D399)` | • Logos & Branding<br>• Boutons d'Action Primaires (CTA)<br>• Numérotation de listes<br>• Éléments décoratifs majeurs |
-| **INTERACTION (Tool)** | **Electric Mint (#00dc82)**<br>*Couleur Solide, Plate, "Tech"* | • **Surlignage de texte** (Highlight)<br>• **Pastilles de Sources** (Badges)<br>• **Bordures de Focus** (État actif)<br>• Indicateurs de statut système |
-
-> 🛑 **RÈGLE D'OR** : Ne JAMAIS utiliser le Gradient Signature pour surligner du texte (trop bruyant). Ne JAMAIS utiliser le Mint Électrique pour un logo (trop plat).
-
----
-
-## 2. Synthèse des Fonctionnalités IA
-
-### Le Fact-Score (Algorithme de Confiance)
-Agrégation pondérée de 4 piliers fondamentaux. Chaque pilier possède un **Code Couleur Fixe** pour la représentation graphique (Jauges, Graphiques).
-
-1.  **Transparence** (`#3B82F6` - Bleu) : Disponibilité des sources, clarté auteurs.
-2.  **Processus Éditorial** (`#10B981` - Vert) : Relecture, corrections, standards.
-3.  **Sémantique** (`#8B5CF6` - Violet) : Ton neutre, vocabulaire, biais.
-4.  **Qualité UX** (`#F97316` - Orange) : Lisibilité, Ads.txt, Dark Patterns.
-
-### Outils & Business Logic (Smart Router)
-Segmentation par `subscriptionTier`.
-
-| Tier | Rôle | Chat | Outils IA Disponibles |
-| :--- | :--- | :--- | :--- |
-| **FREE** | Observateur | 3 req/j (Eco) | 🔒 Aucun (Cadenas visible) |
-| **READER** | Explorateur | 3 req/j (Eco) | ✅ **Light** : Résumé, Vulgarisation, Traduction |
-| **PREMIUM** | Architecte | Illimité (Deep) | ✅ **Deep** : Fact-checking, Deep Dive, Analyse de Biais |
-
----
-
-## 3. Spécifications Interactives (Lecture Augmentée)
-
-### Interaction : Le Double Clic (Smart Focus)
-Dans `ChatMessage.tsx`, l'interaction suit une logique de dévoilement progressif :
-1.  **Premier Clic (Focus)** : Activation du segment.
-    *   *Visuel* : Fond `bg-[#00dc82]/10`, Bordure `border-[#00dc82]`.
-    *   *UI* : Apparition de la **Bulle Inline** (Aperçu rapide).
-2.  **Deuxième Clic (Action)** : Sur un segment DÉJÀ actif.
-    *   *Action* : Ouverture du **Panneau Latéral** (Modal).
-    *   *Contenu* : Analyse en profondeur des sources.
-
-### Rendu Technique
-*   **ReactMarkdown** : Transformation des symboles bruts.
-*   **Nettoyage** : Injection de composants React (`p`, `li`) pour gérer l'interactivité.
-*   **Sanitization** : Contrôle strict des classes injectées.
-
----
-
-## 4. Instructions de Maintenance
-
-### 🛑 NON-NEGOTIABLE (Do Not Touch)
-1.  **Séparation des Couleurs** : Il est interdit d'utiliser une couleur fonctionnelle pour du branding et inversement.
-2.  **Logique de Parsing** : Ne jamais toucher aux Regex de `ChatMessage.tsx` sans plan de test complet.
-3.  **Modules Sanctuaires** : `AuthContext`, `Layout`.
-
-### Cartographie & Stack
-*   **Chat** : WebSockets, Streaming (Zone Monétisée).
-*   **Actu** : Rendu statique, SEO (Zone Gratuite).
-*   **Stack** : Vite, React, Node, Prisma, Perplexity.
+## DESIGN SYSTEM (Règle 90/10)
+- **Base (90%)**: Noir (`#000000`, `gray-900`) et Blanc (`#FAFAF5`).
+- **Interdits**: Glassmorphism, couleurs pastels, gris moyens illisibles.
+- **Brand (Boutons/Logos)**: Gradient (`#87E8ED` -> `#87E89D` -> `#001B72`).
+- **Interaction (Hover/Focus)**: Solide Menthe (`#87E89D`) ou Cyan (`#87E8ED`).
+- **Data (Scores)**: Rouge (0-49), Orange (50-79), Vert (80-100).

@@ -233,22 +233,22 @@ export default function ChatSession() {
       return;
     }
 
-    // Mapping UI Model ID -> API Params
-    let apiMode: Rigor = 'balanced'; // Default to balanced (Web Standard)
+    // Mapping UI model -> backend params
+    let apiMode: Rigor = 'balanced'; // Default to balanced (standard web flow)
     let apiModel: string | undefined = undefined;
 
     if (modelId === 'rag') {
       apiMode = 'fast';
     } else if (modelId === 'web-sonar') {
-      apiMode = 'balanced'; // Maps to Web Standard in Backend
+      apiMode = 'balanced'; // Maps to standard web mode in backend
       apiModel = 'sonar';
     } else if (modelId === 'web-sonar-pro') {
-      apiMode = 'balanced'; // Maps to Web (backend checks plan/modelname)
+      apiMode = 'balanced'; // Maps to deeper web mode in backend
       apiModel = 'sonar-pro';
     }
 
-    // NOTE: Si on veut utiliser 'web' comme mode explicitement, il faudrait mettre à jour le type Rigor et le backend.
-    // Pour l'instant, 'balanced' déclenche le fallback Web côté backend, ce qui est le comportement voulu pour Sonar.
+    // NOTE: Si on veut utiliser 'web' comme mode explicitement, il faudra aligner le type Rigor et le backend.
+    // Pour l'instant, 'balanced' declenche le flux web cote backend, ce qui conserve le comportement actuel.
 
     // 4) cas normal : session existante + user vérifié
     try {
@@ -293,7 +293,7 @@ export default function ChatSession() {
       .then((s) => {
         if (s.mode) {
           setRigor(s.mode);
-          // Note: On ne restore pas le "Model" (Sonar/RAG) ici car il est local au ChatInput pour l'instant
+          // Note: On ne restore pas le modele UI (Web/RAG) ici car il est local au ChatInput pour l'instant
           // Mais on pourrait mapper s.mode -> default model si on voulait.
         }
       })

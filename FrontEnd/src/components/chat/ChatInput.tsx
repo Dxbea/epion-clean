@@ -198,10 +198,10 @@ export default function ChatInput({
 
           {showModelMenu && (
             <div className="absolute bottom-full left-0 mb-2 w-64 overflow-hidden rounded-xl bg-white dark:bg-[#1a1a1a] border border-gray-200 dark:border-gray-700 shadow-xl z-50 animate-in fade-in zoom-in-95 duration-100">
-              {/* 
-                 Updated Model List: 
-                 1. Sonar (web-sonar)
-                 2. Sonar Pro (web-sonar-pro)
+                {/*
+                 Current model list:
+                 1. Web (web-sonar)
+                 2. Web Deep (web-sonar-pro)
                  3. Base Epion (rag)
                */}
               <ModelOption

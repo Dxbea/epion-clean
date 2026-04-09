@@ -1,7 +1,7 @@
 import { Router } from 'express';
 import { prisma } from '../lib/db';
 import OpenAI from 'openai';
-import axios from 'axios';
+import { tavily } from '@tavily/core';
 import os from 'os';
 import { logger } from '../lib/logger';
 
@@ -76,26 +76,13 @@ router.get('/diagnostics', async (req, res) => {
     }
   };
 
-  // 4. Perplexity Check
-  const checkPerplexity = async () => {
+  // 4. Tavily Check
+  const checkTavily = async () => {
     const s = Date.now();
     try {
-      if (!process.env.PERPLEXITY_API_KEY) throw new Error('Missing PERPLEXITY_API_KEY');
-      await axios.post(
-        'https://api.perplexity.ai/chat/completions',
-        {
-          model: 'sonar',
-          messages: [{ role: 'user', content: 'ping' }],
-          max_tokens: 5
-        },
-        {
-          headers: {
-            'Authorization': `Bearer ${process.env.PERPLEXITY_API_KEY}`,
-            'Content-Type': 'application/json'
-          },
-          timeout: 5000
-        }
-      );
+      if (!process.env.TAVILY_API_KEY) throw new Error('Missing TAVILY_API_KEY');
+      const tvly = tavily({ apiKey: process.env.TAVILY_API_KEY });
+      await tvly.search('ping', { maxResults: 1, searchDepth: 'basic' });
       return { status: 'up', latency: `${Date.now() - s}ms` };
     } catch (error: any) {
       const msg = error.response?.data?.error || error.message;
@@ -105,11 +92,11 @@ router.get('/diagnostics', async (req, res) => {
 
   // Run all checks in parallel with 5s timeout
   const TIMEOUT_MS = 5000;
-  const [db, vectors, openai, perplexity] = await Promise.all([
+  const [db, vectors, openai, tavilyCheck] = await Promise.all([
     withTimeout(checkDatabase(), TIMEOUT_MS, { status: 'timeout', latency: '>5000ms' }),
     withTimeout(checkVectors(), TIMEOUT_MS, { status: 'timeout', count: -1, latency: '>5000ms' }),
     withTimeout(checkOpenAI(), TIMEOUT_MS, { status: 'timeout', latency: '>5000ms' }),
-    withTimeout(checkPerplexity(), TIMEOUT_MS, { status: 'timeout', latency: '>5000ms' })
+    withTimeout(checkTavily(), TIMEOUT_MS, { status: 'timeout', latency: '>5000ms' })
   ]);
 
   // System Stats
@@ -129,14 +116,14 @@ router.get('/diagnostics', async (req, res) => {
     db.status === 'up' &&
     vectors.status === 'up' &&
     openai.status === 'up' &&
-    perplexity.status === 'up';
+    tavilyCheck.status === 'up';
 
   const isDegraded = !isHealthy && db.status === 'up'; // If DB is up, it's just degraded, else DOWN.
   const finalStatus = isHealthy ? 'OK' : (isDegraded ? 'DEGRADED' : 'DOWN');
   const statusCode = finalStatus === 'OK' ? 200 : (finalStatus === 'DEGRADED' ? 200 : 503); // 200 even for degraded to allow viewing the JSON
 
   if (!isHealthy) {
-    logger.warn('[HEALTH] System health check failed or degraded', { status: finalStatus, checks: { database: db.status, vectors: vectors.status, openai: openai.status, perplexity: perplexity.status } });
+    logger.warn('[HEALTH] System health check failed or degraded', { status: finalStatus, checks: { database: db.status, vectors: vectors.status, openai: openai.status, tavily: tavilyCheck.status } });
   }
 
   res.status(statusCode).json({
@@ -147,7 +134,7 @@ router.get('/diagnostics', async (req, res) => {
       database: db,
       vectors: vectors,
       openai: openai,
-      perplexity: perplexity,
+      tavily: tavilyCheck,
     },
     system: system
   });

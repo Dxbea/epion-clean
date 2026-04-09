@@ -1,58 +1,32 @@
-import axios from 'axios';
+﻿import { tavily } from '@tavily/core';
 import dotenv from 'dotenv';
 import path from 'path';
-
 // 1. Charger le .env explicitement
 dotenv.config({ path: path.resolve(process.cwd(), '.env') });
-
 async function testConnection() {
-    const key = process.env.PERPLEXITY_API_KEY;
-
+    const key = process.env.TAVILY_API_KEY;
     console.log('--- DIAGNOSTIC IA ---');
-    console.log('1. Vérification de la clé...');
-
+    console.log('1. Verification de la cle Tavily...');
     if (!key) {
-        console.error('❌ ERREUR: Aucune clé trouvée dans process.env.PERPLEXITY_API_KEY');
-        console.log(' -> Vérifie que le fichier .env est bien dans le dossier BackEnd.');
+        console.error('ERROR: No key found in process.env.TAVILY_API_KEY');
+        console.log(' -> Verifie que le fichier .env est bien dans le dossier BackEnd.');
         return;
     }
-
-    // Affiche les 4 premiers caractères pour vérifier (sans tout révéler)
-    console.log(`✅ Clé détectée: ${key.substring(0, 4)}...`);
-
-    console.log('2. Tentative de connexion à Perplexity...');
-
+    console.log(`Key detected: ${key.substring(0, 4)}...`);
+    console.log('2. Tentative de connexion a Tavily...');
     try {
-        const response = await axios.post(
-            'https://api.perplexity.ai/chat/completions',
-            {
-                model: 'sonar-pro',
-                messages: [{ role: 'user', content: 'Say Hello World' }]
-            },
-            {
-                headers: {
-                    'Authorization': `Bearer ${key}`,
-                    'Content-Type': 'application/json'
-                }
-            }
-        );
-
-        console.log('✅ SUCCÈS ! Réponse reçue :');
-        console.log('✅ SUCCÈS ! Réponse reçue :');
-        console.log(JSON.stringify(response.data, null, 2));
-        console.log('--- FIN DU TEST ---');
-    } catch (error: any) {
-        console.error('❌ ÉCHEC DE LA REQUÊTE');
-        if (error.response) {
-            console.error(`Status Code: ${error.response.status}`);
-            console.error('Message API:', JSON.stringify(error.response.data, null, 2));
-
-            if (error.response.status === 401) console.log('👉 Cause probable : Clé incorrecte.');
-            if (error.response.status === 402) console.log('👉 Cause probable : Pas de crédits (Solde épuisé ou à 0$).');
-        } else {
-            console.error('Erreur réseau :', error.message);
-        }
+        const tvly = tavily({ apiKey: key });
+        const response = await tvly.search('Say Hello World', {
+            searchDepth: 'basic',
+            maxResults: 2,
+            includeRawContent: 'text',
+        });
+        console.log('SUCCESS! Response received:');
+        console.log(JSON.stringify(response, null, 2));
+        console.log('--- END OF TEST ---');
+    } catch (error) {
+        console.error('REQUEST FAILED');
+        console.error(error);
     }
 }
-
 testConnection();

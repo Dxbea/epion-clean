@@ -1,7 +1,7 @@
 import React from 'react';
 import Modal from '@/components/ui/Modal';
 import { ShieldCheck, BrainCircuit, Clock, AlertTriangle, Info } from 'lucide-react';
-import { getScoreGradient } from '@/lib/color-utils';
+import { getScoreGradient, getScoreColor, getScoreColorPair } from '@/lib/color-utils';
 
 interface GlobalTrustScoreModalProps {
     isOpen: boolean;
@@ -60,11 +60,9 @@ export function GlobalTrustScoreModal({ isOpen, onClose, data }: GlobalTrustScor
     const strokeDashoffset = circumference - (globalScore / 100) * circumference;
 
     // Determine color based on score
-    const getStrokeColor = (score: number) => {
-        if (score >= 70) return '#10B981'; // Emerald-500
-        if (score >= 50) return '#F59E0B'; // Amber-500
-        return '#EF4444'; // Red-500
-    };
+    const strokeColor = getScoreColor(globalScore);
+    const colorPair = getScoreColorPair(globalScore);
+    const textGradient = getScoreGradient(globalScore);
 
     // State for toggles
     const [showSourceInfo, setShowSourceInfo] = React.useState(false);
@@ -85,6 +83,12 @@ export function GlobalTrustScoreModal({ isOpen, onClose, data }: GlobalTrustScor
                     <div className="relative w-32 h-32 flex items-center justify-center mb-4">
                         {/* SVG Circle Progress */}
                         <svg className="absolute w-full h-full -rotate-90" viewBox="0 0 128 128">
+                            <defs>
+                                <linearGradient id="scoreArcGradient" x1="0%" y1="0%" x2="100%" y2="100%">
+                                    <stop offset="0%" stopColor={colorPair.start} />
+                                    <stop offset="100%" stopColor={colorPair.end} />
+                                </linearGradient>
+                            </defs>
                             {/* Track */}
                             <circle
                                 cx="64" cy="64" r={radius}
@@ -96,7 +100,7 @@ export function GlobalTrustScoreModal({ isOpen, onClose, data }: GlobalTrustScor
                             {/* Progress */}
                             <circle
                                 cx="64" cy="64" r={radius}
-                                stroke={getStrokeColor(globalScore)}
+                                stroke="url(#scoreArcGradient)"
                                 strokeWidth="8"
                                 fill="none"
                                 strokeDasharray={circumference}
@@ -109,7 +113,13 @@ export function GlobalTrustScoreModal({ isOpen, onClose, data }: GlobalTrustScor
                         <div className="relative z-10 flex items-center justify-center">
                             <span
                                 className="text-5xl font-black font-serif tracking-tighter"
-                                style={{ color: getStrokeColor(globalScore) }}
+                                style={{
+                                    backgroundImage: textGradient,
+                                    WebkitBackgroundClip: 'text',
+                                    backgroundClip: 'text',
+                                    color: 'transparent',
+                                    display: 'inline-block'
+                                }}
                             >
                                 {globalScore}
                             </span>

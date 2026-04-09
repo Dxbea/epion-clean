@@ -13,12 +13,11 @@ const stripTags = (s: string) => s.replace(/<[^>]*>/g, '');
 // Empêche HTML dans les champs
 const forbidHtml = (s: string): boolean => /<|>/.test(s);
 
-import { STOCK_IMAGES } from '../lib/stockImages';
 import EpionSelect from '@/components/ui/EpionSelect';
 
 const MAX_PROMPT_CHARS = 2000;
 
-type ImageMode = 'auto' | 'url' | 'stock';
+
 type Category = { id: string; name: string; slug: string };
 
 export default function CreateArticlePage() {
@@ -34,11 +33,6 @@ export default function CreateArticlePage() {
   // 2) métadonnées
   const [cats, setCats] = React.useState<Category[]>([]);
   const [categoryId, setCategoryId] = React.useState<string | ''>('');
-
-  // 3) image
-  const [imageMode, setImageMode] = React.useState<ImageMode>('auto');
-  const [imageUrl, setImageUrl] = React.useState('');
-  const [pickedStock, setPickedStock] = React.useState<string | null>(null);
 
   // ui
   const [isGenerating, setIsGenerating] = React.useState(false);
@@ -81,22 +75,13 @@ export default function CreateArticlePage() {
   }, [meLoading, emailNotVerified, requireAuth]);
 
 
-  // image de la catégorie
+  const promptTooLong = prompt.length > MAX_PROMPT_CHARS;
+
+  // Find selected category for the prompt context
   const cat = React.useMemo(
     () => cats.find((c) => c.id === categoryId) || null,
     [cats, categoryId],
   );
-  const catKey = (cat?.slug || cat?.name || 'news').toLowerCase();
-  const stockList = STOCK_IMAGES[catKey] || STOCK_IMAGES.news;
-
-  const previewSrc =
-    imageMode === 'url'
-      ? imageUrl.trim()
-      : imageMode === 'stock'
-        ? pickedStock || ''
-        : '';
-
-  const promptTooLong = prompt.length > MAX_PROMPT_CHARS;
 
   async function onSubmit(e: React.FormEvent) {
     e.preventDefault();
@@ -144,8 +129,7 @@ export default function CreateArticlePage() {
         style: tone,
         categoryId, // ⬅️ ID officiel pour la liaison BDD
         categoryName: cat ? cat.name : '', // ⬅️ Nom pour le prompt context IA
-        generateImage: imageMode === 'auto',
-        imageUrl: imageMode === 'url' ? imageUrl.trim() : (imageMode === 'stock' && pickedStock ? pickedStock : undefined)
+        generateImage: true
       });
 
       // Redirection vers l'édition
@@ -321,72 +305,7 @@ export default function CreateArticlePage() {
           />
         </div>
 
-        {/* 3. options avancées (image) */}
-        <div className="space-y-3 rounded-2xl border border-black/10 p-5 dark:border-white/10">
-          <div className="flex items-center justify-between">
-            <label className="text-sm font-medium">Cover image</label>
-            {/* Segmented Control pour les modes */}
-            <div className="flex rounded-lg bg-neutral-100 p-1 dark:bg-neutral-800">
-              {(['auto', 'url', 'stock'] as const).map((m) => (
-                <button
-                  key={m}
-                  type="button"
-                  onClick={() => setImageMode(m)}
-                  className={`rounded-md px-3 py-1 text-xs font-medium transition-all ${imageMode === m
-                    ? 'bg-white text-black shadow-sm dark:bg-neutral-600 dark:text-white'
-                    : 'text-neutral-500 hover:text-neutral-900 dark:text-neutral-400 dark:hover:text-white'
-                    }`}
-                >
-                  {m === 'auto' ? 'Auto' : m === 'url' ? 'URL' : 'Library'}
-                </button>
-              ))}
-            </div>
-          </div>
 
-          {imageMode === 'url' && (
-            <input
-              value={imageUrl}
-              onChange={(e) => setImageUrl(e.target.value)}
-              placeholder="https://..."
-              className="form-input w-full rounded-xl bg-transparent"
-            />
-          )}
-
-          {imageMode === 'stock' && (
-            <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
-              {stockList.map((src) => (
-                <button
-                  key={src}
-                  type="button"
-                  onClick={() => setPickedStock(src)}
-                  className={`group relative aspect-video overflow-hidden rounded-xl border-2 transition-all ${pickedStock === src
-                    ? 'border-black ring-2 ring-black/20 dark:border-white dark:ring-white/20'
-                    : 'border-transparent hover:border-black/10 dark:hover:border-white/10'
-                    }`}
-                >
-                  <img
-                    src={src}
-                    alt="Stock"
-                    className="h-full w-full object-cover transition-transform duration-500 group-hover:scale-105"
-                  />
-                  {pickedStock === src && (
-                    <div className="absolute inset-0 flex items-center justify-center bg-black/10">
-                      <div className="rounded-full bg-white p-1 text-black shadow-sm">
-                        <svg className="h-3 w-3" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={3}><path d="M5 13l4 4L19 7" /></svg>
-                      </div>
-                    </div>
-                  )}
-                </button>
-              ))}
-            </div>
-          )}
-
-          {previewSrc && (
-            <div className="overflow-hidden rounded-xl border border-black/10 dark:border-white/10">
-              <img src={previewSrc} alt="Preview" className="h-40 w-full object-cover" />
-            </div>
-          )}
-        </div>
 
         {/* actions */}
         <div className="flex items-center gap-3">

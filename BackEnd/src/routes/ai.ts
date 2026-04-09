@@ -2,8 +2,7 @@ import { Router } from 'express';
 import { prisma } from '../lib/db';
 import { requireSession } from '../lib/session';
 import { checkAndIncrement } from '../lib/rateLimiter';
-import { callPerplexity } from '../lib/perplexity';
-import { AI_MODELS } from '../config/ai-models';
+import { callWebSearchLLM, type WebChatMessage } from '../lib/web-chat';
 import { hasSufficientFunds, chargeUser, COSTS } from '../lib/billing-service';
 import { liveAnalysisQueue } from '../lib/queue';
 import type { Prisma } from '@prisma/client';
@@ -49,7 +48,7 @@ router.post('/summarize', async (req, res) => {
         const textToSummarize = article.content || article.title;
         if (!textToSummarize) return res.status(400).json({ error: 'Article has no content' });
 
-        const messages: any[] = [
+        const messages: WebChatMessage[] = [
             {
                 role: 'system',
                 content: `You are an expert journalist. Summarize the following article in a concise, neutral, and engaging way (approx. 3-4 sentences). return ONLY the summary, no intro/outro.`
@@ -61,7 +60,7 @@ router.post('/summarize', async (req, res) => {
         ];
 
         // 4. Call AI
-        const aiResponse = await callPerplexity(messages, AI_MODELS.STANDARD);
+        const aiResponse = await callWebSearchLLM(messages, { useSearch: false });
         const summary = aiResponse.choices[0]?.message?.content?.trim() || "No summary generated.";
 
         // 5. Save Result
