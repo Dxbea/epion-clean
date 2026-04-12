@@ -2,6 +2,7 @@
 import { callWebSearchLLM, type WebChatMessage } from "./web-chat";
 import { checkMediaReputation } from "./google-fact-check";
 import { logger } from "./logger";
+import { searchSerper } from "./serper";
 
 // Valid source types matching the Prisma SourceType enum
 const VALID_SOURCE_TYPES = ["AGENCY", "MEDIA", "ACADEMIC", "GOVERNMENT", "BLOG", "SOCIAL", "COMMERCIAL", "GENERAL"] as const;
@@ -15,7 +16,7 @@ export interface InvestigationResult {
 
 /**
  * EnquÃªte sur une source inconnue pour dÃ©terminer sa fiabilitÃ© et son type.
- * Utilise d'abord Google Fact Check, puis Tavily + LLM.
+ * Utilise d'abord Google Fact Check, puis Serper + LLM.
  */
 export async function evaluateUnknownSource(domain: string): Promise<InvestigationResult> {
     logger.info(`ðŸ” Investigating unknown source: ${domain}`, { module: 'ColdProfiler' });
@@ -32,11 +33,38 @@ export async function evaluateUnknownSource(domain: string): Promise<Investigati
         };
     }
 
-    // 2. Web Investigation (Tavily + LLM)
+    const searchResults = await searchSerper(`${domain} ownership reputation reliability wikipedia`, {
+        maxResults: 5,
+        gl: 'fr',
+        hl: 'fr',
+    });
+
+    if (searchResults.length === 0) {
+        logger.warn(`No Serper reputation results for ${domain}`, { module: 'ColdProfiler' });
+        return {
+            reliability: Reliability.MIXED,
+            sourceType: 'GENERAL',
+            reasoning: "Aucun contexte Serper trouvé pour évaluer finement la source."
+        };
+    }
+
+    const serperContext = searchResults
+        .map((result, index) => [
+            `[Result ${index + 1}]`,
+            `Title: ${result.title}`,
+            `URL: ${result.url}`,
+            `Snippet: ${result.content || '(no snippet)'}`,
+        ].join('\n'))
+        .join('\n\n');
+
+    // 2. Web Investigation (Serper + LLM)
     // On demande Ã  l'IA d'agir comme un expert en dÃ©sinformation.
     const prompt = `
 Agis comme un expert en dÃ©sinformation et analyse la fiabilitÃ© de la source : "${domain}".
-Recherche sa rÃ©putation, ses propriÃ©taires, son historique sur le web et WikipÃ©dia.
+Base-toi UNIQUEMENT sur les rÃ©sultats Serper suivants (titres, URLs, snippets).
+
+CONTEXTE SERPER:
+${serperContext}
 
 Verdict attendu (JSON strict) :
 {
@@ -70,9 +98,7 @@ RÃ©ponds UNIQUEMENT le JSON.
 
     try {
         const { answer } = await callWebSearchLLM(messages, {
-            useSearch: true,
-            searchQuery: domain,
-            profile: 'standard',
+            useSearch: false,
         });
 
         // Nettoyage du JSON (au cas oÃ¹ il y a du markdown ```json ... ```)

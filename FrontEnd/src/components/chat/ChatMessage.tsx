@@ -3,10 +3,11 @@ import type { ChatMessage as Msg } from '@/types/chat';
 import { Copy, Check, ThumbsUp, ThumbsDown, Bookmark, MoreHorizontal, Share2, Flag, FileText } from 'lucide-react';
 import Modal from '@/components/ui/Modal';
 import SourceCard from './SourceCard';
-import { TrustScoreModal } from './TrustScoreModal';
+import { GlobalTrustScoreModal } from './trust-score-ui/GlobalTrustScoreModal';
 // import VerificationBlock from './VerificationBlock';
 import TrustHeader from '@/components/shared/TrustHeader';
 import ReactMarkdown from 'react-markdown';
+import { normalizeSourceForUi } from '@/lib/source-ui';
 
 export interface ScoreBreakdownItem {
   id: string;
@@ -17,6 +18,9 @@ export interface ScoreBreakdownItem {
 
 export default function ChatMessage({ message }: { message: Msg }) {
   const isUser = message.role === 'user';
+  const messageAttachments = Array.isArray((message as any).metadata?.attachments)
+    ? (message as any).metadata.attachments
+    : [];
 
   // États locaux
   const [activeModal, setActiveModal] = useState<'sources' | 'score' | null>(null);
@@ -37,8 +41,10 @@ export default function ChatMessage({ message }: { message: Msg }) {
     answer: string;
     sources: any[];
     factScore: number | null;
+    rawSourceScore: number;
     scoreBreakdown?: ScoreBreakdownItem[];
     outputScore?: number;
+    liveAnalysis?: any | null;
   } | null>(() => {
     if (isUser) return null;
 
@@ -47,11 +53,12 @@ export default function ChatMessage({ message }: { message: Msg }) {
     let extractedAnswer = message.content;
 
     if (message.sources && Array.isArray(message.sources)) { extractedSources = message.sources; }
-    if ((message as any).metadata?.factScore) { extractedScore = (message as any).metadata.factScore; }
+    if (typeof (message as any).metadata?.factScore === 'number') { extractedScore = (message as any).metadata.factScore; }
     else if ((message as any).score) { extractedScore = (message as any).score; }
 
     let extractedOutputScore = 95;
-    if ((message as any).metadata?.outputAnalysis?.score) { extractedOutputScore = (message as any).metadata.outputAnalysis.score; }
+    if (typeof (message as any).metadata?.calculation?.outputScore === 'number') { extractedOutputScore = (message as any).metadata.calculation.outputScore; }
+    else if (typeof (message as any).metadata?.outputAnalysis?.score === 'number') { extractedOutputScore = (message as any).metadata.outputAnalysis.score; }
 
     if (extractedSources.length === 0) {
       try {
@@ -64,75 +71,43 @@ export default function ChatMessage({ message }: { message: Msg }) {
       } catch { }
     }
 
-    const scores = extractedSources.map(s => s.score || 50);
+    const contextualSources = extractedSources.map((source) =>
+      normalizeSourceForUi(source, 'Source identifiee sur le web.')
+    );
+    const scores = contextualSources
+      .map((source) => source?.trustScore ?? source?.dbScore ?? source?.score ?? null)
+      .filter((score: unknown): score is number => typeof score === 'number');
     const avgSourceScore = scores.length > 0 ? Math.round(scores.reduce((a, b) => a + b, 0) / scores.length) : 0;
-
-    // NORMALIZATION (Flatten Metadata for UI)
-    const normalizedSources = extractedSources.map(s => ({
-      ...s,
-      country: s.metadata?.country || s.country || "FR",
-      politicalBias: s.metadata?.politicalBias || s.politicalBias || "UNKNOWN",
-      reliability: s.metadata?.reliability || s.reliability || undefined, // FIX: Pull reliability up
-      dbScore: s.metadata?.dbScore || s.dbScore || undefined, // FIX: Pull dbScore up
-      biasScore: s.metadata?.biasScore || s.biasScore || undefined, // FIX: Pull biasScore up
-      explanation: s.explanation || s.metadata?.explanation || undefined,
-      description: s.description || s.metadata?.description || null,
-      metrics: s.metrics ? {
-        ...s.metrics,
-        logic: s.metrics.logic || s.metrics.pluralism || s.metrics.ux || 50
-      } : undefined
-    }));
-
-    // DEBUG: Trace data flow
-    if (normalizedSources.length > 0) {
-      console.log('[ChatMessage] Normalized Sources:', normalizedSources);
-    }
 
     // 4. SCORING FINAL (Chat Logic)
     let finalEffectiveScore = extractedScore;
 
-    // Si on a des sources, on tente le calcul hybride sur la moyenne
-    if (extractedSources.length > 0) {
-      // Moyenne des scores de réputation (V2)
-      const totalReputation = normalizedSources.reduce((acc, s) => acc + (s.dbScore || s.score || 50), 0);
-      const avgReputation = Math.round(totalReputation / normalizedSources.length);
-
-      // Moyenne des scores d'analyse (Live)
-      const totalAnalysis = normalizedSources.reduce((acc, s) => {
-        const m = s.metrics || {};
-        const mean = ((m.transparency || 50) + (m.editorial || 50) + (m.semantic || 50) + (m.logic || m.pluralism || m.ux || 50)) / 4;
-        return acc + mean;
-      }, 0);
-      const avgAnalysis = Math.round(totalAnalysis / normalizedSources.length);
-
-      // Formule Hybride : 70% Réputation + 30% Analyse
-      finalEffectiveScore = Math.round((avgReputation * 0.7) + (avgAnalysis * 0.3));
-    }
-
     let rawSourceMean = avgSourceScore;
 
-    if ((message as any).metadata?.calculation) { rawSourceMean = (message as any).metadata.calculation.sourcesMean; }
-    else if (!finalEffectiveScore && avgSourceScore > 0) {
-      const fallbackOutput = extractedOutputScore || 90;
-      finalEffectiveScore = Math.round((avgSourceScore * 0.75) + (fallbackOutput * 0.25));
+    if (typeof (message as any).metadata?.calculation?.sourcesMean === 'number') {
+      rawSourceMean = (message as any).metadata.calculation.sourcesMean;
+    }
+    if (typeof finalEffectiveScore !== 'number' && avgSourceScore > 0) {
+      finalEffectiveScore = Math.round((avgSourceScore * 0.75) + (extractedOutputScore * 0.25));
     }
 
-    const uniqueDomains = new Set(extractedSources.map(s => s.domain)).size;
+    const uniqueDomains = new Set(contextualSources.map((source) => source.domain)).size;
     const diversityScore = Math.min(100, Math.round((uniqueDomains / Math.max(1, 3)) * 100));
 
     const dynamicBreakdown: ScoreBreakdownItem[] = [
       { id: 'src', label: 'Qualité des Sources', score: rawSourceMean, description: 'Moyenne de réputation des domaines.' },
       { id: 'div', label: 'Diversité', score: diversityScore, description: `${uniqueDomains} sources uniques.` },
-      { id: 'mdl', label: 'Fiabilité Modèle', score: 90, description: 'Score de confiance IA.' }
+      { id: 'mdl', label: 'Fiabilité Modèle', score: extractedOutputScore, description: 'Score de confiance IA.' }
     ];
 
     return {
       answer: extractedAnswer,
-      sources: normalizedSources,
+      sources: contextualSources,
       factScore: finalEffectiveScore || 0,
       rawSourceScore: rawSourceMean,
       scoreBreakdown: dynamicBreakdown,
-      outputScore: extractedOutputScore
+      outputScore: extractedOutputScore,
+      liveAnalysis: (message as any).metadata?.liveAnalysis || null
     };
   }, [message.content, message.sources, (message as any).metadata, isUser]);
 
@@ -158,7 +133,7 @@ export default function ChatMessage({ message }: { message: Msg }) {
     setTimeout(() => setHasCopied(false), 2000);
   };
 
-  const handleCreateArticle = () => { console.log("Conversion en article..."); };
+  const handleCreateArticle = () => {};
 
   // --- LOGIQUE DE DETECTION ET RENDU ---
 
@@ -391,6 +366,29 @@ export default function ChatMessage({ message }: { message: Msg }) {
     <div className={`flex ${isUser ? 'justify-end' : 'justify-start'} group mb-6`}>
       {isUser ? (
         <div className="max-w-[78%] rounded-2xl bg-black px-4 py-2 text-sm text-white dark:bg-white dark:text-black break-words whitespace-pre-wrap">
+          {messageAttachments.length > 0 && (
+            <div className="mb-2 flex flex-wrap gap-2">
+              {messageAttachments.map((attachment: any, index: number) => (
+                <div
+                  key={`${attachment.name || 'attachment'}-${index}`}
+                  className="flex items-center gap-2 rounded-lg bg-white/10 px-2 py-1 dark:bg-black/10"
+                >
+                  {attachment.kind === 'image' && attachment.previewUrl ? (
+                    <img
+                      src={attachment.previewUrl}
+                      alt={attachment.name || 'Image jointe'}
+                      className="h-8 w-8 rounded object-cover"
+                    />
+                  ) : (
+                    <FileText className="h-4 w-4 opacity-80" />
+                  )}
+                  <span className="max-w-[180px] truncate text-xs">
+                    {attachment.name || 'Pièce jointe'}
+                  </span>
+                </div>
+              ))}
+            </div>
+          )}
           {message.content}
         </div>
       ) : (
@@ -449,11 +447,11 @@ export default function ChatMessage({ message }: { message: Msg }) {
                         <Bookmark className={`h-4 w-4 ${isBookmarked ? 'fill-amber-500 text-amber-500' : 'text-gray-400'}`} />
                         <span className={isBookmarked ? 'text-amber-600 dark:text-amber-500' : ''}>{isBookmarked ? 'Sauvegardé' : 'Sauvegarder'}</span>
                       </button>
-                      <button onClick={() => { console.log('Partager'); setShowOptions(false); }} className="flex w-full items-center gap-2 rounded-lg px-3 py-2 text-left text-sm text-gray-700 hover:bg-black/5 dark:text-gray-300 dark:hover:bg-white/5 transition-colors">
+                      <button onClick={() => { setShowOptions(false); }} className="flex w-full items-center gap-2 rounded-lg px-3 py-2 text-left text-sm text-gray-700 hover:bg-black/5 dark:text-gray-300 dark:hover:bg-white/5 transition-colors">
                         <Share2 className="h-4 w-4 text-gray-400" />
                         <span>Partager</span>
                       </button>
-                      <button onClick={() => { console.log('Signaler'); setShowOptions(false); }} className="flex w-full items-center gap-2 rounded-lg px-3 py-2 text-left text-sm text-red-600 hover:bg-red-50 dark:text-red-400 dark:hover:bg-red-500/10 transition-colors">
+                      <button onClick={() => { setShowOptions(false); }} className="flex w-full items-center gap-2 rounded-lg px-3 py-2 text-left text-sm text-red-600 hover:bg-red-50 dark:text-red-400 dark:hover:bg-red-500/10 transition-colors">
                         <Flag className="h-4 w-4" />
                         <span>Signaler</span>
                       </button>
@@ -502,26 +500,15 @@ export default function ChatMessage({ message }: { message: Msg }) {
               </Modal>
 
               {activeModal === 'score' && (
-                <TrustScoreModal
+                <GlobalTrustScoreModal
                   isOpen={true}
                   onClose={() => setActiveModal(null)}
-                  trustData={{
-                    globalScore: (transparencyData as any).factScore || 50,
-                    confidenceLevel: (transparencyData.sources[0]?.confidence as any) || 'LOW',
-                    details: transparencyData.sources[0]?.metrics || { transparency: 0, editorial: 0, semantic: 0, logic: 0 },
-                    flags: transparencyData.sources[0]?.flags || { isPlatform: false, hasFactCheckFailures: false, isAdsTxtValid: false },
-                    metadata: {
-                      name: transparencyData.sources[0]?.name || "Analyse Agrégée",
-                      justification: transparencyData.sources[0]?.justification || transparencyData.sources.map((s: any) => s.justification).filter(Boolean).join(' ') || "Analyse basée sur les sources citées.",
-                      description: transparencyData.sources[0]?.description || null,
-                      country: transparencyData.sources[0]?.metadata?.country || transparencyData.sources[0]?.country,
-                      politicalBias: transparencyData.sources[0]?.politicalBias || transparencyData.sources[0]?.metadata?.politicalBias || 'UNKNOWN',
-                      explanation: transparencyData.sources[0]?.metadata?.explanation || undefined,
-                      biasScore: transparencyData.sources[0]?.biasScore || transparencyData.sources[0]?.metadata?.biasScore,
-                      reliability: transparencyData.sources[0]?.reliability || transparencyData.sources[0]?.metadata?.reliability
-                    },
-                    sourceCount: transparencyData.sources.length,
-                    outputScore: transparencyData.outputScore
+                  data={{
+                    sources: transparencyData.sources,
+                    globalScore: transparencyData.factScore || 0,
+                    sourceScore: transparencyData.rawSourceScore,
+                    aiScore: transparencyData.outputScore || 0,
+                    liveAnalysis: transparencyData.liveAnalysis || null
                   }}
                 />
               )}

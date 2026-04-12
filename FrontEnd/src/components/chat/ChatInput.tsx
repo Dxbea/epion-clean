@@ -15,6 +15,7 @@ export type UploadedFile = {
   type: string;
   url: string;
   isImage: boolean;
+  file: File;
 };
 
 type Props = {
@@ -30,6 +31,7 @@ export default function ChatInput({
   const [value, setValue] = React.useState('');
   const [attachments, setAttachments] = React.useState<UploadedFile[]>([]);
   const [submitting, setSubmitting] = React.useState(false);
+  const [fileError, setFileError] = React.useState<string | null>(null);
 
   // New UI states
   const [model, setModel] = React.useState<string>(AI_MODELS.SONAR);
@@ -39,19 +41,33 @@ export default function ChatInput({
   const fileRef = React.useRef<HTMLInputElement | null>(null);
   const textRef = React.useRef<HTMLTextAreaElement | null>(null);
 
-  const MAX_FILES = 10;
-  const MAX_PER_FILE_MB = 25;
+  const MAX_FILES = 1;
+  const MAX_PER_FILE_MB = 5;
   const MAX_CHARS = 8_000;
+  const ALLOWED_MIME_TYPES = new Set([
+    'application/pdf',
+    'image/png',
+    'image/jpeg',
+    'image/webp',
+  ]);
 
   // ------- Files helpers
   const addFiles = (files: FileList | File[]) => {
     const list = Array.from(files || []);
     if (!list.length) return;
+    let nextError: string | null = null;
     setAttachments(prev => {
-      const next = [...prev];
+      const next: UploadedFile[] = [];
       for (const f of list) {
         if (next.length >= MAX_FILES) break;
-        if (f.size / (1024 * 1024) > MAX_PER_FILE_MB) continue;
+        if (!ALLOWED_MIME_TYPES.has(f.type || '')) {
+          nextError = 'Formats acceptés : PDF, PNG, JPG, WEBP.';
+          continue;
+        }
+        if (f.size / (1024 * 1024) > MAX_PER_FILE_MB) {
+          nextError = 'Fichier trop lourd. Limite : 5 Mo.';
+          continue;
+        }
         next.push({
           id: crypto.randomUUID(),
           name: f.name,
@@ -59,10 +75,16 @@ export default function ChatInput({
           type: f.type || 'application/octet-stream',
           url: URL.createObjectURL(f),
           isImage: (f.type || '').startsWith('image/'),
+          file: f,
         });
       }
+      if (next.length === 0) {
+        return prev;
+      }
+      prev.forEach(file => URL.revokeObjectURL(file.url));
       return next;
     });
+    setFileError(nextError);
   };
 
   const removeAttachment = (id: string) => {
@@ -71,6 +93,7 @@ export default function ChatInput({
       if (a) URL.revokeObjectURL(a.url);
       return prev.filter(x => x.id !== id);
     });
+    setFileError(null);
   };
 
   React.useEffect(() => {
@@ -128,6 +151,7 @@ export default function ChatInput({
       attachments.forEach(a => URL.revokeObjectURL(a.url));
       setAttachments([]);
       setValue('');
+      setFileError(null);
     } finally {
       setSubmitting(false);
     }
@@ -249,7 +273,7 @@ export default function ChatInput({
                 </div>
                 <div>
                   <div className="font-medium">Analyser un Document</div>
-                  <div className="text-xs text-gray-400">PDF, DOCX (Rapports pros)</div>
+                  <div className="text-xs text-gray-400">PDF uniquement, 5 Mo max</div>
                 </div>
               </button>
               <button
@@ -261,7 +285,7 @@ export default function ChatInput({
                 </div>
                 <div>
                   <div className="font-medium">Décrypter une Image</div>
-                  <div className="text-xs text-gray-400">OCR, Graphiques</div>
+                  <div className="text-xs text-gray-400">PNG, JPG, WEBP, 5 Mo max</div>
                 </div>
               </button>
               <button
@@ -342,6 +366,12 @@ export default function ChatInput({
         </div>
       )}
 
+      {fileError && (
+        <div className="mt-2 px-1 text-xs text-red-600 dark:text-red-400">
+          {fileError}
+        </div>
+      )}
+
       {/* Footer: Response Style & Tools */}
       <div className="mt-3 flex items-center justify-between px-1">
         {/* Style Selector (formerly Rigor) */}
@@ -361,9 +391,9 @@ export default function ChatInput({
 
       <input
         ref={fileRef}
+        name="file"
         type="file"
-        multiple
-        accept="image/*,.pdf,.txt,.md,.csv,.doc,.docx"
+        accept="application/pdf,image/png,image/jpeg,image/webp"
         className="hidden"
         onChange={(e) => e.target.files && addFiles(e.target.files)}
       />

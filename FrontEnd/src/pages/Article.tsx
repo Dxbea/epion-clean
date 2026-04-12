@@ -4,25 +4,18 @@ import SectionHeader from '@/components/SectionHeader';
 import ArticleCard from '@/components/articles/ArticleCard';
 import ArticleThumbnail from '@/components/articles/ArticleThumbnail';
 import { API_BASE } from '@/config/api';
-import SaveButton from '@/components/ui/SaveButton';
 import { useMe } from '@/contexts/MeContext';
-import ReactionButtons from '@/components/ui/ReactionButtons';
 import CommentsDrawer from '@/components/articles/CommentsDrawer';
 import ArticleActionBar from '@/components/articles/ArticleActionBar';
-import ArticleAuthorPill from '@/components/articles/ArticleAuthorPill';
-// import FactCheckCard from '@/components/articles/FactCheckCard'; // Deprecated
-// import VerificationBlock from '../components/chat/VerificationBlock';
 import TrustHeader from '@/components/shared/TrustHeader';
-// import MarkdownRenderer from '@/components/shared/MarkdownRenderer'; // On inline la logique pour garantir la feature
-import ReactMarkdown from 'react-markdown';
-import remarkGfm from 'remark-gfm';
-// import { TrustScoreModal } from '@/components/chat/TrustScoreModal';
 import { GlobalTrustScoreModal } from '@/components/chat/trust-score-ui/GlobalTrustScoreModal';
 import { useComments } from '@/hooks/useComments';
 import Modal from '@/components/ui/Modal';
 import SourceCard from '../components/chat/SourceCard';
 import MarkdownRenderer from '@/components/shared/MarkdownRenderer';
 import type { Article as CardArticle } from '@/types/article';
+import { computeSourceAnalysisScore, computeSourceFactScore } from '@/lib/source-score';
+import { parsePotentialSources, resolveSourceDomain } from '@/lib/source-ui';
 
 type LoadedArticle = {
   id: string;
@@ -79,33 +72,25 @@ export default function Article() {
     factCheckPollInFlightRef.current = false;
   }, []);
 
-  // --- TOP LEVEL LOGIC: Source Parsing & Scoring ---
-  // Must be here to avoid "Rendered more hooks" errors (cannot be after early returns)
   const topLevelTransparencyData = React.useMemo(() => {
     if (!article) return null;
 
     // 1. STRATÉGIE DE RÉCUPÉRATION
-    let potentialSources = article.sources || article.factCheckData || [];
-    if (potentialSources && !Array.isArray(potentialSources) && typeof potentialSources === 'object') {
-      if (potentialSources.sources) potentialSources = potentialSources.sources;
-    }
-
-    // 2. PARSING
-    let parsedData: any[] = [];
-    try {
-      if (Array.isArray(potentialSources)) {
-        parsedData = potentialSources;
-      } else if (typeof potentialSources === 'string') {
-        if (potentialSources.trim() === "[]") parsedData = [];
-        else parsedData = JSON.parse(potentialSources);
-      }
-    } catch { parsedData = []; }
+    const parsedData = parsePotentialSources(article.sources || article.factCheckData || []);
 
     // 3. NORMALISATION
     const normalized = parsedData.map((s: any) => {
-      const domainVal = s.domain || s.name || (s.url ? new URL(s.url).hostname : "Source inconnue");
-      const valCheck = (typeof s.trustScore === 'number') ? s.trustScore : s.score;
-      const scoreVal = (valCheck === undefined || valCheck === null) ? null : valCheck;
+      const domainVal = resolveSourceDomain(s);
+      const trustScore = typeof s.trustScore === 'number'
+        ? s.trustScore
+        : typeof s.metadata?.dbScore === 'number'
+          ? s.metadata.dbScore
+          : typeof s.dbScore === 'number'
+            ? s.dbScore
+            : typeof s.score === 'number'
+              ? s.score
+              : null;
+      const scoreVal = trustScore;
 
       // Fallback: Generate explanation if missing (Legacy Data Support)
       const hasExplanation = s.explanation || s.metadata?.explanation;
@@ -117,67 +102,79 @@ export default function Article() {
       };
 
       // 3.1 CALCUL HYBRIDE (70% Réputation + 30% Analyse Live)
-      const metrics = s.metrics || s.metric || {};
-      const analysisMean = Math.round(
-        ((metrics.transparency || 50) +
-          (metrics.editorial || 50) +
-          (metrics.logic || metrics.pluralism || metrics.ux || 50)) / 4
-      );
+      const metrics = s.metrics || s.metric;
+      const analysisScore = computeSourceAnalysisScore(metrics);
 
-      const dbScore = s.metadata?.dbScore || s.dbScore || scoreVal;
-      let finalScore = dbScore || analysisMean || 50;
+      const sourceScore = computeSourceFactScore({
+        reputationScore: typeof s.metadata?.dbScore === 'number'
+          ? s.metadata.dbScore
+          : typeof s.dbScore === 'number'
+            ? s.dbScore
+            : scoreVal,
+        analysisScore,
+      });
 
       // Si on a les deux, on applique la pondération
-      if (dbScore && analysisMean) {
-        finalScore = Math.round((dbScore * 0.7) + (analysisMean * 0.3));
-      }
 
       return {
         ...s,
         domain: domainVal,
-        score: finalScore, // HYBRID SCORE
+        score: sourceScore.finalScore,
         url: s.url || s.link || "#",
         description: s.description || "Source analysée par Epion.",
         name: domainVal,
-        trustScore: dbScore, // Keep raw V2 score for reference
+        trustScore,
         type: s.type || s.category || "GENERAL",
         category: s.category || s.type || "GENERAL",
         logo: s.logo || `https://www.google.com/s2/favicons?domain=${domainVal !== "Source inconnue" ? domainVal : 'example.com'}`,
         flags: s.flags || { isAdsTxtValid: true, isClickbait: false, isPlatform: false },
-        dbScore: s.metadata?.dbScore || s.dbScore || undefined, // FIX: Pass V2 Score
+        dbScore: sourceScore.reputationScore || undefined,
         reliability: s.metadata?.reliability || s.reliability || undefined, // FIX: Pass Reliability
         biasScore: s.metadata?.biasScore || s.biasScore || undefined, // FIX: Pass Bias Score
         country: s.metadata?.country || s.country || "FR",
         politicalBias: s.metadata?.politicalBias || s.politicalBias || "UNKNOWN",
-        metric: s.metrics || s.metric,
-        explanation: finalExplanation
+        metric: metrics,
+        metrics,
+        explanation: finalExplanation,
+        reputationScore: sourceScore.reputationScore,
+        analysisScore: sourceScore.analysisScore
       };
     });
 
-    // 4. SCORING (Chat Logic)
-    const scores = normalized.map(s => (typeof s.score === 'number' ? s.score : 0));
-    const avgSourceScore = scores.length > 0 ? Math.round(scores.reduce((a, b) => a + b, 0) / scores.length) : 0;
-
-    // FIX: Use Real Global AI Score (Analysis/Summary) instead of hardcoded 90
-    let aiScore = 90;
-    if (article.factCheckData && !Array.isArray(article.factCheckData) && typeof article.factCheckData.factScore === 'number') {
-      aiScore = article.factCheckData.factScore;
-    } else if (typeof article.factCheckScore === 'number') {
-      aiScore = article.factCheckScore;
-    }
-    const outputScore = aiScore;
-
-    let finalFactScore = aiScore;
-    if (scores.length > 0) {
-      finalFactScore = Math.round((avgSourceScore * 0.75) + (outputScore * 0.25));
-    }
-
+    const scores = normalized
+      .map(s => (typeof s.trustScore === 'number' ? s.trustScore : typeof s.score === 'number' ? s.score : null))
+      .filter((score): score is number => typeof score === 'number');
+    const fallbackSourceMean = scores.length > 0 ? Math.round(scores.reduce((a, b) => a + b, 0) / scores.length) : 0;
+    const storedFactData = article.factCheckData && !Array.isArray(article.factCheckData) ? article.factCheckData : null;
+    const rawSourceScore = typeof storedFactData?.calculation?.sourcesMean === 'number'
+      ? storedFactData.calculation.sourcesMean
+      : typeof storedFactData?.sourcesMean === 'number'
+        ? storedFactData.sourcesMean
+        : fallbackSourceMean;
+    const outputScore = typeof storedFactData?.calculation?.liveScore === 'number'
+      ? storedFactData.calculation.liveScore
+      : typeof storedFactData?.liveScore === 'number'
+        ? storedFactData.liveScore
+        : typeof storedFactData?.liveAnalysis?.judges?.auditor?.globalScore === 'number'
+          ? storedFactData.liveAnalysis.judges.auditor.globalScore
+          : typeof storedFactData?.liveAnalysis?.judges?.primary?.globalScore === 'number'
+            ? storedFactData.liveAnalysis.judges.primary.globalScore
+            : typeof article.factCheckScore === 'number'
+              ? article.factCheckScore
+              : 0;
+    const factScore = typeof storedFactData?.factScore === 'number'
+      ? storedFactData.factScore
+      : typeof article.factCheckScore === 'number'
+        ? article.factCheckScore
+        : rawSourceScore > 0
+          ? Math.round((rawSourceScore * 0.75) + (outputScore * 0.25))
+          : outputScore;
     return {
-      factScore: finalFactScore, // 80% (Weighted)
-      rawSourceScore: avgSourceScore, // 77% (Raw)
-      outputScore: outputScore,
+      factScore,
+      rawSourceScore,
+      outputScore,
       sources: normalized,
-      liveAnalysis: article.factCheckData?.liveAnalysis || null
+      liveAnalysis: storedFactData?.liveAnalysis || null
     };
   }, [article]); // Safe dependency (article is state)
 
@@ -282,10 +279,10 @@ export default function Article() {
       if (!res.ok) throw new Error(`HTTP ${res.status}`);
       const data = await res.json();
 
-      setArticle((prev) => {
+      setArticle({
         // Optimisation : Si les données n'ont pas changé (deep check simplifié), ne pas update
         // Mais ici on veut surtout mettre à jour les TrustScores
-        return {
+        
           id: data.id,
           slug: data.slug,
           title: data.title,
@@ -298,8 +295,9 @@ export default function Article() {
           aiSummary: data.aiSummary ?? null,
           factCheckScore: data.factCheckScore ?? null,
           factCheckData: data.factCheckData ?? null,
+          sources: data.sources ?? undefined,
           generationPrompt: data.generationPrompt ?? null,
-        };
+
       });
     } catch (e: any) {
       if (!silent) {
@@ -326,7 +324,6 @@ export default function Article() {
   React.useEffect(() => {
     if (!isPending) return;
 
-    console.log("🔄 Smart Polling Active: Waiting for scores...");
     const interval = setInterval(() => {
       fetchArticle(true);
     }, 3000);
@@ -593,20 +590,7 @@ export default function Article() {
   }
 
   const { title, content, excerpt, publishedAt, imageUrl, category, author } = article;
-
-
-  console.log('FactCheck State:', showFactCheck);
-  // --- DEBUG CRITIQUE ---
-  console.log("📢 ARTICLE DATA RECEIVED:", article);
-  console.log("Sources field:", article.sources);
-  if (article.factCheckData && Array.isArray(article.factCheckData) && article.factCheckData.length > 0) {
-    console.log("FactCheckData ITEM [0] STRINGIFIED:", JSON.stringify(article.factCheckData[0], null, 2));
-  } else {
-    console.log("FactCheckData field (raw):", article.factCheckData);
-  }
-
-  // LOGIC MOVED TO TOP LEVEL USEMEMO TO AVOID HOOK ERRORS
-  const transparencyData = topLevelTransparencyData; // Will be defined above
+  const transparencyData = topLevelTransparencyData;
   const displayScore = transparencyData?.factScore || 0;
   const normalizedSources = transparencyData?.sources || [];
 
@@ -651,7 +635,6 @@ export default function Article() {
               <div className="h-full bg-blue-500/50 animate-progress-indeterminate"></div>
             </div>
           )}
-          {/* CALCUL INLINE POUR FORCER LE 75/25 */}
           <TrustHeader
             score={displayScore}
             sources={normalizedSources}
@@ -856,7 +839,6 @@ export default function Article() {
         promptText={article?.generationPrompt || ''}
         isHighlightActive={isHighlightActive}
         onHighlightClick={() => {
-            console.log("🔦 TOGGLE HIGHLIGHT CLICKED! New State:", !isHighlightActive);
             setIsHighlightActive(!isHighlightActive);
         }}
       />
@@ -868,8 +850,6 @@ export default function Article() {
         {...commentsApi}
       />
 
-      {/* Modal Transparence (Copied from ChatMessage) */}
-      {/* Modal Transparence (Copied from ChatMessage) */}
       <Modal
         isOpen={activeModal === 'sources'}
         onClose={() => {

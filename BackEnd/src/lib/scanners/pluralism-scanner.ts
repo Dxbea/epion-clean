@@ -2,6 +2,7 @@
 import { logger } from "../logger";
 import { callWebSearchLLM } from "../web-chat";
 import { JSDOM } from 'jsdom';
+import { searchSerper } from "../serper";
 
 interface PluralismResult {
     score: number;
@@ -31,7 +32,7 @@ const PIVOT_KEYWORDS = [
  * Hybrid Strategy:
  * 1. Try to fetch Article/Homepage Content (URL preferred, else Domain).
  * 2. If Content is rich (>2000 chars): Analyze Content (Regex Pivots + LLM Entity/Controversy).
- * 3. If Content is poor (Fetch fail/Anti-bot): Analyze Content via Online Search (LLM Browsing).
+ * 3. If Content is poor (Fetch fail/Anti-bot): Analyze Content via Serper snippets + LLM.
  */
 export async function analyzePluralism(domain: string, url?: string): Promise<PluralismResult> {
     const targetUrl = url || `https://${domain}`;
@@ -147,18 +148,42 @@ async function analyzeContentStrategies(content: string): Promise<PluralismResul
 }
 
 /**
- * Strategy B: Online Search Analysis (LLM Browsing)
+ * Strategy B: Online Search Analysis (Serper snippets + LLM)
  * Used when we cannot read the site (paywall, anti-bot).
- * we ask the Tavily + LLM pipeline to inspect recent indexed coverage for the site.
+ * We inspect recent indexed coverage for the site without re-running the full article pipeline.
  */
 async function analyzeContentViaSearchStrategy(domain: string): Promise<PluralismResult> {
-    // We explicitly ask the web search pipeline to inspect recent content to base the score on text, not just reputation.
+    const results = await searchSerper(`site:${domain}`, {
+        maxResults: 5,
+        gl: 'fr',
+        hl: 'fr',
+    });
+
+    if (results.length === 0) {
+        return {
+            score: 50,
+            details: { pivots: 10, entities: 20, controversy: 20 },
+            reasoning: "Aucun résultat Serper exploitable pour évaluer le pluralisme."
+        };
+    }
+
+    const serperContext = results
+        .map((result, index) => [
+            `[Result ${index + 1}]`,
+            `Title: ${result.title}`,
+            `URL: ${result.url}`,
+            `Snippet: ${result.content || '(no snippet)'}`,
+        ].join('\n'))
+        .join('\n\n');
+
     const prompt = `
     You are an impartial media auditor. The user wants to check the **PLURALISM** of the website: ${domain}.
-    We cannot access the homepage directly (blocked). 
-    
-    **ACTION**: Search for 3-5 of the most recent headlines/articles from "site:${domain}".
-    **ANALYZE**: Based on the *content* of these recent search results (titles + snippets + your index knowledge):
+    We cannot access the homepage directly (blocked).
+    Base your analysis ONLY on these recent Serper results:
+
+    ${serperContext}
+
+    **ANALYZE**: Based on the content of these search results (titles + snippets):
 
     **Strict Scoring Criteria:**
     - **Pluralism**: Does the source present multiple conflicting viewpoints neutrally?
@@ -181,9 +206,7 @@ async function analyzeContentViaSearchStrategy(domain: string): Promise<Pluralis
 
     try {
         const { answer } = await callWebSearchLLM([{ role: 'user', content: prompt }], {
-            useSearch: true,
-            searchQuery: `site:${domain}`,
-            profile: 'standard',
+            useSearch: false,
         });
         const parsed = parseLLMResponse(answer);
 

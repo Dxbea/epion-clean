@@ -1,8 +1,8 @@
 import React, { useState } from 'react';
-import { ChevronDown, ShieldAlert, CheckCircle, Server } from 'lucide-react';
+import { ChevronDown, ShieldAlert } from 'lucide-react';
 import { SourceIdentityCard } from './trust-score-ui/SourceIdentityCard';
 import { UnifiedTrustCard } from './trust-score-ui/UnifiedTrustCard';
-import { getScoreGradient, getBadgeStyle } from '@/lib/color-utils';
+import { getBadgeStyle } from '@/lib/color-utils';
 
 export interface SourceCriteria {
     label: string;
@@ -31,7 +31,7 @@ export interface SourceData {
     url?: string;
     logo: string;
     category: string;
-    score: number;
+    score: number | null;
     description?: string | null;
     criteria?: SourceCriteria[];
     metrics?: SourceMetrics;
@@ -43,6 +43,9 @@ export interface SourceData {
     politicalBias?: string;
     biasScore?: number;
     reliability?: string;
+    liveScore?: number;
+    reputationScore?: number | null;
+    analysisScore?: number | null;
     explanation?: {
         formula: string;
         sources: string[];
@@ -199,6 +202,28 @@ export default function SourceCard({ source, isFocused }: SourceCardProps) {
                             compact={true}
                         />
 
+                        {typeof source.score === 'number' && (
+                            <div className="rounded-xl border border-emerald-100 bg-emerald-50/70 p-4 dark:border-emerald-900/30 dark:bg-emerald-900/10">
+                                <div className="flex items-center justify-between gap-3">
+                                    <span className="text-[11px] font-bold uppercase tracking-wide text-emerald-700 dark:text-emerald-300">
+                                        Score contextuel de la source
+                                    </span>
+                                    <span className="text-sm font-black text-emerald-700 dark:text-emerald-300">
+                                        {source.score}/100
+                                    </span>
+                                </div>
+                                <p className="mt-2 text-xs leading-relaxed text-emerald-800 dark:text-emerald-200/80">
+                                    {typeof source.reputationScore === 'number' && typeof source.analysisScore === 'number'
+                                        ? `Ce score combine la reputation de la source (${source.reputationScore}/100) et son analyse contextuelle (${source.analysisScore}/100) avec une ponderation 70/30, pour un resultat final de ${source.score}/100.`
+                                        : typeof source.reputationScore === 'number'
+                                            ? `Ce score correspond directement a la reputation de la source (${source.reputationScore}/100), faute d'analyse complementaire exploitable.`
+                                            : typeof source.analysisScore === 'number'
+                                                ? `Ce score correspond directement a l'analyse contextuelle de la source (${source.analysisScore}/100), faute de score de reputation exploitable.`
+                                                : `Aucun detail de calcul complementaire n'est disponible pour cette source.`}
+                                </p>
+                            </div>
+                        )}
+
                         {/* 2. Unified Trust Analysis (Replacement for Pillars + Transparency) */}
                         {source.metrics && (
                             <UnifiedTrustCard
@@ -219,7 +244,8 @@ export default function SourceCard({ source, isFocused }: SourceCardProps) {
                                     politicalBias: source.politicalBias,
                                     explanation: source.explanation,
                                     reliability: source.reliability,
-                                    justification: source.justification
+                                    justification: source.justification,
+                                    liveScore: source.liveScore
                                 }}
                             />
                         )}

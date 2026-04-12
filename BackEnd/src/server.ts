@@ -14,7 +14,7 @@ import { env } from './env';
 import type { Request, Response, NextFunction } from 'express';
 
 import { router as apiRouter } from './routes';
-import { logger } from './lib/logger';
+import logger from './lib/logger';
 import { router as favoritesRouter } from './routes/favorite';
 import { router as authRouter } from './routes/auth';
 import { router as adminRouter } from './routes/admin';
@@ -27,15 +27,27 @@ import { router as socialRouter } from './routes/social';
 import { router as usersRouter } from './routes/users';
 import { router as healthRouter } from './routes/health';
 import { initializeCron } from './cron/dailyReset';
+import { NEWS_SITEMAPS } from './lib/news-sitemaps';
+import { newsIngestionQueue } from './lib/queue';
+import { prisma } from './lib/db';
+import { redis } from './lib/redis';
 import './workers/embedding.worker'; // 🧠 Initialize Embedding Worker
 import './workers/source-enrichment.worker'; // 🔍 Initialize Source Enrichment Worker
 import './workers/live-analysis.worker'; // ⚖️ Initialize Live Analysis Worker (Epion 2.0)
-import './workers/rss-ingestion.worker'; // 📡 Initialize RSS Worker
+
+import './workers/news-worker'; // Zero-Cost News Ingestion Worker
 
 // ... (existing code)
 
 
 const app = express();
+const log = logger.child({ module: 'Server' });
+const httpLog = logger.child({ module: 'HTTP' });
+const httpLogStream = {
+  write: (message: string) => {
+    httpLog.http(message.trim());
+  },
+};
 
 // ----------------------------
 //  🔐  Sécurité globale
@@ -116,17 +128,9 @@ if (process.env.NODE_ENV !== 'test') {
   });
 
   // Logging requests
-  if (process.env.NODE_ENV === 'production') {
-    app.use((req: Request, _res: Response, next: NextFunction) => {
-      logger.info(`HTTP ${req.method} ${req.url}`, {
-        ip: req.ip,
-        userAgent: req.get('user-agent'),
-      });
-      next();
-    });
-  } else {
-    app.use(morgan('dev'));
-  }
+  app.use(morgan(process.env.NODE_ENV === 'production' ? 'combined' : 'dev', {
+    stream: httpLogStream,
+  }));
 }
 
 // ----------------------------
@@ -142,6 +146,11 @@ app.use('/api/health', healthRouter);
 //  🔑 Auth en premier
 // ----------------------------
 app.use('/api', authRouter);
+
+// ----------------------------
+//  🔧 Debug routes (BEFORE CSRF — no auth required for local testing)
+// ----------------------------
+app.use('/api/debug', debugRouter);
 
 // ----------------------------
 //  🔒 CSRF token + protection
@@ -163,7 +172,7 @@ app.use('/api', apiRouter);
 app.use('/api/me', meRouter);
 app.use('/api', commentsRouter);
 app.use('/api/ai', aiRouter);
-app.use('/api/debug', debugRouter);
+// debug router mounted above CSRF middleware (line ~150)
 app.use('/api/social', socialRouter);
 app.use('/api/users', usersRouter);
 
@@ -184,7 +193,7 @@ Sentry.setupExpressErrorHandler(app);
 // ----------------------------
 app.use(
   (err: any, _req: Request, res: Response, _next: NextFunction) => {
-    logger.error('[API ERROR]', {
+    log.error('[API ERROR]', {
       message: err.message,
       stack: err.stack,
       ...err
@@ -202,31 +211,74 @@ app.use(
 // ----------------------------
 const PORT = Number(process.env.PORT) || 5175;
 
-// Initialize Cron Jobs
-initializeCron();
-
 // Initialize BullMQ Recurring Jobs
-import { rssIngestionQueue } from './lib/queue';
-(async () => {
-    logger.info('Scheduling RSS Ingestion Job (every 30 mins)');
-    await rssIngestionQueue.add('ingest-rss', {}, {
+// IMPORTANT: Repeatable jobs persist in Redis with their original config.
+// We must remove stale ones before re-adding to apply updated backoff/timing.
+async function scheduleRecurringJobs(): Promise<void> {
+    const schedulerLog = logger.child({ module: 'Scheduler' });
+    // 1. Clean up any stale repeatable jobs from previous config
+    try {
+        const existingRepeatables = await newsIngestionQueue.getRepeatableJobs();
+        for (const job of existingRepeatables) {
+            await newsIngestionQueue.removeRepeatableByKey(job.key);
+            schedulerLog.info('Removed stale repeatable job', {
+                name: job.name,
+                pattern: job.pattern,
+                key: job.key,
+            });
+        }
+    } catch (err: any) {
+        schedulerLog.warn('Failed to clean stale repeatable jobs', {
+            error: err.message,
+        });
+    }
+
+    // 2. Register fresh repeatable jobs with current config
+    schedulerLog.info('Scheduling News Ingestion Job (GDELT every 2 hours)');
+    await newsIngestionQueue.add('discover-gdelt', {
+        query: 'lang:French',
+        maxRecords: 15,
+    }, {
         repeat: {
-            pattern: '*/30 * * * *',
+            pattern: '0 */2 * * *', // Every 2 hours — respects GDELT rate limits
         },
     });
 
-    logger.info('Scheduling Daily RSS Cleanup Job (at 3 AM)');
-    await rssIngestionQueue.add('cleanup-news', {}, {
+    schedulerLog.info(`Scheduling News Ingestion Job (${NEWS_SITEMAPS.permissive.label} sitemap daily at 3:30 AM)`);
+    await newsIngestionQueue.add('discover-sitemap', {
+        sitemapUrl: NEWS_SITEMAPS.permissive.url,
+        maxUrls: 100,
+    }, {
         repeat: {
-            pattern: '0 3 * * *',
+            pattern: '30 3 * * *',
         },
     });
-})();
+
+    // Dev-local pause: protected sites reopen circuit breakers too easily on Windows
+    // while curl-impersonate is unavailable. Keep these definitions visible for prod.
+    // schedulerLog.info(`Scheduling News Ingestion Job (${NEWS_SITEMAPS.lemonde.label} sitemap daily at 3 AM)`);
+    // await newsIngestionQueue.add('discover-sitemap', {
+    //     sitemapUrl: NEWS_SITEMAPS.lemonde.url,
+    //     maxUrls: 100,
+    // }, {
+    //     repeat: {
+    //         pattern: '0 3 * * *',
+    //     },
+    // });
+
+    // schedulerLog.info(`Scheduling News Ingestion Job (${NEWS_SITEMAPS.lefigaro.label} sitemap daily at 3:15 AM)`);
+    // await newsIngestionQueue.add('discover-sitemap', {
+    //     sitemapUrl: NEWS_SITEMAPS.lefigaro.url,
+    //     maxUrls: 100,
+    // }, {
+    //     repeat: {
+    //         pattern: '15 3 * * *',
+    //     },
+    // });
+}
 
 // Auto-seed categories
-import { prisma } from './lib/db';
-
-(async () => {
+async function ensureCategories(): Promise<void> {
   const categoriesToEnsure = [
     { name: 'Monde', slug: 'monde' },
     { name: 'Politique', slug: 'politique' },
@@ -249,9 +301,52 @@ import { prisma } from './lib/db';
       create: { name: cat.name, slug: cat.slug },
     });
   }
-  logger.info('✅ Categories seeded/verified');
+  log.info('Categories seeded/verified');
+}
+
+async function validateConfig(): Promise<void> {
+  try {
+    log.info('Validating infrastructure dependencies before startup');
+
+    const redisPong = await redis.ping();
+    log.info('Redis startup check passed', { redisPong });
+
+    await prisma.$queryRaw`SELECT 1`;
+    log.info('Prisma startup check passed');
+
+    const queueClient = await newsIngestionQueue.client;
+    const bullPong = typeof (queueClient as any).ping === 'function'
+      ? await (queueClient as any).ping()
+      : 'connected';
+    log.info('BullMQ startup check passed', {
+      queue: 'news-ingestion-queue',
+      bullPong,
+    });
+  } catch (error: any) {
+    log.error('Critical startup dependency check failed', {
+      error: error.message,
+      stack: error.stack,
+    });
+    process.exit(1);
+  }
+}
+
+async function startServer(): Promise<void> {
+  await validateConfig();
+  initializeCron();
+  await scheduleRecurringJobs();
+  await ensureCategories();
 
   app.listen(PORT, '0.0.0.0', () => {
-    logger.info(`🚀 API listening on http://localhost:${PORT} [${process.env.NODE_ENV || 'development'}]`);
+    log.info(`API listening on http://localhost:${PORT} [${process.env.NODE_ENV || 'development'}]`);
   });
-})();
+}
+
+startServer().catch((error: any) => {
+  log.error('Server startup crashed unexpectedly', {
+    error: error.message,
+    stack: error.stack,
+  });
+  process.exit(1);
+});
+

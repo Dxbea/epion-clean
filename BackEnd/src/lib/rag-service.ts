@@ -18,6 +18,7 @@ const openai = new OpenAI({
 const EMBEDDING_MODEL = 'text-embedding-3-small';
 const MAX_CHUNK_SIZE = 1000;
 const MIN_CHUNK_SIZE = 50;
+const SIMILARITY_THRESHOLD = 0.7;
 
 // -----------------------------------------------------------------------------
 // Utility: Chunk Text
@@ -261,6 +262,107 @@ export type SearchResult = {
     similarity: number;
 };
 
+export type InternalSearchSource = {
+    title: string;
+    url: string;
+    domain: string;
+    content: string;
+    score: number;
+    articleSlug: string;
+    provider: 'rag';
+};
+
+type ArticleSourceMetadata = {
+    slug: string;
+    title: string;
+    sourceUrl: string | null;
+};
+
+function normalizeDomainFromUrl(inputUrl: string | null | undefined): string {
+    if (!inputUrl) {
+        return 'epion.io';
+    }
+
+    try {
+        return new URL(inputUrl).hostname.replace(/^www\./, '');
+    } catch {
+        return 'epion.io';
+    }
+}
+
+function readFirstSourceUrl(factCheckData: Prisma.JsonValue | null | undefined): string | null {
+    if (!factCheckData || typeof factCheckData !== 'object' || Array.isArray(factCheckData)) {
+        return null;
+    }
+
+    const sources = (factCheckData as Record<string, unknown>).sources;
+    if (!Array.isArray(sources) || sources.length === 0) {
+        return null;
+    }
+
+    for (const source of sources) {
+        if (!source || typeof source !== 'object' || Array.isArray(source)) {
+            continue;
+        }
+
+        const url = (source as Record<string, unknown>).url;
+        if (typeof url === 'string' && url.trim()) {
+            return url.trim();
+        }
+    }
+
+    return null;
+}
+
+function readGenerationSourceUrl(generationConfig: Prisma.JsonValue | null | undefined): string | null {
+    if (!generationConfig || typeof generationConfig !== 'object' || Array.isArray(generationConfig)) {
+        return null;
+    }
+
+    const sourceUrl = (generationConfig as Record<string, unknown>).sourceUrl;
+    if (typeof sourceUrl === 'string' && sourceUrl.trim()) {
+        return sourceUrl.trim();
+    }
+
+    return null;
+}
+
+async function loadArticleSourceMetadata(articleSlugs: string[]): Promise<Map<string, ArticleSourceMetadata>> {
+    if (articleSlugs.length === 0) {
+        return new Map();
+    }
+
+    const articles = await prisma.article.findMany({
+        where: {
+            slug: { in: articleSlugs },
+            status: 'PUBLISHED',
+        },
+        select: {
+            slug: true,
+            title: true,
+            generationConfig: true,
+            factCheckData: true,
+        },
+    });
+
+    const metadataBySlug = new Map<string, ArticleSourceMetadata>();
+
+    for (const article of articles) {
+        const sourceUrl =
+            readFirstSourceUrl(article.factCheckData) ||
+            readGenerationSourceUrl(article.generationConfig) ||
+            null;
+
+        metadataBySlug.set(article.slug, {
+            slug: article.slug,
+            title: article.title,
+            sourceUrl,
+        });
+    }
+
+    return metadataBySlug;
+}
+
 /**
  * Searches for knowledge chunks similar to the user's query.
  * Uses cosine similarity on vector embeddings.
@@ -298,15 +400,65 @@ export async function searchSimilarChunks(query: string, limit: number = 5): Pro
             JOIN "Article" a ON kc."articleId" = a.id
             WHERE kc.embedding IS NOT NULL
               AND a.status = 'PUBLISHED'
+              AND 1 - (kc.embedding <=> ${embeddingStr}::vector) >= ${SIMILARITY_THRESHOLD}
             ORDER BY kc.embedding <=> ${embeddingStr}::vector
             LIMIT ${limit}
         `;
 
-        logger.info(`[RAG] Search complete`, { query: query.substring(0, 50), results: results.length });
+        if (results.length === 0) {
+            logger.info(`[RAG] Search returned no chunk above similarity threshold`, {
+                module: 'RAG',
+                query: query.substring(0, 80),
+                similarityThreshold: SIMILARITY_THRESHOLD,
+            });
+            return [];
+        }
+
+        logger.info(`[RAG] Search complete`, {
+            module: 'RAG',
+            query: query.substring(0, 50),
+            results: results.length,
+            similarityThreshold: SIMILARITY_THRESHOLD,
+            topSimilarity: results[0]?.similarity ?? null,
+        });
 
         return results;
     } catch (error: any) {
         logger.error(`Search error`, { module: 'RAG', error: error.message });
         return [];
     }
+}
+
+export async function searchInternalSources(query: string, limit: number = 5): Promise<InternalSearchSource[]> {
+    const chunkResults = await searchSimilarChunks(query, Math.max(limit * 2, limit));
+    const articleSourceMetadata = await loadArticleSourceMetadata(
+        [...new Set(chunkResults.map((result) => result.articleSlug).filter(Boolean))],
+    );
+    const dedupedSources = new Map<string, InternalSearchSource>();
+
+    for (const result of chunkResults) {
+        if (!result.articleSlug || dedupedSources.has(result.articleSlug)) {
+            continue;
+        }
+
+        const articleMetadata = articleSourceMetadata.get(result.articleSlug);
+        const preferredUrl = articleMetadata?.sourceUrl || `/article/${result.articleSlug}`;
+        const preferredDomain = normalizeDomainFromUrl(articleMetadata?.sourceUrl);
+
+        dedupedSources.set(result.articleSlug, {
+            title: articleMetadata?.title || result.articleTitle,
+            url: preferredUrl,
+            domain: preferredDomain,
+            content: result.content,
+            score: result.similarity,
+            articleSlug: result.articleSlug,
+            provider: 'rag',
+        });
+
+        if (dedupedSources.size >= limit) {
+            break;
+        }
+    }
+
+    return Array.from(dedupedSources.values());
 }

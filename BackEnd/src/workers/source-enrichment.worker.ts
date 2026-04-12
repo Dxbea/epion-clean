@@ -35,6 +35,7 @@ export const sourceEnrichmentWorker = new Worker(
         const enrichedSources: any[] = [];
         let totalScore = 0;
         let validScores = 0;
+        const trustScoreByDomain = new Map<string, Promise<any>>();
 
         // Traitement parallèle des sources (limitée par la puissance du serveur, ici tout d'un coup car ~5-10 sources max)
         const enrichmentPromises = sources.map(async (url) => {
@@ -49,7 +50,12 @@ export const sourceEnrichmentWorker = new Worker(
 
                 // Appel du TrustScore Engine
                 logger.debug(`[Worker] Analyzing source: ${domain}`, { articleId });
-                const richScore = await getRichTrustScore(domain);
+                let richScorePromise = trustScoreByDomain.get(domain);
+                if (!richScorePromise) {
+                    richScorePromise = getRichTrustScore(domain);
+                    trustScoreByDomain.set(domain, richScorePromise);
+                }
+                const richScore = await richScorePromise;
 
                 return {
                     id: 0, // Sera indexé plus tard
@@ -100,10 +106,10 @@ export const sourceEnrichmentWorker = new Worker(
         // Calcul du factScore global (moyenne sources * 0.75 + ScoreLiveBrut * 0.25)
         let finalFactScore = 50; // Défaut si aucune source valide
         const scoreLiveBrut = job.data.scoreLiveBrut ?? 75;
+        const sourcesMean = validScores > 0 ? Math.round(totalScore / validScores) : null;
 
         if (validScores > 0) {
-            const sourcesMean = Math.round(totalScore / validScores);
-            finalFactScore = Math.round((sourcesMean * 0.75) + (scoreLiveBrut * 0.25));
+            finalFactScore = Math.round((sourcesMean! * 0.75) + (scoreLiveBrut * 0.25));
             finalFactScore = Math.min(100, Math.max(0, finalFactScore));
         } else {
             // No valid sources: use ScoreLiveBrut as sole signal
@@ -118,12 +124,21 @@ export const sourceEnrichmentWorker = new Worker(
                     factCheckScore: finalFactScore,
                     factCheckData: {
                         factScore: finalFactScore,
+                        liveScore: scoreLiveBrut,
                         enrichedAt: new Date().toISOString(),
+                        calculation: {
+                            formula: 'weighted-source-live-v1',
+                            sourceWeight: 0.75,
+                            liveWeight: 0.25,
+                            sourcesMean,
+                            liveScore: scoreLiveBrut,
+                            finalScore: finalFactScore,
+                        },
                         // Article-level analysis (from live-analysis pipeline)
                         liveAnalysis: job.data.liveAnalysis || null,
                         // Source-level data (from enrichment)
                         sources: enrichedSources,
-                        sourcesMean: validScores > 0 ? Math.round(totalScore / validScores) : null,
+                        sourcesMean,
                     }
                 }
             });
@@ -140,7 +155,16 @@ export const sourceEnrichmentWorker = new Worker(
                     factCheckScore: finalFactScore,
                     factCheckData: {
                         factScore: finalFactScore,
+                        liveScore: scoreLiveBrut,
                         enrichedAt: new Date().toISOString(),
+                        calculation: {
+                            formula: 'weighted-source-live-v1',
+                            sourceWeight: 0.75,
+                            liveWeight: 0.25,
+                            sourcesMean: null,
+                            liveScore: scoreLiveBrut,
+                            finalScore: finalFactScore,
+                        },
                         liveAnalysis: job.data.liveAnalysis || null,
                         sources: [],
                         sourcesMean: null,

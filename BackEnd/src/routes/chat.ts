@@ -1,5 +1,5 @@
 // DEBUT BLOC (remplace tout)
-import { Router } from 'express';
+import { Router, type Request } from 'express';
 import { prisma } from '../lib/db';
 import { getCurrentUserId } from '../lib/currentUser';
 import {
@@ -15,14 +15,18 @@ import { ChatOptions } from '../types/chat';
 import OpenAI from 'openai';
 import { searchSimilarChunks } from '../lib/rag-service';
 import { logger } from '../lib/logger';
+import { redis } from '../lib/redis';
+import { prepareChatAttachment, type PreparedChatAttachment } from '../lib/chat-attachments';
+import { chatAttachmentUpload } from '../middleware/chat-upload';
+import { enrichChatSources } from '../lib/chat-source-enrichment';
 import {
   formatWebSourcesForPrompt,
   generateWebSystemPrompt,
-  mapWebSourcesToUiSources,
   normalizeWebSearchProfile,
   resolveWebLlmModel,
   sanitizeWebChatMessages,
   searchWebContext,
+  isConversationalQuery,
   type WebChatMessage,
   type WebPromptMode,
 } from '../lib/web-chat';
@@ -38,7 +42,7 @@ const openai = new OpenAI({ apiKey: process.env.OPENAI_API_KEY });
 // ————————————————————————————————————————————————————————————————
 // PROMPTS SYSTEME DYNAMIQUES
 // ————————————————————————————————————————————————————————————————
-// Web chat now uses Tavily for retrieval and OpenAI for generation/streaming.
+// Web chat now uses Serper for discovery, extractor/RAG for context, and OpenAI for generation/streaming.
 
 
 // ————————————————————————————————————————————————————————————————
@@ -53,6 +57,152 @@ function getPlanForUser(_userId: string): PlanId {
 function getLimitsForUser(userId: string): ChatLimits {
   const planId = getPlanForUser(userId);
   return CHAT_LIMITS[planId];
+}
+
+const WEB_RATE_LIMIT_WINDOW_SECONDS = 60;
+const WEB_RATE_LIMIT_MAX_REQUESTS = 10;
+
+function getClientIp(req: Request): string {
+  const forwardedFor = req.headers['x-forwarded-for'];
+  const forwardedIp = Array.isArray(forwardedFor)
+    ? forwardedFor[0]
+    : typeof forwardedFor === 'string'
+      ? forwardedFor.split(',')[0]
+      : null;
+
+  const rawIp = forwardedIp || req.ip || req.socket.remoteAddress || 'unknown';
+  return rawIp.replace(/^::ffff:/, '').trim();
+}
+
+async function enforceWebRateLimit(req: Request): Promise<{ allowed: true } | { allowed: false; retryAfter: number }> {
+  const clientIp = getClientIp(req);
+  const key = `rate_limit_chat_${clientIp}`;
+
+  try {
+    const currentCount = await redis.incr(key);
+    if (currentCount === 1) {
+      await redis.expire(key, WEB_RATE_LIMIT_WINDOW_SECONDS);
+    }
+
+    const ttl = await redis.ttl(key);
+    if (currentCount > WEB_RATE_LIMIT_MAX_REQUESTS) {
+      return {
+        allowed: false,
+        retryAfter: ttl > 0 ? ttl : WEB_RATE_LIMIT_WINDOW_SECONDS,
+      };
+    }
+  } catch (error: unknown) {
+    logger.warn('Web chat rate limiter unavailable, allowing request', {
+      module: 'Chat',
+      ip: clientIp,
+      error: error instanceof Error ? error.message : 'Unknown Redis error',
+    });
+  }
+
+  return { allowed: true };
+}
+
+function readStringField(value: unknown): string | undefined {
+  if (typeof value !== 'string') {
+    return undefined;
+  }
+
+  const trimmed = value.trim();
+  return trimmed || undefined;
+}
+
+function readBooleanField(value: unknown): boolean {
+  if (typeof value === 'boolean') {
+    return value;
+  }
+
+  if (typeof value === 'string') {
+    const normalized = value.trim().toLowerCase();
+    return normalized === 'true' || normalized === '1' || normalized === 'yes' || normalized === 'on';
+  }
+
+  return false;
+}
+
+function readJsonField<T>(value: unknown): T | undefined {
+  if (!value) {
+    return undefined;
+  }
+
+  if (typeof value !== 'string') {
+    return value as T;
+  }
+
+  try {
+    return JSON.parse(value) as T;
+  } catch {
+    return undefined;
+  }
+}
+
+function buildAttachmentSystemPrompt(attachment: PreparedChatAttachment | null): string | null {
+  if (!attachment?.promptText) {
+    return null;
+  }
+
+  return attachment.promptText;
+}
+
+function buildEffectiveUserText(content: string, attachment: PreparedChatAttachment | null): string {
+  if (content.trim()) {
+    return content.trim();
+  }
+
+  if (attachment?.kind === 'pdf') {
+    return 'Analyse le document joint.';
+  }
+
+  if (attachment?.kind === 'image') {
+    return 'Analyse l’image jointe.';
+  }
+
+  return '';
+}
+
+function buildCurrentUserMessage(
+  content: string,
+  attachment: PreparedChatAttachment | null,
+): OpenAI.Chat.Completions.ChatCompletionUserMessageParam {
+  const userText = buildEffectiveUserText(content, attachment);
+
+  if (attachment?.kind === 'image' && attachment.imageDataUrl) {
+    return {
+      role: 'user',
+      content: [
+        {
+          type: 'text',
+          text: userText || 'Analyse l’image jointe.',
+        },
+        {
+          type: 'image_url',
+          image_url: {
+            url: attachment.imageDataUrl,
+          },
+        },
+      ],
+    };
+  }
+
+  return {
+    role: 'user',
+    content: userText,
+  };
+}
+
+function mapHistoryToOpenAiMessages(
+  history: WebChatMessage[],
+): OpenAI.Chat.Completions.ChatCompletionMessageParam[] {
+  return history
+    .filter((message) => message.role !== 'system' && message.content.trim())
+    .map((message) => ({
+      role: message.role,
+      content: message.content,
+    }));
 }
 
 // ————————————————————————————————————————————————————————————————
@@ -343,12 +493,13 @@ router.get('/sessions/:id/messages', async (req, res, next) => {
 
 // POST /api/chat/sessions/:id/messages  { content }
 // POST /api/chat/sessions/:id/messages  { content }
-router.post('/sessions/:id/messages', async (req, res, next) => {
+router.post('/sessions/:id/messages', chatAttachmentUpload, async (req, res, next) => {
   try {
     const userId = await getCurrentUserId(req, res);
     const limits = getLimitsForUser(userId);
     const sessionId = String(req.params.id);
     const content = String(req.body?.content ?? '').trim();
+    const attachment = await prepareChatAttachment(req.file);
 
     // 🔒 0) vérifier que l'email est vérifié
     const user = await prisma.user.findUnique({
@@ -376,7 +527,7 @@ router.post('/sessions/:id/messages', async (req, res, next) => {
     // const usage = await checkAndIncrement(userId);
 
     // 1) vérification basique
-    if (!content) {
+    if (!content && !attachment) {
       return res.status(400).json({
         error: 'content_required',
         message: 'Le message ne peut pas être vide.',
@@ -407,28 +558,59 @@ router.post('/sessions/:id/messages', async (req, res, next) => {
 
     const session = await prisma.chatSession.findUnique({
       where: { id: sessionId },
-      select: { id: true, userId: true, topic: true },
+      select: { id: true, userId: true, topic: true, mode: true },
     });
     if (!session) return res.status(404).json({ error: 'Session not found' });
     if (session.userId !== userId)
       return res.status(403).json({ error: 'Forbidden' });
 
-    // 4) store user message
-    const userMsg = await prisma.chatMessage.create({
-      data: { sessionId, userId, role: 'user', content },
-      select: { id: true, createdAt: true },
-    });
+    // 4) Déterminer le mode avant tout appel coûteux ou écriture DB
+    const requestedMode = req.body.mode || session.mode || 'web';
+    const mode = (requestedMode === 'fast') ? 'fast' : 'web';
 
-    // 5) Fetch history context (last 10 messages)
-    const historyData = await prisma.chatMessage.findMany({
+    if (mode === 'web') {
+      const rateLimit = await enforceWebRateLimit(req);
+      if (!rateLimit.allowed) {
+        res.setHeader('Retry-After', String(rateLimit.retryAfter));
+        return res.status(429).json({
+          error: 'RATE_LIMITED',
+          message: 'Trop de requêtes Web. Réessaie dans une minute.',
+          retryAfter: rateLimit.retryAfter,
+        });
+      }
+    }
+
+    const previousHistoryData = await prisma.chatMessage.findMany({
       where: { sessionId },
       orderBy: { createdAt: 'desc' },
-      take: 11, // inclut le message qu'on vient de créer
+      take: 10,
       select: { role: true, content: true },
     });
 
-    // Remettre dans l'ordre chronologique
-    const history: WebChatMessage[] = historyData
+    const attachmentMetadata = attachment
+      ? {
+          attachments: [
+            {
+              ...attachment.summary,
+            },
+          ],
+        }
+      : undefined;
+
+    // 5) store user message
+    const userMsg = await prisma.chatMessage.create({
+      data: {
+        sessionId,
+        userId,
+        role: 'user',
+        content,
+        metadata: attachmentMetadata,
+      } as any,
+      select: { id: true, createdAt: true },
+    });
+
+    // 6) Fetch history context (last 10 messages before current one)
+    const history: WebChatMessage[] = previousHistoryData
       .reverse()
       .map((m) => ({
         role: m.role as 'user' | 'assistant',
@@ -441,22 +623,12 @@ router.post('/sessions/:id/messages', async (req, res, next) => {
       sessionId
     });
 
-    // 0) Récupération du mode (Priorité : Body > Session > Default 'web')
-    const sessionData = await prisma.chatSession.findUnique({
-      where: { id: sessionId },
-      select: { mode: true }
-    });
-
-    const requestedMode = req.body.mode || sessionData?.mode || 'web';
-    // Mapping legacy modes if necessary, or strictly following new 'fast' | 'web'
-    const mode = (requestedMode === 'fast') ? 'fast' : 'web';
-
     // ---------------------------------------------------------
     // 🧠 SMART ROUTER & BILLING GATE
     // ---------------------------------------------------------
     let actionType: keyof typeof COSTS;
     let modelName: string;
-    let webProfile = normalizeWebSearchProfile(req.body?.model);
+    let webProfile = normalizeWebSearchProfile(readStringField(req.body?.model));
 
     const userPlan = user.usage?.plan || PlanType.FREE;
 
@@ -464,7 +636,7 @@ router.post('/sessions/:id/messages', async (req, res, next) => {
       actionType = 'CHAT_FAST';
       modelName = 'gpt-4o-mini';
     } else {
-      const wantsDeepWeb = req.body?.model === 'sonar-pro' && userPlan === PlanType.PREMIUM;
+      const wantsDeepWeb = readStringField(req.body?.model) === 'sonar-pro' && userPlan === PlanType.PREMIUM;
       webProfile = wantsDeepWeb ? 'deep' : 'standard';
 
       if (wantsDeepWeb) {
@@ -501,6 +673,9 @@ router.post('/sessions/:id/messages', async (req, res, next) => {
     // 6) Variables pour stocker la réponse
     let rawAnswer = "";
     let sources: any[] = [];
+    const attachmentSystemPrompt = buildAttachmentSystemPrompt(attachment);
+    const currentUserMessage = buildCurrentUserMessage(content, attachment);
+    const effectiveQuery = content || attachment?.searchText || buildEffectiveUserText(content, attachment);
 
     // DEBUG: Trace mode execution
     logger.info(`Starting Chat Generation`, { module: 'Chat', mode, userId, sessionId });
@@ -518,14 +693,16 @@ router.post('/sessions/:id/messages', async (req, res, next) => {
       // ... (Existing RAG Logic - keeping it awaiting for now but could be streamed later)
       // For consistency with the request "Check -> Service -> Settlement", we keep the current blocking logic here
       // BUT we need to support the "Settlement" phase at the end.
-      // The current web flow still uses the legacy streaming adapter.
+      // The current web flow streams from our in-house web search pipeline.
       // To avoid complexity, we keep RAG as is (it's fast/cheap) but apply charge at the end.
 
       // ... (Rest of RAG Logic is below, I will just wrap the charge call)
       logger.info('Mode FAST active', { module: 'Chat', strategy: 'RAG+OpenAI', userId, sessionId });
 
       // 1. Récupérer le contexte RAG
-      const contextChunks = await searchSimilarChunks(content, 5);
+      const contextChunks = effectiveQuery
+        ? await searchSimilarChunks(effectiveQuery, 5)
+        : [];
       logger.debug(`RAG Context found`, { module: 'Chat', count: contextChunks.length });
 
       // 2. Construire le System Prompt
@@ -543,6 +720,8 @@ Utilise le CONTEXTE suivant provenant de la base de connaissances interne pour r
 ${contextChunks.length > 0 ? contextString : '(Aucun contexte pertinent trouvé dans la base de connaissances)'}
 --- CONTEXTE INTERNE END ---
 
+${attachmentSystemPrompt ? `${attachmentSystemPrompt}\n\n` : ''}
+
 CONSIGNES DE RÉPONSE :
 1. Réponds UNIQUEMENT sur la base des SOURCES fournies ci-dessus.
 2. Si la réponse n'est pas dans le contexte, dis-le poliment et propose une recherche web (mode 'Web').
@@ -552,12 +731,10 @@ CONSIGNES DE RÉPONSE :
 5. Sois concis et structuré.`;
 
       // 3. Construire les messages pour OpenAI
-      const openaiMessages: Array<{ role: 'system' | 'user' | 'assistant'; content: string }> = [
+      const openaiMessages: OpenAI.Chat.Completions.ChatCompletionMessageParam[] = [
         { role: 'system', content: systemPrompt },
-        ...history.filter(m => m.role !== 'system').map(m => ({
-          role: m.role as 'user' | 'assistant',
-          content: m.content
-        }))
+        ...mapHistoryToOpenAiMessages(history),
+        currentUserMessage,
       ];
 
       // 4. Appel OpenAI pour la reponse RAG interne
@@ -610,11 +787,11 @@ CONSIGNES DE RÉPONSE :
       sources = Array.from(uniqueSources.values());
     } else {
       // =========================================================================
-      // CAS 2: MODE WEB (Tavily + OpenAI streaming) - Phase B: Service
+      // CAS 2: MODE WEB (Serper + OpenAI streaming) - Phase B: Service
       // =========================================================================
       logger.info('Mode WEB active (Stream)', {
         module: 'Chat',
-        strategy: 'TavilyPlusOpenAI',
+        strategy: 'SerperPlusOpenAI',
         userId,
         sessionId,
         modelName,
@@ -622,66 +799,128 @@ CONSIGNES DE RÉPONSE :
       });
 
       const chatOptions: ChatOptions = {
-        filterSources: req.body.sourceRestricted || false,
-        forceNeutrality: req.body.neutralityForced || false,
-        recentEvents: req.body.timeRecent || false
+        filterSources: readBooleanField(req.body?.sourceRestricted),
+        forceNeutrality: readBooleanField(req.body?.neutralityForced),
+        recentEvents: readBooleanField(req.body?.timeRecent)
       };
 
-      try {
-        const promptMode: WebPromptMode =
-          req.body?.responseStyle === 'concise'
+      const promptMode: WebPromptMode =
+          readStringField(req.body?.responseStyle) === 'concise'
             ? 'fast'
-            : req.body?.responseStyle === 'detailed'
+            : readStringField(req.body?.responseStyle) === 'detailed'
               ? 'precise'
               : 'balanced';
 
-        const webSources = await searchWebContext(content, {
+      // Phase 1: Web search (must complete before LLM prompt + enrichment)
+      let webSources: Awaited<ReturnType<typeof searchWebContext>> = [];
+      try {
+        webSources = await searchWebContext(effectiveQuery, {
           profile: webProfile,
           chatOptions,
         });
+      } catch (searchErr: any) {
+        logger.error('Web search failed', {
+          module: 'Chat',
+          error: searchErr.message,
+          userId,
+          sessionId,
+        });
+      }
 
-        sources = mapWebSourcesToUiSources(webSources);
-        sourcesMean = sources.length > 0
-          ? Math.round(sources.reduce((sum, source) => sum + (source.score || 0), 0) / sources.length)
-          : 0;
+      const conversationalTurn = isConversationalQuery(effectiveQuery) && !attachment;
 
-        if (webSources.length === 0) {
-          rawAnswer = "Information not available in the consulted sources.";
-          shouldCharge = false;
-          res.write(rawAnswer);
-        } else {
-          const systemInstruction = `${generateWebSystemPrompt(promptMode, chatOptions)}
+      if (webSources.length === 0) {
+        shouldCharge = false;
+      }
 
-Use the following live Tavily search context for the current question.
+      // Phase 2: Fire enrichment in background (decoupled from LLM stream)
+      const enrichmentPromise = enrichChatSources(webSources).catch((err) => {
+        logger.error('Enrichment pipeline failed', {
+          module: 'Chat',
+          error: err instanceof Error ? err.message : 'Unknown enrichment error',
+          userId,
+          sessionId,
+        });
+        return null;
+      });
+
+      // Phase 3: Build prompt & stream LLM response in parallel with enrichment
+      const fallbackNotice = webSources.length === 0 && !conversationalTurn
+        ? `\n\nAucune source externe ou interne n'a pu etre recuperee pour cette question.
+Reponds quand meme avec prudence en t'appuyant sur la conversation`
+          + `${attachment ? ' et la piece jointe fournie' : ''}.`
+          + ` Signale explicitement l'absence de corroboration web.`
+        : '';
+
+      const systemInstruction = `${generateWebSystemPrompt(promptMode, chatOptions)}
+
+${attachmentSystemPrompt ? `${attachmentSystemPrompt}\n\n` : ''}${fallbackNotice}
+
+Use the following live web search context for the current question.
 
 <context>
 ${formatWebSourcesForPrompt(webSources)}
 </context>`;
 
-          const openaiMessages: Array<{ role: 'system' | 'user' | 'assistant'; content: string }> = [
-            { role: 'system', content: systemInstruction },
-            ...sanitizeWebChatMessages(history).filter((message) => message.role !== 'system'),
-          ];
+      const openaiMessages: OpenAI.Chat.Completions.ChatCompletionMessageParam[] = [
+        { role: 'system', content: systemInstruction },
+        ...mapHistoryToOpenAiMessages(sanitizeWebChatMessages(history)),
+        currentUserMessage,
+      ];
 
-          const stream = await openai.chat.completions.create({
-            model: modelName,
-            messages: openaiMessages,
-            temperature: webProfile === 'deep' ? 0.15 : 0.2,
-            max_tokens: webProfile === 'deep' ? 2400 : 1600,
-            stream: true,
-          });
+      try {
+        // Stream LLM response to client
+        const llmStream = await openai.chat.completions.create({
+          model: modelName,
+          messages: openaiMessages,
+          temperature: webProfile === 'deep' ? 0.15 : 0.2,
+          max_tokens: webProfile === 'deep' ? 2400 : 1600,
+          stream: true,
+        });
 
-          for await (const chunk of stream) {
-            const delta = chunk.choices[0]?.delta?.content || '';
-            if (!delta) continue;
+        for await (const chunk of llmStream) {
+          const delta = chunk.choices[0]?.delta?.content || '';
+          if (!delta) continue;
 
-            rawAnswer += delta;
-            try {
-              res.write(delta);
-            } catch (e) {
-              logger.debug('Client disconnected during stream', { userId });
-            }
+          rawAnswer += delta;
+          try {
+            res.write(delta);
+          } catch (e) {
+            logger.debug('Client disconnected during stream', { userId });
           }
+        }
+
+        // After LLM stream completes, await enrichment with a 35s timeout
+        // Prevents the response from hanging if enrichment is abnormally slow
+        const ENRICHMENT_TIMEOUT_MS = 35_000;
+        const enrichmentResult = await Promise.race([
+          enrichmentPromise,
+          new Promise<null>((resolve) => setTimeout(() => {
+            logger.warn('Enrichment timed out after 35s, closing stream without enrichment', {
+              module: 'Chat',
+              userId,
+              sessionId,
+            });
+            resolve(null);
+          }, ENRICHMENT_TIMEOUT_MS)),
+        ]);
+
+        if (enrichmentResult) {
+          sources = enrichmentResult.sources;
+          sourcesMean = enrichmentResult.sourcesMean;
+
+          // Send enrichment data as a final SSE-style event
+          try {
+            res.write(`\n\ndata: ${JSON.stringify({ type: 'enrichment', sources: enrichmentResult.sources, sourcesMean: enrichmentResult.sourcesMean })}\n\n`);
+          } catch (e) {
+            logger.debug('Client disconnected before enrichment event could be sent', { userId });
+          }
+        } else {
+          logger.warn('Enrichment unavailable, proceeding without enriched sources', {
+            module: 'Chat',
+            userId,
+            sessionId,
+          });
         }
       } catch (err: any) {
         logger.error('Web chat pipeline failed', {
@@ -716,10 +955,9 @@ ${formatWebSourcesForPrompt(webSources)}
     // =========================================================================
 
     // Only proceed if we have a valid answer
-    if (!rawAnswer || rawAnswer.length < 20) {
+    if (!rawAnswer || rawAnswer.trim().length === 0) {
       logger.warn("AI Response too short or failed, no charge applied.", { userId, length: rawAnswer?.length });
-      // Don't charge.
-      res.end(); // Ensure response is closed
+      // Don't charge. Stream will be closed by the finally block.
       return;
     }
 
@@ -737,7 +975,10 @@ ${formatWebSourcesForPrompt(webSources)}
             sourcesMean,
             outputScore,
             diversityPenalty,
-            formula: 'stream-mode'
+            sourceWeight: 0.75,
+            outputWeight: 0.25,
+            finalScore: finalGlobalScore,
+            formula: 'weighted-source-output-v1'
           },
           outputAnalysis: outputAnalysis
         }
@@ -764,21 +1005,17 @@ ${formatWebSourcesForPrompt(webSources)}
       });
     }
 
-    // Clôture
-    // res.end() only if not already ended?
-    try {
-      res.end();
-    } catch (e) { }
-
-    // Important: The existing code returned a JSON. Now we streamed text.
-    // The Frontend behaves differently.
-    // Since we returned checks early, the function is done.
     return;
-
-    // ... (The rest of the function is dead code or needs to be removed/adapted because we return early)
-    // I will comment out or remove the old JSON response part.
   } catch (e) {
     next(e);
+  } finally {
+    // Précision 2: stream is ALWAYS closed, even if an error is thrown
+    // anywhere in the pipeline (OpenAI timeout, DB failure, etc.)
+    try {
+      if (!res.writableEnded) {
+        res.end();
+      }
+    } catch (_) { /* response already destroyed */ }
   }
 });
 

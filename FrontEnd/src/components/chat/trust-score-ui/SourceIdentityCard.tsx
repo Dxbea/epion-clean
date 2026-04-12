@@ -20,8 +20,8 @@ export function SourceIdentityCard({ name, description, country, politicalBias, 
     // 2. Format Badges
     const getBiasLabel = (bias: string) => {
         const b = bias?.toUpperCase();
-        if (b === 'LEFT' || b === 'LEFT_CENTER') return { label: 'Gauche / Centre-G.', color: 'bg-blue-100 text-blue-800 dark:bg-blue-900/30 dark:text-blue-200' };
-        if (b === 'RIGHT' || b === 'RIGHT_CENTER') return { label: 'Droite / Centre-D.', color: 'bg-red-100 text-red-800 dark:bg-red-900/30 dark:text-red-200' };
+        if (b === 'LEFT' || b === 'LEFT_CENTER' || b === 'CENTER_LEFT') return { label: 'Gauche / Centre-G.', color: 'bg-blue-100 text-blue-800 dark:bg-blue-900/30 dark:text-blue-200' };
+        if (b === 'RIGHT' || b === 'RIGHT_CENTER' || b === 'CENTER_RIGHT') return { label: 'Droite / Centre-D.', color: 'bg-red-100 text-red-800 dark:bg-red-900/30 dark:text-red-200' };
         if (b === 'CENTER') return { label: 'Centre (Neutre)', color: 'bg-gray-100 text-gray-800 dark:bg-gray-800 dark:text-gray-200' };
         return { label: 'Non Classé', color: 'bg-gray-100 text-gray-600' };
     };

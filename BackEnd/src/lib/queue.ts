@@ -72,22 +72,21 @@ liveAnalysisQueue.on('error', (err) => {
 
 logger.info('Live Analysis Queue initialized', { module: 'Queue' });
 
-// RSS Ingestion Queue (Sprint 2)
-export const rssIngestionQueue = new Queue('rss-ingestion-queue', {
+export const newsIngestionQueue = new Queue('news-ingestion-queue', {
     connection: connection as any,
     defaultJobOptions: {
-        attempts: 2,
+        attempts: 3,
         backoff: {
             type: 'exponential',
-            delay: 5000,
+            delay: 60_000, // 60s → 120s → 240s — GDELT needs long pauses on 429
         },
-        removeOnComplete: 10,
+        removeOnComplete: 25,
         removeOnFail: 50,
     },
 });
 
-rssIngestionQueue.on('error', (err) => {
-    logger.error('RSS Ingestion Queue error', { module: 'Queue', error: err.message });
+newsIngestionQueue.on('error', (err) => {
+    logger.error('News Ingestion Queue error', { module: 'Queue', error: err.message });
 });
 
-logger.info('RSS Ingestion Queue initialized', { module: 'Queue' });
+logger.info('News Ingestion Queue initialized', { module: 'Queue' });

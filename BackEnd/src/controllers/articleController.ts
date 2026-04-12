@@ -3,7 +3,7 @@ import { prisma } from '../lib/db';
 import { checkArticleQuota } from '../lib/billing-service';
 import { getCurrentUserId } from '../lib/currentUser';
 import { logger } from '../lib/logger';
-import { embeddingQueue, sourceEnrichmentQueue } from '../lib/queue';
+import { sourceEnrichmentQueue } from '../lib/queue';
 import { transformTextWithAI } from '../services/articleGenerator';
 import { runLiveAnalysisWithGeneration } from '../lib/live-analysis';
 import { getArticleImageProposals } from '../lib/images/proposals';
@@ -101,6 +101,16 @@ export async function createAIArticle(req: Request, res: Response, next: NextFun
         // Object containing both the LiveAnalysis data and pending sources
         const initialFactCheckData = {
             factScore: Math.round(result.globalScore || 50),
+            liveScore: Math.round(result.globalScore || 50),
+            sourcesMean: null,
+            calculation: {
+                formula: 'weighted-source-live-v1',
+                sourceWeight: 0.75,
+                liveWeight: 0.25,
+                sourcesMean: null,
+                liveScore: Math.round(result.globalScore || 50),
+                finalScore: Math.round(result.globalScore || 50),
+            },
             liveAnalysis: {
                 contentIntent: result.contentIntent,
                 pillarScores: result.pillarScores,
@@ -184,25 +194,7 @@ export async function createAIArticle(req: Request, res: Response, next: NextFun
             });
         });
 
-        // 6. Background Job: RAG Embedding
-        logger.info('[ArticleGenerate] Queueing embedding generation', {
-            articleId: newArticle.id
-        });
-        embeddingQueue.add('generate-vector', {
-            articleId: newArticle.id,
-            contentSize: generatedData.content?.length ?? 0
-        }).then(() => {
-            logger.info('[ArticleGenerate] Embedding queued', {
-                articleId: newArticle.id
-            });
-        }).catch(err => {
-            logger.error('[ArticleGenerate] Embedding queue dispatch failed', {
-                articleId: newArticle.id,
-                error: err.message
-            });
-        });
-
-        // 7. Return to Frontend
+        // 6. Return to Frontend
         return res.status(201).json({
             article: newArticle,
             message: "Article generated successfully."

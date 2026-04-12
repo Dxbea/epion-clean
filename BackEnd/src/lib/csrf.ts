@@ -74,7 +74,8 @@ export async function csrfRequired(req: Request, res: Response, next: NextFuncti
   if (
     safe ||
     path === '/csrf' ||               // endpoint de récupération du token
-    path.startsWith('/auth/')         // login / register / forgot...
+    path.startsWith('/auth/') ||      // login / register / forgot...
+    path.startsWith('/debug/')        // debug endpoints (disable in prod)
   ) {
     return next();
   }

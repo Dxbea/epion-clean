@@ -2,6 +2,7 @@ import React, { useState } from 'react';
 import { Anchor, Wind, ShieldCheck, Info, X, AlertTriangle, CheckCircle, HelpCircle, Users, GitMerge } from 'lucide-react';
 import { createGlossyGradient } from '@/lib/color-utils';
 import { TRUST_SCORE_RANGES } from '@/config/trust-constants';
+import { computeSourceAnalysisScore } from '@/lib/source-score';
 
 interface UnifiedTrustCardProps {
     details: {
@@ -52,9 +53,7 @@ export function UnifiedTrustCard({ details, flags, metadata }: UnifiedTrustCardP
 
     // --- Derived Scores ---
     // Analysis Score = Average of the 4 live pillars
-    const analysisScore = Math.round(
-        (details.transparency + details.editorial + details.semantic + details.logic) / 4
-    );
+    const analysisScore = computeSourceAnalysisScore(details) ?? 50;
 
     // Reputation Score = dbScore (or derive/fallback if needed)
     const getReputationFallback = (rel?: string) => {

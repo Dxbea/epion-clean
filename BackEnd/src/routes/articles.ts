@@ -72,7 +72,7 @@ router.put('/:id', async (req, res, next) => {
 
     const existing = await prisma.article.findUnique({
       where: { id },
-      select: { authorId: true },
+      select: { authorId: true, status: true, title: true, content: true },
     });
     if (!existing) return res.status(404).json({ error: 'Not Found' });
 
@@ -121,20 +121,32 @@ router.put('/:id', async (req, res, next) => {
       });
     }
 
+    const sanitizedTitle = title !== undefined ? sanitizeArticleHtml(String(title)) : undefined;
+    const sanitizedContent =
+      typeof content === 'string'
+        ? sanitizeArticleHtml(content)
+        : content === null
+          ? null
+          : undefined;
+    const nextStatus =
+      status === 'PUBLISHED'
+        ? 'PUBLISHED'
+        : status === 'ARCHIVED'
+          ? 'ARCHIVED'
+          : status === 'DRAFT'
+            ? 'DRAFT'
+            : existing.status;
+
     const data: Prisma.ArticleUpdateInput = {
-      ...(title !== undefined
-        ? { title: sanitizeArticleHtml(String(title)) }
+      ...(sanitizedTitle !== undefined
+        ? { title: sanitizedTitle }
         : {}),
       ...(typeof summary === 'string'
         ? { summary: sanitizeArticleHtml(summary) }
         : summary === null
           ? { summary: null }
           : {}),
-      ...(typeof content === 'string'
-        ? { content: sanitizeArticleHtml(content) }
-        : content === null
-          ? { content: null }
-          : {}),
+      ...(sanitizedContent !== undefined ? { content: sanitizedContent } : {}),
       ...(typeof imageUrl === 'string' || imageUrl === null
         ? { imageUrl: typeof imageUrl === 'string' && imageUrl.trim() ? imageUrl.trim() : null }
         : {}),
@@ -146,6 +158,12 @@ router.put('/:id', async (req, res, next) => {
           : {}),
     };
 
+    const shouldQueueEmbedding =
+      nextStatus === 'PUBLISHED' && (
+        existing.status !== 'PUBLISHED' ||
+        (sanitizedTitle !== undefined && sanitizedTitle !== existing.title) ||
+        (sanitizedContent !== undefined && sanitizedContent !== (existing.content ?? null))
+      );
 
     const updated = await prisma.article.update({
       where: { id },
@@ -153,11 +171,11 @@ router.put('/:id', async (req, res, next) => {
       select: { id: true, slug: true },
     });
 
-    // 🧠 RAG: Async Queue (BullMQ)
-    // On met à jour l'article, donc on demande de refaire l'embedding
-    embeddingQueue.add('generate-vector', { articleId: updated.id }).catch(err =>
-      logger.error('Queue Add Failed', { error: err.message })
-    );
+    if (shouldQueueEmbedding) {
+      embeddingQueue.add('generate-vector', { articleId: updated.id }).catch(err =>
+        logger.error('Queue Add Failed', { error: err.message, articleId: updated.id })
+      );
+    }
 
     res.json(updated);
   } catch (e) {
@@ -1096,15 +1114,15 @@ router.post('/', async (req, res, next) => {
       },
     });
 
-    // 🧠 RAG: Async Queue (BullMQ)
-    // On délègue le travail lourd au worker
-    embeddingQueue.add('generate-vector', {
-      articleId: created.id,
-      // Le content est passé pour info/debug dans le job, mais le worker refetchera la DB pour être sûr
-      contentSize: safeContent?.length
-    }).catch(err =>
-      logger.error('Queue Add Failed', { error: err.message })
-    );
+    if (statusValue === 'PUBLISHED') {
+      embeddingQueue.add('generate-vector', {
+        articleId: created.id,
+        // Le content est passé pour info/debug dans le job, mais le worker refetchera la DB pour être sûr
+        contentSize: safeContent?.length
+      }).catch(err =>
+        logger.error('Queue Add Failed', { error: err.message, articleId: created.id })
+      );
+    }
 
     res.status(201).json(created);
   } catch (err) {

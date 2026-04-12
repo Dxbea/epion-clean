@@ -3,7 +3,7 @@
 import React from 'react';
 import { useNavigate, useParams, useLocation } from 'react-router-dom';
 import ChatSidebar from '@/components/chat/ChatSidebar';
-import ChatInput from '@/components/chat/ChatInput';
+import ChatInput, { type UploadedFile } from '@/components/chat/ChatInput';
 import ChatMessage from '@/components/chat/ChatMessage';
 import ReasoningLoader from '@/components/ui/ReasoningLoader';
 import { ThinkingProcess } from '@/components/chat/ThinkingProcess';
@@ -15,15 +15,6 @@ import FolderPanel from '@/components/chat/FolderPanel';
 import { createPortal } from 'react-dom';
 import { useMe } from '@/contexts/MeContext';
 import { useAuthPrompt } from '@/contexts/AuthPromptContext';
-
-export type UploadedFile = {
-  id: string;
-  name: string;
-  size: number;
-  type: string;
-  url: string;
-  isImage: boolean;
-};
 
 export default function ChatSession() {
   const nav = useNavigate();
@@ -252,7 +243,7 @@ export default function ChatSession() {
 
     // 4) cas normal : session existante + user vérifié
     try {
-      await sendMessage(id, text, apiModel, apiMode, {
+      await sendMessage(id, text, attachments, apiModel, apiMode, {
         sourceRestricted,
         neutralityForced,
         timeRecent,

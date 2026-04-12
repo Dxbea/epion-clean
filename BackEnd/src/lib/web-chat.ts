@@ -1,10 +1,9 @@
 import OpenAI from 'openai';
-import { tavily } from '@tavily/core';
 import { ChatOptions } from '../types/chat';
 import { logger } from './logger';
+import { investigateArticle } from './live-analysis/fact-investigator';
 
 const openai = new OpenAI({ apiKey: process.env.OPENAI_API_KEY });
-const tvly = tavily({ apiKey: process.env.TAVILY_API_KEY || '' });
 
 const ACCREDITED_MEDIA_DOMAINS = new Set([
     'afp.com',
@@ -47,6 +46,8 @@ export interface WebSearchSource {
     publishedDate?: string;
     score: number;
     favicon?: string;
+    provider?: 'web' | 'rag';
+    articleSlug?: string;
 }
 
 interface SearchWebContextOptions {
@@ -87,14 +88,16 @@ Epion n'utilise pas de listes blanches statiques, mais une analyse dynamique en 
 Tu scannes les aspects techniques, éditoriaux et sémantiques de chaque source citée pour calculer un score de fiabilité unique (0-100%).
 
 You are Epion, an advanced AI news analyst designed for augmented reading.
-Your goal is to provide answers that are factually rigorous, neutral, and strictly grounded in provided sources.
+Your goal is to provide answers that are helpful, fluent, transparent, and grounded in provided sources when they are relevant.
 
 # CORE DIRECTIVES
 
-1. **STRICT SOURCE GROUNDING**
+1. **SOURCE USAGE**
    * You will be provided with a set of live search results inside \`<context>\`.
-   * Answer the user's question using only the information found in these results.
-   * If the answer is not in the context, state clearly: "Information not available in the consulted sources."
+   * Use these results when they are relevant to the user's question.
+   * If the context is partial, noisy, or missing, stay helpful and answer naturally with clear transparency.
+   * If the user is simply chatting, answer normally without sounding like a search engine.
+   * If the user provides an image or document, prioritize analysis of that attachment.
 
 2. **CITATION PROTOCOL**
    * Every factual claim must be followed by a citation index in brackets, e.g. \`[1]\`, \`[2]\`.
@@ -111,8 +114,8 @@ Your goal is to provide answers that are factually rigorous, neutral, and strict
    * Use short paragraphs and bullet points when useful.
 
 5. **SAFETY**
-   * No speculation without sourced support.
-   * No outside knowledge for current events.
+   * Do not invent support that is not present in the sources.
+   * If you rely partly on general knowledge, mention it naturally.
 
 # OUTPUT LANGUAGE
 Answer in the same language as the user question.`;
@@ -133,19 +136,123 @@ function normalizeDomain(inputUrl: string): string {
     }
 }
 
+function getDomainKeyFromSource(source: Pick<WebSearchSource, 'url'>): string {
+    try {
+        return new URL(source.url).hostname.replace(/^www\./, '');
+    } catch {
+        return 'unknown';
+    }
+}
+
+function normalizeRootDomain(input: string): string {
+    const rawValue = input.trim().toLowerCase();
+    const hostname = rawValue.includes('://')
+        ? new URL(rawValue).hostname.toLowerCase()
+        : rawValue;
+    const normalized = hostname.replace(/^www\./, '');
+    const parts = normalized.split('.').filter(Boolean);
+
+    if (parts.length <= 2) {
+        return normalized;
+    }
+
+    const lastTwo = parts.slice(-2).join('.');
+    const specialSecondLevelSuffixes = new Set([
+        'ac.uk',
+        'co.jp',
+        'co.uk',
+        'com.au',
+        'com.br',
+        'com.mx',
+        'gov.au',
+        'gov.uk',
+        'gouv.fr',
+        'net.au',
+        'org.au',
+        'org.uk',
+    ]);
+
+    if (specialSecondLevelSuffixes.has(lastTwo)) {
+        return parts.slice(-3).join('.');
+    }
+
+    return lastTwo;
+}
+
+function selectSourcesForLlm(
+    sources: WebSearchSource[],
+    limit: number,
+): WebSearchSource[] {
+    const sorted = [...sources].sort((a, b) => b.score - a.score);
+    const seenDomains = new Set<string>();
+    const selected: WebSearchSource[] = [];
+    const overflow: WebSearchSource[] = [];
+
+    for (const source of sorted) {
+        const domainKey = getDomainKeyFromSource(source);
+        if (!seenDomains.has(domainKey)) {
+            seenDomains.add(domainKey);
+            selected.push(source);
+        } else {
+            overflow.push(source);
+        }
+    }
+
+    return [...selected, ...overflow].slice(0, limit);
+}
+
 function truncate(text: string, maxChars: number): string {
     if (text.length <= maxChars) return text;
     return `${text.slice(0, maxChars)}\n[... truncated ...]`;
 }
 
+export function isConversationalQuery(query: string): boolean {
+    const normalized = query.trim().toLowerCase();
+    if (!normalized) {
+        return true;
+    }
+
+    const shortGreetings = new Set([
+        'salut',
+        'hello',
+        'hi',
+        'hey',
+        'bonjour',
+        'bonsoir',
+        'coucou',
+        'yo',
+        'ca va',
+        'comment ca va',
+        'comment vas-tu',
+        'merci',
+        'thank you',
+        'thanks',
+    ]);
+
+    if (shortGreetings.has(normalized)) {
+        return true;
+    }
+
+    return normalized.split(/\s+/).length <= 4 && /^(salut|bonjour|bonsoir|hello|hi|hey|coucou|merci|thanks)\b/.test(normalized);
+}
+
 function isInstitutionalOrAccredited(domain: string): boolean {
+    const normalizedDomain = normalizeRootDomain(domain);
     return (
-        domain.endsWith('.gov') ||
-        domain.endsWith('.gouv.fr') ||
-        domain.endsWith('.edu') ||
-        domain.includes('.ac.') ||
-        ACCREDITED_MEDIA_DOMAINS.has(domain)
+        normalizedDomain.endsWith('.gov') ||
+        normalizedDomain.endsWith('.gouv.fr') ||
+        normalizedDomain.endsWith('.edu') ||
+        normalizedDomain.includes('.ac.') ||
+        ACCREDITED_MEDIA_DOMAINS.has(normalizedDomain)
     );
+}
+
+function isInternalKnowledgeSource(url: string, domain: string): boolean {
+    if (domain === 'epion.io' || domain.endsWith('.epion.io')) {
+        return true;
+    }
+
+    return url.startsWith('/article/');
 }
 
 export function normalizeWebSearchProfile(profile?: string): WebSearchProfile {
@@ -231,56 +338,80 @@ export async function searchWebContext(
     query: string,
     options: SearchWebContextOptions = {},
 ): Promise<WebSearchSource[]> {
-    if (!process.env.TAVILY_API_KEY) {
-        throw new Error('TAVILY_API_KEY missing');
+    const trimmedQuery = query.trim();
+    if (!trimmedQuery) {
+        return [];
+    }
+
+    if (isConversationalQuery(trimmedQuery)) {
+        logger.debug('Skipping web context search for conversational query', {
+            module: 'WebChat',
+            query: trimmedQuery,
+        });
+        return [];
     }
 
     const profile = normalizeWebSearchProfile(options.profile);
     const chatOptions = { ...defaultChatOptions(), ...options.chatOptions };
-
-    const response = await tvly.search(query, {
-        searchDepth: profile === 'deep' ? 'advanced' : 'basic',
-        topic: chatOptions.recentEvents ? 'news' : 'general',
-        timeRange: chatOptions.recentEvents ? 'd' : undefined,
-        days: chatOptions.recentEvents ? 2 : undefined,
-        includeRawContent: 'text',
-        includeFavicon: true,
-        includeAnswer: false,
-        maxResults: options.maxResults ?? (profile === 'deep' ? 8 : 5),
-        autoParameters: true,
+    logger.info('Starting web context investigation', {
+        module: 'WebChat',
+        query: trimmedQuery,
+        profile,
     });
+    const investigation = await investigateArticle(trimmedQuery, trimmedQuery);
+    const maxResults = options.maxResults ?? (profile === 'deep' ? 8 : 5);
 
     const seenUrls = new Set<string>();
-    const mapped = (response.results || [])
-        .map((result) => {
-            const domain = normalizeDomain(result.url);
-            const rawContent = (result.rawContent || result.content || '').trim();
+    const deduped = (investigation.sources || [])
+        .map((source) => {
+            const domain = source.url ? normalizeDomain(source.url) : normalizeDomain(source.domain || '');
+            const rawContent = source.content.trim();
+            const provider = source.provider || (isInternalKnowledgeSource(source.url, domain) ? 'rag' : 'web');
 
             return {
-                title: result.title || domain,
-                url: result.url,
+                title: source.title || domain,
+                url: source.url,
                 domain,
-                content: truncate(rawContent || result.content || '', 2200),
-                publishedDate: result.publishedDate || undefined,
-                score: result.score || 0,
-                favicon: result.favicon,
+                content: truncate(rawContent, 2200),
+                publishedDate: source.publishedDate || undefined,
+                score: source.score || 0,
+                provider,
+                articleSlug: source.articleSlug,
             } satisfies WebSearchSource;
         })
         .filter((result) => {
             if (!result.url || seenUrls.has(result.url)) return false;
             seenUrls.add(result.url);
             if (result.content.length < 50) return false;
-            if (chatOptions.filterSources && !isInstitutionalOrAccredited(result.domain)) {
-                return false;
-            }
             return true;
-        })
-        .sort((a, b) => b.score - a.score);
+        });
+    const strictEligible = deduped.filter((result) =>
+        !chatOptions.filterSources
+        || isInstitutionalOrAccredited(result.domain)
+        || result.provider === 'rag'
+        || isInternalKnowledgeSource(result.url, result.domain),
+    );
+    const strictSelected = selectSourcesForLlm(strictEligible, maxResults);
+
+    let mapped = strictSelected;
+
+    if (mapped.length < maxResults) {
+        const selectedUrls = new Set(mapped.map((source) => source.url));
+        const backfillPool = deduped.filter((source) => !selectedUrls.has(source.url));
+        mapped = selectSourcesForLlm(
+            [...mapped, ...backfillPool],
+            maxResults,
+        );
+    }
 
     logger.info(`Web context search completed with ${mapped.length} sources`, {
         module: 'WebChat',
         profile,
-        query,
+        query: trimmedQuery,
+        provider: 'fact-investigator+serper',
+        strictEligibleCount: strictEligible.length,
+        dedupedCount: deduped.length,
+        domains: mapped.map((source) => source.domain),
     });
 
     return mapped;
@@ -291,7 +422,7 @@ export function formatWebSourcesForPrompt(
     maxCharsPerSource = 1400,
 ): string {
     if (sources.length === 0) {
-        return '[No web source available]';
+        return '[No relevant external or internal source was attached to this answer.]';
     }
 
     return sources
@@ -308,11 +439,14 @@ ${date}Content: ${truncate(source.content, maxCharsPerSource)}`;
 export function mapWebSourcesToUiSources(sources: WebSearchSource[]) {
     return sources.map((source, index) => {
         const score = Math.max(30, Math.min(100, Math.round(source.score * 100)));
+        const isInternal = source.provider === 'rag' || isInternalKnowledgeSource(source.url, source.domain);
         const type = source.domain.endsWith('.gov') || source.domain.endsWith('.gouv.fr')
             ? 'GOVERNMENT'
             : source.domain.endsWith('.edu') || source.domain.includes('.ac.')
                 ? 'ACADEMIC'
-                : 'MEDIA';
+                : isInternal
+                    ? 'DATABASE'
+                    : 'MEDIA';
 
         return {
             id: index + 1,
@@ -324,10 +458,14 @@ export function mapWebSourcesToUiSources(sources: WebSearchSource[]) {
             score,
             confidence: score >= 80 ? 'HIGH' : score >= 60 ? 'MEDIUM' : 'LOW',
             description: truncate(source.content, 220),
-            justification: `Source web trouvée via Tavily sur ${source.domain}.`,
+            justification: isInternal
+                ? `Source interne Epion retrouvée via le RAG sur ${source.domain}.`
+                : `Source web trouvée via Serper sur ${source.domain}.`,
             metadata: {
                 publishedDate: source.publishedDate,
-                tavilyScore: source.score,
+                searchScore: source.score,
+                provider: isInternal ? 'rag' : 'serper',
+                articleSlug: source.articleSlug,
             },
         };
     });
@@ -374,7 +512,7 @@ export async function callWebSearchLLM(
     }
 
     if (shouldSearch) {
-        systemParts.push(`Use the following live Tavily context for all current factual claims.
+        systemParts.push(`Use the following live web search context for all current factual claims.
 
 <context>
 ${formatWebSourcesForPrompt(sources)}

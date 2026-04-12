@@ -6,6 +6,23 @@ import { useMe } from '@/contexts/MeContext';
 
 export type Rigor = 'fast' | 'balanced' | 'precise';
 
+export type ChatAttachmentMetadata = {
+  kind: 'pdf' | 'image';
+  name: string;
+  size: number;
+  type: string;
+  previewUrl?: string;
+};
+
+export type SendAttachment = {
+  name: string;
+  size: number;
+  type: string;
+  isImage: boolean;
+  url: string;
+  file: File;
+};
+
 export type ChatSessionItem = {
   id: string;
   title: string;
@@ -230,6 +247,7 @@ export function useChatSession(sessionId?: string) {
     async (
       id: string,
       content: string,
+      attachments?: SendAttachment[],
       model?: string,
       mode?: Rigor,
       options?: {
@@ -256,12 +274,24 @@ export function useChatSession(sessionId?: string) {
       const tempUserId = me?.id || `guest-${Date.now()}`;
       const tempAiId = `temp-ai-${Date.now()}`;
       const now = new Date().toISOString();
+      const optimisticAttachments: ChatAttachmentMetadata[] = (attachments || []).map((attachment) => ({
+        kind: attachment.isImage ? 'image' : 'pdf',
+        name: attachment.name,
+        size: attachment.size,
+        type: attachment.type,
+        previewUrl: attachment.url,
+      }));
 
       const userMsg: ChatMessageItem = {
         id: tempUserId,
         role: 'user',
         content,
         createdAt: now,
+        metadata: optimisticAttachments.length > 0
+          ? {
+            attachments: optimisticAttachments,
+          }
+          : undefined,
       };
 
       const aiMsg: ChatMessageItem = {
@@ -284,11 +314,33 @@ export function useChatSession(sessionId?: string) {
       }
 
       try {
-        const init = await withCsrf({
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ content, model, mode, ...options }),
-        });
+        const attachment = attachments?.[0];
+        const hasAttachment = Boolean(attachment?.file);
+
+        let init: RequestInit;
+        if (hasAttachment && attachment) {
+          const formData = new FormData();
+          formData.append('content', content);
+          if (model) formData.append('model', model);
+          if (mode) formData.append('mode', mode);
+          if (options?.sourceRestricted !== undefined) formData.append('sourceRestricted', String(options.sourceRestricted));
+          if (options?.neutralityForced !== undefined) formData.append('neutralityForced', String(options.neutralityForced));
+          if (options?.timeRecent !== undefined) formData.append('timeRecent', String(options.timeRecent));
+          if (options?.responseStyle) formData.append('responseStyle', options.responseStyle);
+          if (options?.attachedContext !== undefined) formData.append('attachedContext', JSON.stringify(options.attachedContext));
+          formData.append('file', attachment.file, attachment.name);
+
+          init = await withCsrf({
+            method: 'POST',
+            body: formData,
+          });
+        } else {
+          init = await withCsrf({
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ content, model, mode, ...options }),
+          });
+        }
 
         const res = await fetch(
           `${API_BASE}/api/chat/sessions/${id}/messages`,
