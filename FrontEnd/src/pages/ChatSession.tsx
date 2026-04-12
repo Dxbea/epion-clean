@@ -5,9 +5,7 @@ import { useNavigate, useParams, useLocation } from 'react-router-dom';
 import ChatSidebar from '@/components/chat/ChatSidebar';
 import ChatInput, { type UploadedFile } from '@/components/chat/ChatInput';
 import ChatMessage from '@/components/chat/ChatMessage';
-import ReasoningLoader from '@/components/ui/ReasoningLoader';
-import { ThinkingProcess } from '@/components/chat/ThinkingProcess';
-import { LiveAuditLog } from '@/components/chat/LiveAuditLog';
+import { SearchProgress } from '@/components/chat/SearchProgress';
 import SystemCardModal from '@/components/chat/SystemCardModal';
 import { type Rigor } from '@/utils/rigorLevels';
 import { useChatSession } from '@/hooks/useChatSession';
@@ -34,6 +32,7 @@ export default function ChatSession() {
     messages,
     loading,
     thinking,
+    currentActions,
     createSession,
     deleteSession,
     sendMessage,
@@ -311,6 +310,8 @@ export default function ChatSession() {
   */
 
   const empty = !messages.length;
+  // Déterminer s'il y a un message AI en cours de rédaction
+  const isGeneratingText = messages.some(m => m.role === 'assistant' && m.id.startsWith('temp-ai') && m.content.length > 0);
 
   return (
     <div
@@ -389,10 +390,9 @@ export default function ChatSession() {
                     </React.Fragment>
                   ))}
 
-                  {(thinking || loading) && (
-                    <div className="max-w-2xl mx-auto mt-8 w-full">
-                      <ThinkingProcess />
-                      <LiveAuditLog />
+                  {(thinking || loading) && !isGeneratingText && (
+                    <div className="max-w-2xl mx-auto mt-6 mb-2 w-full flex justify-center">
+                      <SearchProgress actions={currentActions} />
                     </div>
                   )}
                 </div>

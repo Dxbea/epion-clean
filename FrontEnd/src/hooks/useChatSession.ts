@@ -91,6 +91,7 @@ export function useChatSession(sessionId?: string) {
   const [messages, setMessages] = React.useState<ChatMessageItem[]>([]);
   const [loading, setLoading] = React.useState(false);
   const [thinking, setThinking] = React.useState(false);
+  const [currentActions, setCurrentActions] = React.useState<string[]>([]);
   const { me } = useMe();
 
   // ------ Sessions
@@ -259,6 +260,7 @@ export function useChatSession(sessionId?: string) {
       }
     ) => {
       setThinking(true);
+      setCurrentActions([]);
 
       if (!me) {
         setThinking(false);
@@ -366,26 +368,107 @@ export function useChatSession(sessionId?: string) {
         const reader = res.body.getReader();
         const decoder = new TextDecoder('utf-8');
 
-        let accumulated = '';
+        let rawAccumulator = '';
+        let sseBuffer = '';
 
         while (true) {
           const { done, value } = await reader.read();
           if (done) break;
 
-          const chunk = decoder.decode(value, { stream: true });
-          accumulated += chunk;
+          const chunkText = decoder.decode(value, { stream: true });
+          sseBuffer += chunkText;
+
+          const parts = sseBuffer.split('\n\n');
+          sseBuffer = parts.pop() || '';
+
+          const events: any[] = [];
+          for (const part of parts) {
+            if (part.startsWith('data: ')) {
+              const dataStr = part.slice(6).trim();
+              if (dataStr) {
+                try {
+                  events.push(JSON.parse(dataStr));
+                } catch (e) {
+                  // Ignore invalid JSON parsing error
+                }
+              }
+            } else {
+              // It's raw text
+              rawAccumulator += part;
+              // Re-add the \n\n if this wasn't an event, since it was split
+              rawAccumulator += '\n\n';
+            }
+          }
+          
+          let latestAction = null;
+          let latestEnrichment = null;
+
+          for (const ev of events) {
+            if (ev.type === 'status') {
+              latestAction = ev.message;
+              setCurrentActions(prev => prev.includes(ev.message) ? prev : [...prev, ev.message]);
+            } else if (ev.type === 'enrichment') {
+              latestEnrichment = ev;
+            } else if (ev.type === 'text') {
+              // In case backend ever switches to wrapped text
+              rawAccumulator += ev.content || '';
+            }
+          }
 
           // Live Update UI
           setMessages((prev) =>
             prev.map((m) =>
-              m.id === tempAiId ? { ...m, content: accumulated } : m
+              m.id === tempAiId ? { 
+                ...m, 
+                content: rawAccumulator + (sseBuffer.startsWith('data: ') ? '' : sseBuffer),
+                sources: latestEnrichment ? latestEnrichment.sources : m.sources,
+                metadata: {
+                  ...m.metadata,
+                  currentAction: latestAction || m.metadata?.currentAction,
+                  ...(latestEnrichment ? { 
+                    factScore: latestEnrichment.sourcesMean 
+                  } : {})
+                }
+              } : m
             )
           );
         }
 
-        // 3. Sync finished (Optional: Fetch real message to get ID and Metadata/Sources)
-        // Since backend saves logic at the end, we can reload or just keep optimistic for now.
-        // For better experience (citations), we should reload messages silently.
+        // Process any remaining SSE buffer that wasn't terminated with \n\n
+        if (sseBuffer.trim()) {
+          if (sseBuffer.trim().startsWith('data: ')) {
+            const dataStr = sseBuffer.trim().slice(6).trim();
+            if (dataStr) {
+              try {
+                const ev = JSON.parse(dataStr);
+                if (ev.type === 'enrichment') {
+                  setMessages((prev) =>
+                    prev.map((m) =>
+                      m.id === tempAiId ? {
+                        ...m,
+                        sources: ev.sources,
+                        metadata: {
+                          ...m.metadata,
+                          factScore: ev.sourcesMean,
+                        }
+                      } : m
+                    )
+                  );
+                }
+              } catch (e) { /* ignore */ }
+            }
+          } else {
+            rawAccumulator += sseBuffer;
+            setMessages((prev) =>
+              prev.map((m) =>
+                m.id === tempAiId ? { ...m, content: rawAccumulator } : m
+              )
+            );
+          }
+        }
+
+        // 3. Sync finished — small delay to ensure backend DB write has committed
+        await new Promise(resolve => setTimeout(resolve, 300));
         loadMessages(id).catch(() => { });
         listSessions().catch(() => { });
 
@@ -416,6 +499,7 @@ export function useChatSession(sessionId?: string) {
     messages,
     loading,
     thinking,
+    currentActions,
     listSessions,
     loadMessages,
     createSession,

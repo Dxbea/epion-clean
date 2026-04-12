@@ -814,9 +814,13 @@ CONSIGNES DE RÉPONSE :
       // Phase 1: Web search (must complete before LLM prompt + enrichment)
       let webSources: Awaited<ReturnType<typeof searchWebContext>> = [];
       try {
+        try { res.write(`data: ${JSON.stringify({ type: 'status', message: 'Analyse de votre question...' })}\n\n`); } catch(_) {}
         webSources = await searchWebContext(effectiveQuery, {
           profile: webProfile,
           chatOptions,
+          onProgress: (msg) => {
+            try { res.write(`data: ${JSON.stringify({ type: 'status', message: msg })}\n\n`); } catch (_) {}
+          }
         });
       } catch (searchErr: any) {
         logger.error('Web search failed', {
@@ -834,10 +838,13 @@ CONSIGNES DE RÉPONSE :
       }
 
       // Phase 2: Fire enrichment in background (decoupled from LLM stream)
+      try { res.write(`data: ${JSON.stringify({ type: 'status', message: 'Vérification des sources...' })}\n\n`); } catch(_) {}
+      logger.info('Starting enrichment pipeline', { module: 'Chat', webSourceCount: webSources.length, domains: webSources.map(s => s.domain) });
       const enrichmentPromise = enrichChatSources(webSources).catch((err) => {
         logger.error('Enrichment pipeline failed', {
           module: 'Chat',
           error: err instanceof Error ? err.message : 'Unknown enrichment error',
+          stack: err instanceof Error ? err.stack : undefined,
           userId,
           sessionId,
         });
@@ -869,6 +876,7 @@ ${formatWebSourcesForPrompt(webSources)}
       ];
 
       try {
+        try { res.write(`data: ${JSON.stringify({ type: 'status', message: 'Synthèse des informations...' })}\n\n`); } catch(_) {}
         // Stream LLM response to client
         const llmStream = await openai.chat.completions.create({
           model: modelName,
@@ -908,6 +916,7 @@ ${formatWebSourcesForPrompt(webSources)}
         if (enrichmentResult) {
           sources = enrichmentResult.sources;
           sourcesMean = enrichmentResult.sourcesMean;
+          logger.info('Enrichment succeeded', { module: 'Chat', sourceCount: sources.length, sourcesMean });
 
           // Send enrichment data as a final SSE-style event
           try {
@@ -916,11 +925,43 @@ ${formatWebSourcesForPrompt(webSources)}
             logger.debug('Client disconnected before enrichment event could be sent', { userId });
           }
         } else {
-          logger.warn('Enrichment unavailable, proceeding without enriched sources', {
+          // Enrichment failed/timed out — use webSources as fallback for DB save
+          // so the frontend can at least display SOMETHING
+          sources = webSources.map((s, i) => ({
+            id: i + 1,
+            name: s.title || s.domain,
+            domain: s.domain,
+            url: s.url,
+            logo: `https://www.google.com/s2/favicons?domain=${s.domain}&sz=64`,
+            category: 'MEDIA',
+            type: 'MEDIA',
+            score: Math.max(30, Math.min(100, Math.round(s.score * 100))),
+            trustScore: Math.max(30, Math.min(100, Math.round(s.score * 100))),
+            confidence: 'MEDIUM' as const,
+            description: s.content.slice(0, 220) || null,
+            justification: `Source web issue de Serper sur ${s.domain}.`,
+            dbScore: 50,
+            metadata: {
+              provider: s.provider === 'rag' ? 'rag' as const : 'serper' as const,
+              publishedDate: s.publishedDate,
+              searchScore: s.score,
+              dbScore: 50,
+            },
+          }));
+          const fallbackScores = sources.map((s: any) => s.trustScore).filter((n: any) => typeof n === 'number');
+          sourcesMean = fallbackScores.length > 0 ? Math.round(fallbackScores.reduce((a: number, b: number) => a + b, 0) / fallbackScores.length) : 50;
+          logger.warn('Enrichment unavailable, using fallback sources for DB', {
             module: 'Chat',
             userId,
             sessionId,
+            fallbackSourceCount: sources.length,
+            fallbackSourcesMean: sourcesMean,
           });
+
+          // Still send the fallback sources to frontend
+          try {
+            res.write(`\n\ndata: ${JSON.stringify({ type: 'enrichment', sources, sourcesMean })}\n\n`);
+          } catch (_) {}
         }
       } catch (err: any) {
         logger.error('Web chat pipeline failed', {
@@ -946,7 +987,7 @@ ${formatWebSourcesForPrompt(webSources)}
       diversityPenalty = uniqueDomains >= 3 ? 0 : uniqueDomains === 2 ? 4 : 8;
       finalGlobalScore = Math.max(
         0,
-        Math.min(100, Math.round((sourcesMean * 0.75) + (outputScore * 0.25) - diversityPenalty))
+        Math.min(100, Math.round((sourcesMean * 0.75) + (outputScore * 0.25)))
       );
     }
 

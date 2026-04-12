@@ -3,12 +3,10 @@ import { extractArticle } from '../extractor';
 import { searchInternalSources } from '../rag-service';
 import { searchSerper, type SerperSearchResult } from '../serper';
 import { classifyAndRoute } from './smart-router';
-import { FactCheckContext, FactCheckSource } from './types';
+import { FactCheckContext, FactCheckSource, RoutingDecision } from './types';
+import { extractRelevantPassages } from '../chunking';
 
-const MAX_SOURCES = 10;
-const MAX_CONTENT_CHARS = 3000;
-const MIN_CONTENT_CHARS = 50;
-const MAX_SOURCES_PER_DOMAIN = 2;
+const MAX_SOURCES_PER_DOMAIN = 3;
 
 function getDomainKeyFromUrl(url: string): string {
     try {
@@ -45,11 +43,7 @@ function selectSourcesWithDomainCap<T extends { url: string; score: number }>(
 }
 
 function truncateContent(content: string): string {
-    if (content.length <= MAX_CONTENT_CHARS) {
-        return content;
-    }
-
-    return `${content.slice(0, MAX_CONTENT_CHARS)}\n[... contenu tronque ...]`;
+    return content; // WE NOW KEEP EVERYTHING UNTRUNCATED SO CHUNKER SEES ALL
 }
 
 function mapSearchResult(result: SerperSearchResult): FactCheckSource | null {
@@ -78,10 +72,6 @@ async function extractSearchResult(result: SerperSearchResult): Promise<FactChec
     try {
         const extracted = await extractArticle(url);
         const content = truncateContent((extracted.content || '').trim());
-
-        if (content.length < MIN_CONTENT_CHARS) {
-            return null;
-        }
 
         return {
             url,
@@ -127,9 +117,15 @@ async function loadInternalFallbackSources(query: string, limit: number): Promis
 
 async function runSearchLane(
     label: 'FACTUAL' | 'CRITICAL' | 'CONTEXTUAL',
-    query: string,
+    routingDecision: RoutingDecision,
     maxResults: number,
+    onProgress?: (msg: string) => void
 ): Promise<FactCheckSource[]> {
+    const query = label === 'FACTUAL' ? routingDecision.query_factual
+                : label === 'CRITICAL' ? routingDecision.query_critical
+                : routingDecision.query_contextual;
+    const queries = [routingDecision.query_factual, routingDecision.query_critical, routingDecision.query_contextual].filter(Boolean);
+
     const rawResults = await searchSerper(query, {
         maxResults: Math.max(maxResults * 3, maxResults),
         gl: 'fr',
@@ -150,13 +146,28 @@ async function runSearchLane(
         .slice(0, Math.max(maxResults * 2, maxResults + 3));
 
     const extractedResults = await Promise.all(
-        candidatePool.map(async (candidate) => extractSearchResult({
-            title: candidate.title,
-            url: candidate.url,
-            content: candidate.content,
-            publishedDate: candidate.publishedDate,
-            score: candidate.score,
-        })),
+        candidatePool.map(async (candidate) => {
+            if (onProgress) {
+                const domain = getDomainKeyFromUrl(candidate.url);
+                onProgress(`Lecture de la source ${domain}...`);
+            }
+            const extracted = await extractSearchResult({
+                title: candidate.title,
+                url: candidate.url,
+                content: candidate.content,
+                publishedDate: candidate.publishedDate,
+                score: candidate.score,
+            });
+
+            if (!extracted) return null;
+
+            const chunkedContent = extractRelevantPassages(extracted.title, extracted.content, queries);
+            
+            if (!chunkedContent) return null; // No relevant paragraphs, discard
+
+            extracted.content = chunkedContent; // Replaces entire content with chunked version
+            return extracted;
+        }),
     );
 
     const laneResults = extractedResults
@@ -176,6 +187,7 @@ async function runSearchLane(
 export async function investigateArticle(
     title: string,
     content: string,
+    onProgress?: (msg: string) => void
 ): Promise<FactCheckContext> {
     logger.info(`Starting Serper investigation for: "${title.slice(0, 60)}..."`, {
         module: 'FactInvestigator',
@@ -184,15 +196,14 @@ export async function investigateArticle(
     const routingDecision = await classifyAndRoute(title, content);
 
     logger.info('Starting Serper source collection', {
-        module: 'FactInvestigator',
-        maxSources: MAX_SOURCES,
+        module: 'FactInvestigator'
     });
 
     try {
         const searchResults = await Promise.all([
-            runSearchLane('FACTUAL', routingDecision.query_factual, 5),
-            runSearchLane('CRITICAL', routingDecision.query_critical, 5),
-            runSearchLane('CONTEXTUAL', routingDecision.query_contextual, 5),
+            runSearchLane('FACTUAL', routingDecision, 10, onProgress),
+            runSearchLane('CRITICAL', routingDecision, 10, onProgress),
+            runSearchLane('CONTEXTUAL', routingDecision, 10, onProgress),
         ]);
 
         const seenUrls = new Set<string>();
@@ -209,12 +220,12 @@ export async function investigateArticle(
             }
         }
 
-        let finalSources = selectSourcesWithDomainCap(allSources, MAX_SOURCES, MAX_SOURCES_PER_DOMAIN);
+        let finalSources = selectSourcesWithDomainCap(allSources, 50, MAX_SOURCES_PER_DOMAIN); // No harsh limit, just cap at 50
 
-        if (finalSources.length < MAX_SOURCES) {
+        if (finalSources.length < 15) { // Fallback condition relaxed
             const internalFallback = await loadInternalFallbackSources(
                 routingDecision.query_factual || title,
-                MAX_SOURCES - finalSources.length,
+                10,
             );
 
             for (const source of internalFallback) {
@@ -222,11 +233,15 @@ export async function investigateArticle(
                     continue;
                 }
 
-                seenUrls.add(source.url);
-                finalSources.push(source);
+                const chunked = extractRelevantPassages(source.title, source.content, [routingDecision.query_factual, routingDecision.query_critical, routingDecision.query_contextual].filter(Boolean));
+                if (chunked) {
+                    source.content = chunked;
+                    seenUrls.add(source.url);
+                    finalSources.push(source);
+                }
             }
 
-            finalSources = selectSourcesWithDomainCap(finalSources, MAX_SOURCES, MAX_SOURCES_PER_DOMAIN);
+            finalSources = selectSourcesWithDomainCap(finalSources, 50, MAX_SOURCES_PER_DOMAIN);
         }
 
         logger.info(`Serper investigation complete: ${finalSources.length} sources`, {

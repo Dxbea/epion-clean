@@ -54,6 +54,7 @@ interface SearchWebContextOptions {
     profile?: string;
     chatOptions?: Partial<ChatOptions>;
     maxResults?: number;
+    onProgress?: (message: string) => void;
 }
 
 interface CallWebSearchLLMOptions {
@@ -202,8 +203,7 @@ function selectSourcesForLlm(
 }
 
 function truncate(text: string, maxChars: number): string {
-    if (text.length <= maxChars) return text;
-    return `${text.slice(0, maxChars)}\n[... truncated ...]`;
+    return text; // NO LONGER TRUNCATE SINCE THE CHUNKER ALREADY FILTERED THE BEST
 }
 
 export function isConversationalQuery(query: string): boolean {
@@ -288,7 +288,8 @@ export function sanitizeWebChatMessages(messages: WebChatMessage[]): WebChatMess
 }
 
 export function generateWebSystemPrompt(mode: WebPromptMode, options: ChatOptions): string {
-    let instruction = BASE_IDENTITY;
+    const today = new Date().toLocaleDateString('fr-FR', { weekday: 'long', year: 'numeric', month: 'long', day: 'numeric' });
+    let instruction = `${BASE_IDENTITY}\n\n### CONTEXTE TEMPOREL\nLa date d'aujourd'hui est le ${today}. Utilise rigoureusement cette date pour interpréter les requêtes temporelles ("actuellement", "en ce moment", "aujourd'hui", "bientôt", etc.) et ancrer les informations des sources dans la réalité présente. Ne parle jamais d'années passées comme si elles étaient dans le futur.`;
 
     if (options.filterSources) {
         instruction += `
@@ -358,13 +359,19 @@ export async function searchWebContext(
         query: trimmedQuery,
         profile,
     });
-    const investigation = await investigateArticle(trimmedQuery, trimmedQuery);
+    if (options.onProgress) options.onProgress("Recherche des meilleures sources...");
+    const investigation = await investigateArticle(trimmedQuery, trimmedQuery, options.onProgress);
     const maxResults = options.maxResults ?? (profile === 'deep' ? 8 : 5);
 
+    if (options.onProgress && (investigation.sources || []).length > 0) {
+        options.onProgress(`Lecture de ${(investigation.sources || []).length} articles en temps réel...`);
+    }
+
     const seenUrls = new Set<string>();
-    const deduped = (investigation.sources || [])
+    const rawDeduped = (investigation.sources || [])
         .map((source) => {
-            const domain = source.url ? normalizeDomain(source.url) : normalizeDomain(source.domain || '');
+            const urlForDomain = source.url || '';
+            const domain = normalizeDomain(urlForDomain) || source.domain || '';
             const rawContent = source.content.trim();
             const provider = source.provider || (isInternalKnowledgeSource(source.url, domain) ? 'rag' : 'web');
 
@@ -372,7 +379,7 @@ export async function searchWebContext(
                 title: source.title || domain,
                 url: source.url,
                 domain,
-                content: truncate(rawContent, 2200),
+                content: rawContent,
                 publishedDate: source.publishedDate || undefined,
                 score: source.score || 0,
                 provider,
@@ -385,23 +392,43 @@ export async function searchWebContext(
             if (result.content.length < 50) return false;
             return true;
         });
+
+    function getRootDomain(hostname: string): string {
+        const parts = hostname.split('.');
+        if (parts.length <= 2) return hostname;
+        const lastTwo = parts.slice(-2).join('.');
+        if (['co.uk', 'gouv.fr', 'com.au', 'ac.uk', 'gov.uk'].includes(lastTwo)) {
+            return parts.slice(-3).join('.');
+        }
+        return lastTwo;
+    }
+
+    const dedupedByDomain: WebSearchSource[] = [];
+    const seenRootDomains = new Set<string>();
+
+    for (const source of rawDeduped) {
+        const root = getRootDomain(source.domain);
+        if (!seenRootDomains.has(root)) {
+            seenRootDomains.add(root);
+            dedupedByDomain.push(source);
+        }
+    }
+    const deduped = dedupedByDomain;
+
     const strictEligible = deduped.filter((result) =>
         !chatOptions.filterSources
         || isInstitutionalOrAccredited(result.domain)
         || result.provider === 'rag'
         || isInternalKnowledgeSource(result.url, result.domain),
     );
-    const strictSelected = selectSourcesForLlm(strictEligible, maxResults);
+    const strictSelected = strictEligible;
 
     let mapped = strictSelected;
 
-    if (mapped.length < maxResults) {
+    if (mapped.length < 15) {
         const selectedUrls = new Set(mapped.map((source) => source.url));
         const backfillPool = deduped.filter((source) => !selectedUrls.has(source.url));
-        mapped = selectSourcesForLlm(
-            [...mapped, ...backfillPool],
-            maxResults,
-        );
+        mapped = [...mapped, ...backfillPool.slice(0, 15)];
     }
 
     logger.info(`Web context search completed with ${mapped.length} sources`, {
@@ -431,7 +458,7 @@ export function formatWebSourcesForPrompt(
             return `[${index + 1}] Title: ${source.title}
 Domain: ${source.domain}
 URL: ${source.url}
-${date}Content: ${truncate(source.content, maxCharsPerSource)}`;
+${date}Content: ${source.content}`; // WE DO NOT TRUNCATE CHUNKED CONTENT
         })
         .join('\n\n');
 }
