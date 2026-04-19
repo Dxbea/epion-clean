@@ -7,6 +7,7 @@ const log = logger.child({ module: 'Extractor' });
 export interface ExtractedDocument {
   title: string;
   content: string;
+  metaDescription?: string;
   author?: string;
   siteName?: string;
 }
@@ -26,6 +27,7 @@ interface CircuitBreakerState {
 const REQUEST_TIMEOUT_MS = 10_000;
 const PARSE_TIMEOUT_MS = 10_000;
 const MAX_HTML_PARSE_BYTES = 2_000_000;
+const EXTRACTION_CACHE_TTL_SECONDS = 3600;
 const CIRCUIT_BREAKER_THRESHOLD = 3;
 const CIRCUIT_BREAKER_COOLDOWN_MS = 60 * 60 * 1000;
 const CIRCUIT_BREAKER_KEY_PREFIX = 'news:extractor:circuit';
@@ -116,8 +118,63 @@ function normalizeHostname(url: string): string {
   return new URL(url).hostname.replace(/^www\./, '');
 }
 
+function getExtractionCacheKey(url: string): string {
+  return `ext:${encodeURIComponent(url)}`;
+}
+
 function getCircuitBreakerKey(hostname: string): string {
   return `${CIRCUIT_BREAKER_KEY_PREFIX}:${hostname}`;
+}
+
+async function readExtractionCache(
+  url: string,
+  context: ExtractLogContext = {},
+): Promise<ExtractedDocument | null> {
+  try {
+    const raw = await redis.get(getExtractionCacheKey(url));
+    if (!raw) {
+      return null;
+    }
+
+    const parsed = JSON.parse(raw) as Partial<ExtractedDocument>;
+    if (typeof parsed.title !== 'string' || typeof parsed.content !== 'string') {
+      return null;
+    }
+
+    return {
+      title: parsed.title,
+      content: parsed.content,
+      metaDescription: typeof parsed.metaDescription === 'string' ? parsed.metaDescription : undefined,
+      author: typeof parsed.author === 'string' ? parsed.author : undefined,
+      siteName: typeof parsed.siteName === 'string' ? parsed.siteName : undefined,
+    };
+  } catch (error: any) {
+    log.warn('Extraction cache read failed, continuing without cache', {
+      ...buildExtractorMeta(url, context),
+      error: error.message,
+    });
+    return null;
+  }
+}
+
+async function writeExtractionCache(
+  url: string,
+  document: ExtractedDocument,
+  context: ExtractLogContext = {},
+): Promise<void> {
+  try {
+    await redis.set(
+      getExtractionCacheKey(url),
+      JSON.stringify(document),
+      'EX',
+      EXTRACTION_CACHE_TTL_SECONDS,
+    );
+  } catch (error: any) {
+    log.warn('Extraction cache write failed, continuing without cache persistence', {
+      ...buildExtractorMeta(url, context),
+      error: error.message,
+    });
+  }
 }
 
 function getMemoryCircuitState(hostname: string): CircuitBreakerState {
@@ -414,6 +471,12 @@ async function parseWithReadability(
 
     try {
       try {
+        const metaDescription = collapseWhitespace(
+          document.querySelector('meta[name="description"]')?.getAttribute('content') ||
+          document.querySelector('meta[property="og:description"]')?.getAttribute('content') ||
+          '',
+        );
+
         const readabilityModule = await import('@mozilla/readability');
         const reader = new readabilityModule.Readability(document);
         const parsed = reader.parse();
@@ -422,6 +485,7 @@ async function parseWithReadability(
           return {
             title: collapseWhitespace(parsed.title || document.title || 'Untitled'),
             content: collapseWhitespace(parsed.textContent),
+            metaDescription: metaDescription || undefined,
             author: parsed.byline ? collapseWhitespace(parsed.byline) : undefined,
             siteName: parsed.siteName ? collapseWhitespace(parsed.siteName) : undefined,
           };
@@ -448,10 +512,16 @@ async function parseWithReadability(
       );
 
       const fallbackContent = collapseWhitespace(document.body?.textContent || '');
+      const fallbackMetaDescription = collapseWhitespace(
+        document.querySelector('meta[name="description"]')?.getAttribute('content') ||
+        document.querySelector('meta[property="og:description"]')?.getAttribute('content') ||
+        '',
+      );
 
       return {
         title: fallbackTitle,
         content: fallbackContent,
+        metaDescription: fallbackMetaDescription || undefined,
         author: fallbackAuthor || undefined,
         siteName: fallbackSiteName || undefined,
       };
@@ -470,6 +540,20 @@ export async function extractArticle(
 
   log.info('Extraction started', buildExtractorMeta(url, context, { hostname }));
 
+  const cachedDocument = await readExtractionCache(url, context);
+  if (cachedDocument) {
+    log.info('CACHE HIT', buildExtractorMeta(url, context, {
+      hostname,
+      elapsedMs: Date.now() - startedAt,
+      contentLength: cachedDocument.content.length,
+    }));
+    return cachedDocument;
+  }
+
+  log.debug('CACHE MISS', buildExtractorMeta(url, context, {
+    hostname,
+  }));
+
   await assertDomainAvailable(hostname, url, context);
 
   try {
@@ -487,6 +571,7 @@ export async function extractArticle(
     }
 
     await resetDomainFailures(hostname, url, context);
+    await writeExtractionCache(url, extracted, context);
 
     log.info('Extraction completed successfully', buildExtractorMeta(url, context, {
       hostname,

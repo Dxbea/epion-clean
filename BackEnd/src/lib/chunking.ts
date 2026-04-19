@@ -23,6 +23,8 @@ function tokenize(text: string): string[] {
         .filter(w => w.length > 2 && !STOP_WORDS.has(w));
 }
 
+const MIN_PARAGRAPH_LENGTH = 80;
+
 export function extractRelevantPassages(
     title: string, 
     articleText: string, 
@@ -40,8 +42,11 @@ export function extractRelevantPassages(
         return `Titre: ${title}\n\n${articleText.substring(0, 1500)}`; // Fallback
     }
 
-    // Split par retour chariot
-    const paragraphs = articleText.split(/\n+/).map(p => p.trim()).filter(p => p.length >= 40);
+    // Split on real paragraph breaks to avoid scoring isolated headings and list fragments.
+    const paragraphs = articleText
+        .split(/\n\n+/)
+        .map(p => p.trim())
+        .filter(p => p.length >= MIN_PARAGRAPH_LENGTH);
     
     interface ScoredParagraph {
         content: string;
@@ -67,7 +72,9 @@ export function extractRelevantPassages(
         }
         
         if (matchCount > 0) {
-            const score = matchCount / tokens.length;
+            const density = matchCount / tokens.length;
+            const lengthBonus = Math.max(1, Math.log(p.length));
+            const score = density * lengthBonus;
             scored.push({ content: p, score, index: i });
         }
     }

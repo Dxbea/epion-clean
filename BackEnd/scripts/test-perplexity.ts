@@ -35,7 +35,8 @@ async function main() {
 
         const openai = new OpenAI({ apiKey: process.env.OPENAI_API_KEY });
         const query = 'Test stream with one recent web fact.';
-        const sources = await searchWebContext(query, { profile: 'standard' });
+        const webContext = await searchWebContext(query, { profile: 'standard' });
+        const sources = webContext.promptSources;
         const stream = await openai.chat.completions.create({
             model: 'gpt-4o-mini',
             messages: [

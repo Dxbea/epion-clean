@@ -35,6 +35,7 @@ export interface FactCheckSource {
     url: string;
     title: string;
     content: string;
+    metaDescription?: string;
     publishedDate?: string;
     domain: string;
     score: number;

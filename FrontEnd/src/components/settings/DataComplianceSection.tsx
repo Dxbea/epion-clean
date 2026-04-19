@@ -48,7 +48,7 @@ export default function DataComplianceSection({ id }: { id?: string }){
     <FormSection id={id} title={t('data')} description={t('data_desc')}>
       <div className="flex flex-wrap items-center gap-3">
         <Button variant="ghost" onClick={exportData}>{t('export_json')}</Button>
-        <Button variant="primary" onClick={deleteAccount}>{t('delete_account')}</Button>
+        <Button variant="destructive" onClick={deleteAccount}>{t('delete_account')}</Button>
       </div>
     </FormSection>
   )

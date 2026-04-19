@@ -25,7 +25,17 @@ export interface QualityAnalysisResult {
         exclamationCount: number;
         triggerCount: number;
         readabilityScore: number;
+        citationCount?: number;
+        uniqueCitationCount?: number;
+        sentenceCount?: number;
+        citationDensity?: number;
+        hasRecognizedCitations?: boolean;
     };
+}
+
+interface SemanticScannerInput {
+    content?: string;
+    metaDescription?: string | null;
 }
 
 // --- CORE ANALYSIS FUNCTION ---
@@ -109,15 +119,58 @@ export function analyzeTextQuality(text: string): QualityAnalysisResult {
 
 // --- ALIAS REQUESTED BY USER ---
 export function analyzeOutputQuality(text: string): QualityAnalysisResult {
-    return analyzeTextQuality(text);
+    const citationMatches = text.match(/\[(\d+)\]/g) || [];
+    const uniqueCitationCount = new Set(
+        citationMatches.map((match) => match.replace(/[\[\]]/g, '')),
+    ).size;
+    const sentenceCount = text
+        .split(/[.!?]+/)
+        .map((sentence) => sentence.trim())
+        .filter(Boolean)
+        .length;
+    const effectiveSentenceCount = Math.max(1, sentenceCount);
+    const expectedCitationCount = Math.max(1, Math.ceil(effectiveSentenceCount / 2));
+    const citationDensity = Math.min(1, citationMatches.length / expectedCitationCount);
+    const diversityBonus = uniqueCitationCount >= 3
+        ? 1
+        : uniqueCitationCount === 2
+            ? 0.85
+            : uniqueCitationCount === 1
+                ? 0.6
+                : 0;
+    const hasRecognizedCitations = citationMatches.length > 0;
+    const score = Math.max(0, Math.min(100, Math.round(50 + (citationDensity * diversityBonus * 50))));
+
+    return {
+        score,
+        isClickbait: false,
+        biasLevel: score >= 85 ? 'SOURCED' : hasRecognizedCitations ? 'PARTIALLY_SOURCED' : 'UNSOURCED',
+        details: {
+            capsRatio: 0,
+            exclamationCount: 0,
+            triggerCount: citationMatches.length,
+            readabilityScore: score,
+            citationCount: citationMatches.length,
+            uniqueCitationCount,
+            sentenceCount: effectiveSentenceCount,
+            citationDensity: Number(citationDensity.toFixed(2)),
+            hasRecognizedCitations,
+        },
+    };
 }
 
 // --- LEGACY SUPPORT (For URL Analysis) ---
 export { analyzeTextQuality as analyzeRawText }; // Alias for existing code if needed
 
 // --- FONCTION EXISTANTE : Analyse d'URL (utilise la fonction brute) ---
-export async function analyzeSemantics(domain: string) {
+export async function analyzeSemantics(domain: string, input: SemanticScannerInput = {}) {
     try {
+        const providedContent = `${input.metaDescription || ''} ${input.content || ''}`.trim();
+        if (providedContent.length >= 120) {
+            const localSample = providedContent.slice(0, 1500);
+            return analyzeTextQuality(localSample);
+        }
+
         const controller = new AbortController();
         const timeout = setTimeout(() => controller.abort(), 3000);
         const response = await fetch(`https://${domain}`, {

@@ -3,20 +3,22 @@
 /* Force line-height on all large headings — Tailwind arbitrary values don't always work */
 .home-snap-container h1,
 .home-snap-container h2 {
-  line-height: 1.15 !important;
+  line-height: 1.12 !important;
 }
 .home-snap-container {
-  /* Use proximity instead of mandatory for a softer snap effect */
   /* full screen minus header */
   min-height: calc(100vh - var(--app-header-h, 64px));
   scrollbar-width: none;
   -ms-overflow-style: none;
   background-color: #FAFAF5; /* Match MainLayout bg */
+  background-image: linear-gradient(180deg, rgba(250, 250, 245, 0.96) 0%, rgba(250, 250, 245, 0.985) 100%);
   color: #0B0B0A;
+  overflow-x: hidden; /* Prevent horizontal scroll on mobile */
 }
 
 .dark .home-snap-container {
   background-color: #0B0B0A;
+  background-image: linear-gradient(180deg, rgba(8, 8, 7, 0.985) 0%, rgba(12, 14, 13, 0.995) 100%);
   color: #FAFAF5;
 }
 
@@ -34,79 +36,206 @@
 }
 
 .home-snap-section-auto {
-  min-height: calc(100vh - var(--app-header-h, 64px));
+  min-height: auto;
   position: relative;
   /* Auto height for scrolling content like Why Epion */
-  padding-top: 10vh;
-  padding-bottom: 20vh;
+  padding-top: 4vh;
+  padding-bottom: 10vh;
 }
 
-/* Mistral-like Subtle Grid Background */
+/* ========================================
+   Subtle Paper Grain Background
+   ======================================== */
 .home-snap-container::before {
   content: "";
   position: fixed;
   inset: 0;
   z-index: 0;
   pointer-events: none;
-  background-size: 40px 40px;
-  background-image: 
-    linear-gradient(to right, rgba(0,0,0,0.02) 1px, transparent 1px),
-    linear-gradient(to bottom, rgba(0,0,0,0.02) 1px, transparent 1px);
+  background-size: 220px 220px;
+  background-repeat: repeat;
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='220' height='220' viewBox='0 0 220 220'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='1.15' numOctaves='2' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='220' height='220' filter='url(%23n)' opacity='0.11'/%3E%3C/svg%3E");
+  opacity: 0.28;
+  mix-blend-mode: multiply;
 }
 .dark .home-snap-container::before {
-  background-image: 
-    linear-gradient(to right, rgba(255,255,255,0.02) 1px, transparent 1px),
-    linear-gradient(to bottom, rgba(255,255,255,0.02) 1px, transparent 1px);
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='220' height='220' viewBox='0 0 220 220'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='1.15' numOctaves='2' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='220' height='220' filter='url(%23n)' opacity='0.12'/%3E%3C/svg%3E");
+  opacity: 0.2;
+  mix-blend-mode: screen;
 }
 
-/* Background elements */
-.bg-magnifier-tr, .bg-magnifier-bl {
+/* ========================================
+   Mesh Gradient Blobs — Fluid & Organic
+   ======================================== */
+
+/* Blob 1: Top-right — turquoise/cyan dominant */
+.bg-blob-tr {
   position: absolute;
-  width: 65vmin;
-  height: 65vmin;
-  background: radial-gradient(circle, rgba(14, 165, 233, 0.05) 0%, rgba(45, 212, 191, 0.05) 40%, transparent 70%);
-  border-radius: 50%;
-  border: 2px solid rgba(14, 165, 233, 0.1);
-  box-shadow: 0 0 60px rgba(45, 212, 191, 0.05);
+  top: -8%;
+  right: -12%;
+  width: 55vmax;
+  height: 55vmax;
+  background: radial-gradient(
+    ellipse at 40% 40%,
+    rgba(56, 166, 166, 0.12) 0%,
+    rgba(120, 220, 227, 0.08) 35%,
+    rgba(88, 198, 198, 0.04) 60%,
+    transparent 80%
+  );
+  border-radius: 40% 60% 55% 45% / 55% 40% 60% 45%;
+  filter: blur(80px);
   pointer-events: none;
   z-index: 0;
-  filter: blur(2px);
-}
-.bg-magnifier-tr { top: -2%; right: -5%; }
-.bg-magnifier-bl { bottom: 0%; left: -5%; }
-
-.dark .bg-magnifier-tr, .dark .bg-magnifier-bl {
-  border: 2px solid rgba(255, 255, 255, 0.1);
-  background: radial-gradient(circle, rgba(14, 165, 233, 0.05) 0%, rgba(45, 212, 191, 0.06) 40%, transparent 70%);
+  animation: morph-tr 20s ease-in-out infinite;
 }
 
-.bg-magnifier-tr::after, .bg-magnifier-bl::after {
-  content: "";
+/* Blob 2: Bottom-left — lime/turquoise dominant */
+.bg-blob-bl {
   position: absolute;
-  bottom: -4vmin;
-  right: -4vmin;
-  width: 20vmin;
-  height: 4vmin;
-  background: linear-gradient(45deg, rgba(14, 165, 233, 0.1), transparent);
-  transform: rotate(45deg);
-  border-radius: 9999px;
+  bottom: -5%;
+  left: -10%;
+  width: 50vmax;
+  height: 50vmax;
+  background: radial-gradient(
+    ellipse at 60% 60%,
+    rgba(203, 234, 98, 0.10) 0%,
+    rgba(56, 166, 166, 0.07) 40%,
+    rgba(120, 220, 227, 0.04) 65%,
+    transparent 85%
+  );
+  border-radius: 55% 45% 40% 60% / 45% 55% 45% 55%;
+  filter: blur(80px);
+  pointer-events: none;
+  z-index: 0;
+  animation: morph-bl 20s ease-in-out infinite;
+  animation-delay: -7s; /* offset so they don't pulse in sync */
 }
 
-@keyframes pulse-float {
-  0%, 100% { transform: scale(1); opacity: 0.8; }
-  50% { transform: scale(1.05); opacity: 1; }
-}
-.animate-pulse-float {
-  animation: pulse-float 8s ease-in-out infinite;
+/* Blob 3: Center accent — very subtle, adds depth */
+.bg-blob-center {
+  position: absolute;
+  top: 35%;
+  left: 25%;
+  width: 35vmax;
+  height: 35vmax;
+  background: radial-gradient(
+    ellipse at 50% 50%,
+    rgba(88, 198, 198, 0.06) 0%,
+    rgba(183, 232, 124, 0.04) 40%,
+    transparent 70%
+  );
+  border-radius: 50% 50% 45% 55% / 55% 45% 50% 50%;
+  filter: blur(100px);
+  pointer-events: none;
+  z-index: 0;
+  animation: morph-center 25s ease-in-out infinite;
+  animation-delay: -12s;
 }
 
-@keyframes pulse-float-flipped {
-  0%, 100% { transform: scaleX(-1) scaleY(1); opacity: 0.8; }
-  50% { transform: scaleX(-1) scaleY(1.05); opacity: 1; }
+/* Dark mode: slightly brighter blobs to compensate for dark bg */
+.dark .bg-blob-tr {
+  background: radial-gradient(
+    ellipse at 40% 40%,
+    rgba(56, 166, 166, 0.09) 0%,
+    rgba(120, 220, 227, 0.06) 35%,
+    rgba(88, 198, 198, 0.03) 60%,
+    transparent 80%
+  );
 }
-.animate-pulse-float-flipped {
-  animation: pulse-float-flipped 8s ease-in-out infinite;
+.dark .bg-blob-bl {
+  background: radial-gradient(
+    ellipse at 60% 60%,
+    rgba(203, 234, 98, 0.08) 0%,
+    rgba(56, 166, 166, 0.05) 40%,
+    rgba(120, 220, 227, 0.03) 65%,
+    transparent 85%
+  );
 }
+.dark .bg-blob-center {
+  background: radial-gradient(
+    ellipse at 50% 50%,
+    rgba(88, 198, 198, 0.05) 0%,
+    rgba(183, 232, 124, 0.03) 40%,
+    transparent 70%
+  );
+}
+
+/* ========================================
+   Morphing Keyframes — Very Slow & Organic
+   ======================================== */
+
+@keyframes morph-tr {
+  0% {
+    border-radius: 40% 60% 55% 45% / 55% 40% 60% 45%;
+    transform: translate(0, 0) scale(1);
+  }
+  25% {
+    border-radius: 55% 45% 50% 50% / 45% 55% 45% 55%;
+    transform: translate(-3%, 2%) scale(1.04);
+  }
+  50% {
+    border-radius: 45% 55% 60% 40% / 50% 45% 55% 50%;
+    transform: translate(-1%, 4%) scale(1.02);
+  }
+  75% {
+    border-radius: 50% 50% 45% 55% / 60% 50% 40% 50%;
+    transform: translate(2%, 1%) scale(1.05);
+  }
+  100% {
+    border-radius: 40% 60% 55% 45% / 55% 40% 60% 45%;
+    transform: translate(0, 0) scale(1);
+  }
+}
+
+@keyframes morph-bl {
+  0% {
+    border-radius: 55% 45% 40% 60% / 45% 55% 45% 55%;
+    transform: translate(0, 0) scale(1);
+  }
+  25% {
+    border-radius: 45% 55% 55% 45% / 55% 45% 55% 45%;
+    transform: translate(3%, -2%) scale(1.03);
+  }
+  50% {
+    border-radius: 50% 50% 45% 55% / 40% 60% 50% 50%;
+    transform: translate(1%, -3%) scale(1.05);
+  }
+  75% {
+    border-radius: 60% 40% 50% 50% / 50% 50% 55% 45%;
+    transform: translate(-2%, -1%) scale(1.02);
+  }
+  100% {
+    border-radius: 55% 45% 40% 60% / 45% 55% 45% 55%;
+    transform: translate(0, 0) scale(1);
+  }
+}
+
+@keyframes morph-center {
+  0% {
+    border-radius: 50% 50% 45% 55% / 55% 45% 50% 50%;
+    transform: translate(0, 0) scale(1);
+    opacity: 0.7;
+  }
+  33% {
+    border-radius: 45% 55% 50% 50% / 50% 50% 55% 45%;
+    transform: translate(2%, 3%) scale(1.06);
+    opacity: 1;
+  }
+  66% {
+    border-radius: 55% 45% 55% 45% / 45% 55% 45% 55%;
+    transform: translate(-2%, 1%) scale(1.03);
+    opacity: 0.8;
+  }
+  100% {
+    border-radius: 50% 50% 45% 55% / 55% 45% 50% 50%;
+    transform: translate(0, 0) scale(1);
+    opacity: 0.7;
+  }
+}
+
+/* ========================================
+   Fade-Up Animation
+   ======================================== */
 
 @keyframes fadeUp {
   from { opacity: 0; transform: translateY(30px); }
@@ -122,7 +251,9 @@
 .delay-300 { animation-delay: 300ms; }
 .delay-400 { animation-delay: 400ms; }
 
-/* Why Epion: scroll-triggered scale animation */
+/* ========================================
+   Why Epion: scroll-triggered scale animation
+   ======================================== */
 .why-block {
   opacity: 0;
   transform: scale(0.92);
@@ -131,4 +262,105 @@
 .why-block.visible {
   opacity: 1;
   transform: scale(1);
+}
+
+.reveal {
+  opacity: 0;
+  transform: translateY(20px);
+  transition:
+    opacity 0.6s cubic-bezier(0.16, 1, 0.3, 1),
+    transform 0.6s cubic-bezier(0.16, 1, 0.3, 1);
+  will-change: opacity, transform;
+}
+
+.reveal.revealed {
+  opacity: 1;
+  transform: translateY(0);
+}
+
+.reveal-delay-1 {
+  transition-delay: 80ms;
+}
+
+.reveal-delay-2 {
+  transition-delay: 160ms;
+}
+
+.reveal-delay-3 {
+  transition-delay: 240ms;
+}
+
+.home-showcase-card {
+  position: relative;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  overflow: hidden;
+  border: 1px solid rgba(255, 255, 255, 0.72);
+  border-radius: 2rem;
+  padding: 0.85rem;
+  background:
+    linear-gradient(180deg, rgba(255, 255, 255, 0.82), rgba(255, 255, 255, 0.62)),
+    rgba(250, 250, 245, 0.68);
+  box-shadow: 0 30px 90px rgba(11, 11, 10, 0.12);
+  backdrop-filter: blur(18px);
+}
+
+.dark .home-showcase-card {
+  border-color: rgba(255, 255, 255, 0.08);
+  background:
+    linear-gradient(180deg, rgba(22, 26, 27, 0.88), rgba(11, 11, 10, 0.76)),
+    rgba(11, 11, 10, 0.82);
+  box-shadow: 0 34px 90px rgba(0, 0, 0, 0.28);
+}
+
+.home-showcase-card-chat {
+  transform: translateY(10px);
+}
+
+.home-showcase-glow {
+  position: absolute;
+  inset: auto 12% 78% 12%;
+  height: 110px;
+  border-radius: 999px;
+  background: linear-gradient(90deg, rgba(56, 166, 166, 0.22), rgba(203, 234, 98, 0.18));
+  filter: blur(34px);
+  pointer-events: none;
+}
+
+.home-showcase-image {
+  position: relative;
+  z-index: 1;
+  width: 100%;
+  border: 1px solid rgba(11, 11, 10, 0.06);
+  border-radius: 1.45rem;
+  object-fit: cover;
+  object-position: center center;
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.45);
+}
+
+.dark .home-showcase-image {
+  border-color: rgba(255, 255, 255, 0.08);
+}
+
+@media (max-width: 1023px) {
+  .home-showcase-card-chat {
+    transform: none;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .bg-blob-tr,
+  .bg-blob-bl,
+  .bg-blob-center,
+  .animate-fade-up {
+    animation: none !important;
+  }
+
+  .why-block,
+  .reveal {
+    opacity: 1;
+    transform: none;
+    transition: none;
+  }
 }

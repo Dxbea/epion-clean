@@ -2,6 +2,7 @@ import OpenAI from 'openai';
 import { ChatOptions } from '../types/chat';
 import { logger } from './logger';
 import { investigateArticle } from './live-analysis/fact-investigator';
+import { getRootDomain } from './utils/domain';
 
 const openai = new OpenAI({ apiKey: process.env.OPENAI_API_KEY });
 
@@ -43,11 +44,18 @@ export interface WebSearchSource {
     url: string;
     domain: string;
     content: string;
+    metaDescription?: string;
     publishedDate?: string;
     score: number;
     favicon?: string;
     provider?: 'web' | 'rag';
     articleSlug?: string;
+}
+
+export interface WebContextSearchResult {
+    promptSources: WebSearchSource[];
+    allSources: WebSearchSource[];
+    dedupedCount: number;
 }
 
 interface SearchWebContextOptions {
@@ -105,6 +113,13 @@ Your goal is to provide answers that are helpful, fluent, transparent, and groun
    * Use the exact index numbers from the context.
    * Do not group all citations only at the end.
 
+6. **STRICT GROUNDING**
+   * RÈGLE ABSOLUE : Tu dois te baser STRICTEMENT ET UNIQUEMENT sur les sources fournies dans \`<context>\`.
+   * IL EST STRICTEMENT INTERDIT d'inventer des citations, de nommer des journaux, des médias ou des faits qui n'apparaissent pas explicitement dans le texte des sources.
+   * Si une information n'est pas dans le contexte, n'extrapole pas.
+   * Si le contexte ne permet pas de répondre précisément, dis-le explicitement au lieu de compléter avec tes connaissances générales.
+   * Quand tu affirmes un fait, tu DOIS insérer l'identifiant exact de la source au format \`[n]\` à la fin de la phrase.
+
 3. **NEUTRALITY & TONE**
    * Tone: journalistic, objective, concise, professional.
    * If sources conflict, state the disagreement explicitly.
@@ -145,41 +160,6 @@ function getDomainKeyFromSource(source: Pick<WebSearchSource, 'url'>): string {
     }
 }
 
-function normalizeRootDomain(input: string): string {
-    const rawValue = input.trim().toLowerCase();
-    const hostname = rawValue.includes('://')
-        ? new URL(rawValue).hostname.toLowerCase()
-        : rawValue;
-    const normalized = hostname.replace(/^www\./, '');
-    const parts = normalized.split('.').filter(Boolean);
-
-    if (parts.length <= 2) {
-        return normalized;
-    }
-
-    const lastTwo = parts.slice(-2).join('.');
-    const specialSecondLevelSuffixes = new Set([
-        'ac.uk',
-        'co.jp',
-        'co.uk',
-        'com.au',
-        'com.br',
-        'com.mx',
-        'gov.au',
-        'gov.uk',
-        'gouv.fr',
-        'net.au',
-        'org.au',
-        'org.uk',
-    ]);
-
-    if (specialSecondLevelSuffixes.has(lastTwo)) {
-        return parts.slice(-3).join('.');
-    }
-
-    return lastTwo;
-}
-
 function selectSourcesForLlm(
     sources: WebSearchSource[],
     limit: number,
@@ -203,7 +183,20 @@ function selectSourcesForLlm(
 }
 
 function truncate(text: string, maxChars: number): string {
-    return text; // NO LONGER TRUNCATE SINCE THE CHUNKER ALREADY FILTERED THE BEST
+    if (text.length <= maxChars) {
+        return text;
+    }
+
+    return `${text.slice(0, maxChars)}...`;
+}
+
+function escapeXml(value: string): string {
+    return value
+        .replace(/&/g, '&amp;')
+        .replace(/</g, '&lt;')
+        .replace(/>/g, '&gt;')
+        .replace(/"/g, '&quot;')
+        .replace(/'/g, '&apos;');
 }
 
 export function isConversationalQuery(query: string): boolean {
@@ -237,7 +230,7 @@ export function isConversationalQuery(query: string): boolean {
 }
 
 function isInstitutionalOrAccredited(domain: string): boolean {
-    const normalizedDomain = normalizeRootDomain(domain);
+    const normalizedDomain = getRootDomain(domain);
     return (
         normalizedDomain.endsWith('.gov') ||
         normalizedDomain.endsWith('.gouv.fr') ||
@@ -338,10 +331,10 @@ Commence par une synthèse claire, puis détaille avec lisibilité et précision
 export async function searchWebContext(
     query: string,
     options: SearchWebContextOptions = {},
-): Promise<WebSearchSource[]> {
+): Promise<WebContextSearchResult> {
     const trimmedQuery = query.trim();
     if (!trimmedQuery) {
-        return [];
+        return { promptSources: [], allSources: [], dedupedCount: 0 };
     }
 
     if (isConversationalQuery(trimmedQuery)) {
@@ -349,7 +342,7 @@ export async function searchWebContext(
             module: 'WebChat',
             query: trimmedQuery,
         });
-        return [];
+        return { promptSources: [], allSources: [], dedupedCount: 0 };
     }
 
     const profile = normalizeWebSearchProfile(options.profile);
@@ -380,6 +373,7 @@ export async function searchWebContext(
                 url: source.url,
                 domain,
                 content: rawContent,
+                metaDescription: source.metaDescription,
                 publishedDate: source.publishedDate || undefined,
                 score: source.score || 0,
                 provider,
@@ -392,16 +386,6 @@ export async function searchWebContext(
             if (result.content.length < 50) return false;
             return true;
         });
-
-    function getRootDomain(hostname: string): string {
-        const parts = hostname.split('.');
-        if (parts.length <= 2) return hostname;
-        const lastTwo = parts.slice(-2).join('.');
-        if (['co.uk', 'gouv.fr', 'com.au', 'ac.uk', 'gov.uk'].includes(lastTwo)) {
-            return parts.slice(-3).join('.');
-        }
-        return lastTwo;
-    }
 
     const dedupedByDomain: WebSearchSource[] = [];
     const seenRootDomains = new Set<string>();
@@ -423,25 +407,32 @@ export async function searchWebContext(
     );
     const strictSelected = strictEligible;
 
-    let mapped = strictSelected;
+    let prioritizedSources = strictSelected;
 
-    if (mapped.length < 15) {
-        const selectedUrls = new Set(mapped.map((source) => source.url));
+    if (prioritizedSources.length < deduped.length) {
+        const selectedUrls = new Set(prioritizedSources.map((source) => source.url));
         const backfillPool = deduped.filter((source) => !selectedUrls.has(source.url));
-        mapped = [...mapped, ...backfillPool.slice(0, 15)];
+        prioritizedSources = [...prioritizedSources, ...backfillPool];
     }
 
-    logger.info(`Web context search completed with ${mapped.length} sources`, {
+    const promptSources = selectSourcesForLlm(prioritizedSources, maxResults);
+
+    logger.info(`Web context search completed with ${promptSources.length} prompt sources and ${deduped.length} deduped sources`, {
         module: 'WebChat',
         profile,
         query: trimmedQuery,
         provider: 'fact-investigator+serper',
         strictEligibleCount: strictEligible.length,
+        promptSourceCount: promptSources.length,
         dedupedCount: deduped.length,
-        domains: mapped.map((source) => source.domain),
+        domains: deduped.map((source) => source.domain),
     });
 
-    return mapped;
+    return {
+        promptSources,
+        allSources: deduped,
+        dedupedCount: deduped.length,
+    };
 }
 
 export function formatWebSourcesForPrompt(
@@ -449,18 +440,29 @@ export function formatWebSourcesForPrompt(
     maxCharsPerSource = 1400,
 ): string {
     if (sources.length === 0) {
-        return '[No relevant external or internal source was attached to this answer.]';
+        return '<context>\n<source id="[0]" domain="none">\n<title>No relevant external or internal source was attached to this answer.</title>\n<content>No usable source context is available.</content>\n</source>\n</context>';
     }
 
-    return sources
+    const serializedSources = sources
         .map((source, index) => {
-            const date = source.publishedDate ? `Published: ${source.publishedDate}\n` : '';
-            return `[${index + 1}] Title: ${source.title}
-Domain: ${source.domain}
-URL: ${source.url}
-${date}Content: ${source.content}`; // WE DO NOT TRUNCATE CHUNKED CONTENT
+            const sourceId = `[${index + 1}]`;
+            const safeTitle = escapeXml(source.title || source.domain);
+            const safeDomain = escapeXml(source.domain);
+            const safeUrl = escapeXml(source.url);
+            const safeContent = escapeXml(truncate(source.content, maxCharsPerSource));
+            const publishedDate = source.publishedDate
+                ? `\n<publishedDate>${escapeXml(source.publishedDate)}</publishedDate>`
+                : '';
+
+            return `<source id="${sourceId}" domain="${safeDomain}">
+<title>${safeTitle}</title>
+<url>${safeUrl}</url>${publishedDate}
+<content>${safeContent}</content>
+</source>`;
         })
         .join('\n\n');
+
+    return `<context>\n${serializedSources}\n</context>`;
 }
 
 export function mapWebSourcesToUiSources(sources: WebSearchSource[]) {
@@ -520,10 +522,11 @@ export async function callWebSearchLLM(
             throw new Error('No search query available for web search');
         }
 
-        sources = await searchWebContext(searchQuery, {
+        const webContext = await searchWebContext(searchQuery, {
             profile,
             chatOptions: options.chatOptions,
         });
+        sources = webContext.promptSources;
     }
 
     const systemParts: string[] = [];
@@ -541,9 +544,7 @@ export async function callWebSearchLLM(
     if (shouldSearch) {
         systemParts.push(`Use the following live web search context for all current factual claims.
 
-<context>
-${formatWebSourcesForPrompt(sources)}
-</context>`);
+${formatWebSourcesForPrompt(sources)}`);
     }
 
     const llmMessages = systemParts.length > 0
@@ -553,7 +554,7 @@ ${formatWebSourcesForPrompt(sources)}
     const completion = await openai.chat.completions.create({
         model: resolveWebLlmModel(profile),
         messages: llmMessages,
-        temperature: options.temperature ?? (shouldSearch ? 0.2 : 0.4),
+        temperature: options.temperature ?? (shouldSearch ? 0.1 : 0.4),
         max_tokens: options.maxTokens ?? (profile === 'deep' ? 2200 : 1400),
     });
 

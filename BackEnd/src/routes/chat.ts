@@ -667,8 +667,30 @@ router.post('/sessions/:id/messages', chatAttachmentUpload, async (req, res, nex
     }
 
     // Prepare Streaming Headers
-    res.setHeader('Content-Type', 'text/plain; charset=utf-8');
+    res.setHeader('Content-Type', 'text/event-stream; charset=utf-8');
+    res.setHeader('Cache-Control', 'no-cache, no-transform');
+    res.setHeader('Connection', 'keep-alive');
+    res.setHeader('X-Accel-Buffering', 'no');
     res.setHeader('Transfer-Encoding', 'chunked');
+    res.flushHeaders?.();
+
+    const writeSseEvent = (payload: Record<string, unknown>) => {
+      try {
+        res.write(`data: ${JSON.stringify(payload)}\n\n`);
+        (res as any).flush?.();
+        return true;
+      } catch (_) {
+        return false;
+      }
+    };
+
+    const writeTextEvent = (contentChunk: string) => {
+      if (!contentChunk) {
+        return false;
+      }
+
+      return writeSseEvent({ type: 'text', content: contentChunk });
+    };
 
     // 6) Variables pour stocker la réponse
     let rawAnswer = "";
@@ -683,7 +705,6 @@ router.post('/sessions/:id/messages', chatAttachmentUpload, async (req, res, nex
     let outputAnalysis: any = null;
     let sourcesMean = 0;
     let outputScore = 0;
-    let diversityPenalty = 0;
     let shouldCharge = true;
 
     // =========================================================================
@@ -742,16 +763,15 @@ CONSIGNES DE RÉPONSE :
         const openaiResponse = await openai.chat.completions.create({
           model: 'gpt-4o-mini',
           messages: openaiMessages,
-          temperature: 0.5, // Reduced for faithfulness
+          temperature: 0.1,
           max_tokens: 2048,
         });
 
         rawAnswer = openaiResponse.choices[0].message.content || '';
 
         // CRITICAL FIX: Stream the blocked response to the client
-        // The frontend now expects a stream because we set Transfer-Encoding: chunked
         if (rawAnswer) {
-          res.write(rawAnswer);
+          writeTextEvent(rawAnswer);
         } else {
           logger.warn("OpenAI returned empty content");
         }
@@ -761,9 +781,16 @@ CONSIGNES DE RÉPONSE :
         // Ensure we don't crash, let the validation at the end handle the empty answer
       }
 
-      // Mode RAG: output quality check
+      // Mode RAG: citation-based sourcing score
       outputAnalysis = analyzeOutputQuality(rawAnswer);
       outputScore = outputAnalysis.score;
+      logger.info('AI Output Sourcing Score', {
+        module: 'Chat',
+        mode: 'fast',
+        sessionId,
+        userId,
+        citationScore: outputScore,
+      });
       finalGlobalScore = contextChunks.length > 0 ? outputScore : Math.min(outputScore, 70);
 
       // Sources = Deduplicated internal sources used in context
@@ -812,14 +839,18 @@ CONSIGNES DE RÉPONSE :
               : 'balanced';
 
       // Phase 1: Web search (must complete before LLM prompt + enrichment)
-      let webSources: Awaited<ReturnType<typeof searchWebContext>> = [];
+      let webContext: Awaited<ReturnType<typeof searchWebContext>> = {
+        promptSources: [],
+        allSources: [],
+        dedupedCount: 0,
+      };
       try {
-        try { res.write(`data: ${JSON.stringify({ type: 'status', message: 'Analyse de votre question...' })}\n\n`); } catch(_) {}
-        webSources = await searchWebContext(effectiveQuery, {
+        writeSseEvent({ type: 'status', message: 'Analyse de votre question...' });
+        webContext = await searchWebContext(effectiveQuery, {
           profile: webProfile,
           chatOptions,
           onProgress: (msg) => {
-            try { res.write(`data: ${JSON.stringify({ type: 'status', message: msg })}\n\n`); } catch (_) {}
+            writeSseEvent({ type: 'status', message: msg });
           }
         });
       } catch (searchErr: any) {
@@ -832,15 +863,43 @@ CONSIGNES DE RÉPONSE :
       }
 
       const conversationalTurn = isConversationalQuery(effectiveQuery) && !attachment;
+      const promptSources = webContext.promptSources;
+      const allWebSources = webContext.allSources;
 
-      if (webSources.length === 0) {
+      if (allWebSources.length === 0) {
         shouldCharge = false;
       }
 
+      if (!writeSseEvent({
+        type: 'sources_pending',
+        sources: allWebSources,
+        dedupedCount: webContext.dedupedCount,
+      })) {
+        logger.debug('Client disconnected before pending sources could be sent', { userId });
+      }
+
       // Phase 2: Fire enrichment in background (decoupled from LLM stream)
-      try { res.write(`data: ${JSON.stringify({ type: 'status', message: 'Vérification des sources...' })}\n\n`); } catch(_) {}
-      logger.info('Starting enrichment pipeline', { module: 'Chat', webSourceCount: webSources.length, domains: webSources.map(s => s.domain) });
-      const enrichmentPromise = enrichChatSources(webSources).catch((err) => {
+      writeSseEvent({ type: 'status', message: 'Vérification des sources...' });
+      logger.info('Starting enrichment pipeline', {
+        module: 'Chat',
+        promptSourceCount: promptSources.length,
+        webSourceCount: allWebSources.length,
+        dedupedCount: webContext.dedupedCount,
+        domains: allWebSources.map(s => s.domain)
+      });
+      const enrichmentPromise = enrichChatSources(allWebSources, {
+        priorityDomains: promptSources.map((source) => source.domain),
+        maxConcurrent: 6,
+        timeoutMs: 80_000,
+        onSourceEnriched: (enrichedSource) => {
+          if (!writeSseEvent({
+            type: 'source_enriched',
+            source: enrichedSource,
+          })) {
+            logger.debug('Client disconnected before progressive enrichment event could be sent', { userId });
+          }
+        },
+      }).catch((err) => {
         logger.error('Enrichment pipeline failed', {
           module: 'Chat',
           error: err instanceof Error ? err.message : 'Unknown enrichment error',
@@ -852,7 +911,7 @@ CONSIGNES DE RÉPONSE :
       });
 
       // Phase 3: Build prompt & stream LLM response in parallel with enrichment
-      const fallbackNotice = webSources.length === 0 && !conversationalTurn
+      const fallbackNotice = allWebSources.length === 0 && !conversationalTurn
         ? `\n\nAucune source externe ou interne n'a pu etre recuperee pour cette question.
 Reponds quand meme avec prudence en t'appuyant sur la conversation`
           + `${attachment ? ' et la piece jointe fournie' : ''}.`
@@ -865,9 +924,7 @@ ${attachmentSystemPrompt ? `${attachmentSystemPrompt}\n\n` : ''}${fallbackNotice
 
 Use the following live web search context for the current question.
 
-<context>
-${formatWebSourcesForPrompt(webSources)}
-</context>`;
+${formatWebSourcesForPrompt(promptSources)}`;
 
       const openaiMessages: OpenAI.Chat.Completions.ChatCompletionMessageParam[] = [
         { role: 'system', content: systemInstruction },
@@ -875,13 +932,96 @@ ${formatWebSourcesForPrompt(webSources)}
         currentUserMessage,
       ];
 
+      const buildFallbackSources = () =>
+        allWebSources.map((s, i) => {
+          const provider = s.provider === 'rag' ? 'rag' as const : 'serper' as const;
+          const category = provider === 'rag' ? 'DATABASE' : 'MEDIA';
+          const fallbackDescription = s.metaDescription || "Media independant en cours d'analyse.";
+
+          return {
+            id: i + 1,
+            name: s.title || s.domain,
+            domain: s.domain,
+            url: s.url,
+            logo: `https://www.google.com/s2/favicons?domain=${s.domain}&sz=64`,
+            category,
+            type: category,
+            score: Math.max(30, Math.min(100, Math.round(s.score * 100))),
+            trustScore: Math.max(30, Math.min(100, Math.round(s.score * 100))),
+            confidence: 'MEDIUM' as const,
+            description: fallbackDescription,
+            justification: provider === 'rag'
+              ? `Source interne Epion issue du RAG, rattachee au media ${s.domain}.`
+              : `Source web issue de Serper sur ${s.domain}.`,
+            dbScore: 50,
+            metadata: {
+              provider,
+              publishedDate: s.publishedDate,
+              searchScore: s.score,
+              dbScore: 50,
+              type: category,
+            },
+          };
+        });
+
+      const writeEnrichmentEvent = (payloadSources: any[], payloadSourcesMean: number) => {
+        if (!writeSseEvent({
+          type: 'enrichment',
+          sources: payloadSources,
+          sourcesMean: payloadSourcesMean,
+          dedupedCount: webContext.dedupedCount,
+        })) {
+          logger.debug('Client disconnected before enrichment event could be sent', { userId });
+        }
+      };
+
+      const resolveEnrichmentPayload = async (): Promise<{ sources: any[]; sourcesMean: number }> => {
+        const enrichmentResult = await enrichmentPromise;
+
+        if (enrichmentResult) {
+          logger.info('Enrichment succeeded', {
+            module: 'Chat',
+            sourceCount: enrichmentResult.sources.length,
+            sourcesMean: enrichmentResult.sourcesMean,
+            dedupedCount: webContext.dedupedCount,
+          });
+
+          return {
+            sources: enrichmentResult.sources,
+            sourcesMean: enrichmentResult.sourcesMean,
+          };
+        }
+
+        const fallbackSources = buildFallbackSources();
+        const fallbackScores = fallbackSources
+          .map((source: any) => source.trustScore)
+          .filter((score: any) => typeof score === 'number');
+        const fallbackSourcesMean = fallbackScores.length > 0
+          ? Math.round(fallbackScores.reduce((a: number, b: number) => a + b, 0) / fallbackScores.length)
+          : 50;
+
+        logger.warn('Enrichment unavailable, using fallback sources for DB', {
+          module: 'Chat',
+          userId,
+          sessionId,
+          fallbackSourceCount: fallbackSources.length,
+          fallbackSourcesMean,
+          dedupedCount: webContext.dedupedCount,
+        });
+
+        return {
+          sources: fallbackSources,
+          sourcesMean: fallbackSourcesMean,
+        };
+      };
+
       try {
-        try { res.write(`data: ${JSON.stringify({ type: 'status', message: 'Synthèse des informations...' })}\n\n`); } catch(_) {}
+        writeSseEvent({ type: 'status', message: 'Synthèse des informations...' });
         // Stream LLM response to client
         const llmStream = await openai.chat.completions.create({
           model: modelName,
           messages: openaiMessages,
-          temperature: webProfile === 'deep' ? 0.15 : 0.2,
+          temperature: 0.1,
           max_tokens: webProfile === 'deep' ? 2400 : 1600,
           stream: true,
         });
@@ -891,78 +1031,18 @@ ${formatWebSourcesForPrompt(webSources)}
           if (!delta) continue;
 
           rawAnswer += delta;
-          try {
-            res.write(delta);
-          } catch (e) {
+          if (!writeTextEvent(delta)) {
             logger.debug('Client disconnected during stream', { userId });
           }
         }
 
-        // After LLM stream completes, await enrichment with a 35s timeout
+        // After LLM stream completes, await enrichment with a longer timeout budget
         // Prevents the response from hanging if enrichment is abnormally slow
-        const ENRICHMENT_TIMEOUT_MS = 35_000;
-        const enrichmentResult = await Promise.race([
-          enrichmentPromise,
-          new Promise<null>((resolve) => setTimeout(() => {
-            logger.warn('Enrichment timed out after 35s, closing stream without enrichment', {
-              module: 'Chat',
-              userId,
-              sessionId,
-            });
-            resolve(null);
-          }, ENRICHMENT_TIMEOUT_MS)),
-        ]);
+        const enrichmentPayload = await resolveEnrichmentPayload();
+        sources = enrichmentPayload.sources;
+        sourcesMean = enrichmentPayload.sourcesMean;
+        writeEnrichmentEvent(sources, sourcesMean);
 
-        if (enrichmentResult) {
-          sources = enrichmentResult.sources;
-          sourcesMean = enrichmentResult.sourcesMean;
-          logger.info('Enrichment succeeded', { module: 'Chat', sourceCount: sources.length, sourcesMean });
-
-          // Send enrichment data as a final SSE-style event
-          try {
-            res.write(`\n\ndata: ${JSON.stringify({ type: 'enrichment', sources: enrichmentResult.sources, sourcesMean: enrichmentResult.sourcesMean })}\n\n`);
-          } catch (e) {
-            logger.debug('Client disconnected before enrichment event could be sent', { userId });
-          }
-        } else {
-          // Enrichment failed/timed out — use webSources as fallback for DB save
-          // so the frontend can at least display SOMETHING
-          sources = webSources.map((s, i) => ({
-            id: i + 1,
-            name: s.title || s.domain,
-            domain: s.domain,
-            url: s.url,
-            logo: `https://www.google.com/s2/favicons?domain=${s.domain}&sz=64`,
-            category: 'MEDIA',
-            type: 'MEDIA',
-            score: Math.max(30, Math.min(100, Math.round(s.score * 100))),
-            trustScore: Math.max(30, Math.min(100, Math.round(s.score * 100))),
-            confidence: 'MEDIUM' as const,
-            description: s.content.slice(0, 220) || null,
-            justification: `Source web issue de Serper sur ${s.domain}.`,
-            dbScore: 50,
-            metadata: {
-              provider: s.provider === 'rag' ? 'rag' as const : 'serper' as const,
-              publishedDate: s.publishedDate,
-              searchScore: s.score,
-              dbScore: 50,
-            },
-          }));
-          const fallbackScores = sources.map((s: any) => s.trustScore).filter((n: any) => typeof n === 'number');
-          sourcesMean = fallbackScores.length > 0 ? Math.round(fallbackScores.reduce((a: number, b: number) => a + b, 0) / fallbackScores.length) : 50;
-          logger.warn('Enrichment unavailable, using fallback sources for DB', {
-            module: 'Chat',
-            userId,
-            sessionId,
-            fallbackSourceCount: sources.length,
-            fallbackSourcesMean: sourcesMean,
-          });
-
-          // Still send the fallback sources to frontend
-          try {
-            res.write(`\n\ndata: ${JSON.stringify({ type: 'enrichment', sources, sourcesMean })}\n\n`);
-          } catch (_) {}
-        }
       } catch (err: any) {
         logger.error('Web chat pipeline failed', {
           module: 'Chat',
@@ -970,11 +1050,22 @@ ${formatWebSourcesForPrompt(webSources)}
           userId,
           sessionId,
         });
+        try {
+          const enrichmentPayload = await resolveEnrichmentPayload();
+          sources = enrichmentPayload.sources;
+          sourcesMean = enrichmentPayload.sourcesMean;
+          writeEnrichmentEvent(sources, sourcesMean);
+        } catch (enrichmentError: any) {
+          logger.warn('Failed to resolve enrichment payload after stream error', {
+            module: 'Chat',
+            userId,
+            sessionId,
+            error: enrichmentError?.message || 'Unknown enrichment fallback error',
+          });
+        }
         if (!rawAnswer) {
           rawAnswer = "Le mode web est temporairement indisponible.";
-          try {
-            res.write(rawAnswer);
-          } catch (writeError) {
+          if (!writeTextEvent(rawAnswer)) {
             logger.debug('Client disconnected before fallback message could be written', { userId });
           }
         }
@@ -983,8 +1074,13 @@ ${formatWebSourcesForPrompt(webSources)}
 
       outputAnalysis = analyzeOutputQuality(rawAnswer);
       outputScore = outputAnalysis.score;
-      const uniqueDomains = new Set((sources || []).map((source: any) => source.domain)).size;
-      diversityPenalty = uniqueDomains >= 3 ? 0 : uniqueDomains === 2 ? 4 : 8;
+      logger.info('AI Output Sourcing Score', {
+        module: 'Chat',
+        mode: 'web',
+        sessionId,
+        userId,
+        citationScore: outputScore,
+      });
       finalGlobalScore = Math.max(
         0,
         Math.min(100, Math.round((sourcesMean * 0.75) + (outputScore * 0.25)))
@@ -1015,7 +1111,6 @@ ${formatWebSourcesForPrompt(webSources)}
           calculation: {
             sourcesMean,
             outputScore,
-            diversityPenalty,
             sourceWeight: 0.75,
             outputWeight: 0.25,
             finalScore: finalGlobalScore,

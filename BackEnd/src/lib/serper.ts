@@ -68,7 +68,7 @@ async function requestSerper(query: string, options: SearchSerperOptions = {}): 
         query,
         gl: options.gl || 'fr',
         hl: options.hl || 'fr',
-        maxResults: options.maxResults ?? 5,
+        maxResults: options.maxResults ?? 10,
     });
 
     const response = await axios.post<SerperResponse>(
@@ -77,6 +77,7 @@ async function requestSerper(query: string, options: SearchSerperOptions = {}): 
             q: query,
             gl: options.gl || 'fr',
             hl: options.hl || 'fr',
+            num: options.maxResults ?? 10,
         },
         {
             timeout: SERPER_TIMEOUT_MS,
@@ -92,7 +93,7 @@ async function requestSerper(query: string, options: SearchSerperOptions = {}): 
         .map((result, index) => normalizeResult(result, index))
         .filter((result): result is SerperSearchResult => result !== null);
 
-    return normalizedResults.slice(0, options.maxResults ?? 5);
+    return normalizedResults.slice(0, options.maxResults ?? 10);
 }
 
 function describeSerperError(error: unknown): SerperErrorContext {

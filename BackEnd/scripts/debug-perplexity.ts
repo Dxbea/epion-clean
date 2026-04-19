@@ -28,7 +28,8 @@ async function testStream() {
 
     const openai = new OpenAI({ apiKey: process.env.OPENAI_API_KEY });
     const question = 'Tell me a short joke about programming with one source citation.';
-    const sources = await searchWebContext(question, { profile: 'standard' });
+    const webContext = await searchWebContext(question, { profile: 'standard' });
+    const sources = webContext.promptSources;
     const messages: WebChatMessage[] = [{ role: 'user', content: question }];
 
     try {

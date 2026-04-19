@@ -8,6 +8,7 @@ const redisUrl = process.env.REDIS_URL || 'redis://localhost:6379';
 const connection = new IORedis(redisUrl, {
     maxRetriesPerRequest: null,
 });
+const SOURCE_ENRICHMENT_WORKER_CONCURRENCY = 3;
 
 interface SourceEnrichmentJobData {
     articleId: string;
@@ -15,6 +16,35 @@ interface SourceEnrichmentJobData {
     // NEW: Passed from live-analysis.worker via chainage
     scoreLiveBrut?: number;
     liveAnalysis?: any;
+}
+
+async function mapWithConcurrencyLimit<T, U>(
+    items: T[],
+    concurrency: number,
+    mapper: (item: T, index: number) => Promise<U>,
+): Promise<U[]> {
+    if (items.length === 0) {
+        return [];
+    }
+
+    const safeConcurrency = Math.max(1, Math.min(concurrency, items.length));
+    const results = new Array<U>(items.length);
+    let nextIndex = 0;
+
+    await Promise.all(
+        Array.from({ length: safeConcurrency }, async () => {
+            while (true) {
+                const currentIndex = nextIndex++;
+                if (currentIndex >= items.length) {
+                    return;
+                }
+
+                results[currentIndex] = await mapper(items[currentIndex], currentIndex);
+            }
+        }),
+    );
+
+    return results;
 }
 
 /**
@@ -38,7 +68,7 @@ export const sourceEnrichmentWorker = new Worker(
         const trustScoreByDomain = new Map<string, Promise<any>>();
 
         // Traitement parallèle des sources (limitée par la puissance du serveur, ici tout d'un coup car ~5-10 sources max)
-        const enrichmentPromises = sources.map(async (url) => {
+        const results = await mapWithConcurrencyLimit(sources, SOURCE_ENRICHMENT_WORKER_CONCURRENCY, async (url) => {
             try {
                 let domain = '';
                 try {
@@ -88,8 +118,6 @@ export const sourceEnrichmentWorker = new Worker(
                 return null;
             }
         });
-
-        const results = await Promise.all(enrichmentPromises);
 
         // Filtrage et Indexation
         results.forEach((res) => {
@@ -181,7 +209,7 @@ export const sourceEnrichmentWorker = new Worker(
     },
     {
         connection: connection as any,
-        concurrency: 10, // Traitement de 10 fichiers simultanés (High Parallelism)
+        concurrency: SOURCE_ENRICHMENT_WORKER_CONCURRENCY,
     }
 );
 
@@ -196,4 +224,4 @@ sourceEnrichmentWorker.on('failed', (job, err) => {
     });
 });
 
-logger.info('Source Enrichment Worker started', { module: 'Worker', concurrency: 3 });
+logger.info('Source Enrichment Worker started', { module: 'Worker', concurrency: SOURCE_ENRICHMENT_WORKER_CONCURRENCY });

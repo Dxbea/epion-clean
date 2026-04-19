@@ -32,10 +32,11 @@ interface GlobalTrustScoreModalProps {
 }
 
 export function GlobalTrustScoreModal({ isOpen, onClose, data }: GlobalTrustScoreModalProps) {
-    const { sources, globalScore, sourceScore: avgSourceScore, aiScore, liveAnalysis } = data;
+    const { sources, sourceScore: avgSourceScore, aiScore, liveAnalysis } = data;
+    const globalScore = Math.max(0, Math.min(100, Math.round((avgSourceScore * 0.75) + (aiScore * 0.25))));
 
     // --- 1. CALCUL SCORES ---
-    // NO CALCULATION HERE - Single Source of Truth from Parent
+    // Recompute the displayed global score so the modal always matches the documented formula.
 
     // --- 2. ANALYSE POLITIQUE ---
     const politicalCounts = { left: 0, center: 0, right: 0, total: 0 };

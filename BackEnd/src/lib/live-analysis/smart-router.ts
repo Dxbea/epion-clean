@@ -44,13 +44,15 @@ function ensureSearchCoverage(originalQuery: string, generatedQuery: string): st
     }
 
     const originalWords = original.split(/\s+/).filter(Boolean);
-    if (originalWords.length <= 5) {
-        return original;
-    }
-
     const normalizedCandidate = ` ${normalizeSearchText(candidate)} `;
     const mustKeepTerms = Array.from(new Set(
-        originalWords.filter((word) => /\d{4}/.test(word) || word.length >= 5),
+        originalWords.filter((word) => {
+            if (/\d{4}/.test(word)) {
+                return true;
+            }
+
+            return originalWords.length <= 5 ? word.length >= 2 : word.length >= 5;
+        }),
     ));
 
     const missingTerms = mustKeepTerms.filter((term) => {

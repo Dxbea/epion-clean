@@ -21,8 +21,50 @@ export interface EditorialAnalysisResult {
     };
 }
 
-export async function analyzeEditorial(domain: string): Promise<EditorialAnalysisResult> {
+interface EditorialScannerInput {
+    content?: string;
+    metaDescription?: string | null;
+}
+
+function scoreEditorialFromText(text: string): EditorialAnalysisResult {
+    const scanText = text.substring(0, 5000);
+    let totalMatches = 0;
+
+    CITATION_PATTERNS.forEach(regex => {
+        const globalRegex = new RegExp(regex.source, 'gi');
+        const found = scanText.match(globalRegex);
+        if (found) totalMatches += found.length;
+    });
+
+    const citationCount = totalMatches;
+    const externalLinkCount = 0;
+    const hasAuthorityLinks = false;
+    const totalEvidences = externalLinkCount + citationCount;
+
+    let scoreModifier = -15;
+    if (totalEvidences >= 3 || hasAuthorityLinks) {
+        scoreModifier = 10;
+    } else if (totalEvidences >= 1) {
+        scoreModifier = -5;
+    }
+
+    return {
+        scoreModifier,
+        details: {
+            externalLinkCount,
+            citationCount,
+            hasAuthorityLinks,
+        },
+    };
+}
+
+export async function analyzeEditorial(domain: string, input: EditorialScannerInput = {}): Promise<EditorialAnalysisResult> {
     try {
+        const providedText = `${input.metaDescription || ''} ${input.content || ''}`.trim();
+        if (providedText.length >= 120) {
+            return scoreEditorialFromText(providedText);
+        }
+
         const url = `https://${domain}`;
 
         // 1. Fetch HTML (Timeout 3s)
@@ -68,38 +110,16 @@ export async function analyzeEditorial(domain: string): Promise<EditorialAnalysi
             } catch (e) { /* ignore invalid URLs */ }
         });
 
-        // 3. Scan Text Citations (Regex)
-        // We limit text scan to first 5000 chars to avoid perf issues
-        const scanText = bodyText.substring(0, 5000);
-        let citationCount = 0;
-
-        CITATION_PATTERNS.forEach(regex => {
-            const matches = scanText.match(regex);
-            if (matches) citationCount++; // Simple count: 1 per pattern type match, or use matchAll for deeper scan
-        });
-        // Better: use loop to find total matches? 
-        // Let's stick to simple "pattern occurrences" for speed. 
-        // Or specific unique entity count?
-        // User asked for "1-2 Mentions vagues" vs "3+ Mentions".
-        // Let's count total regex matches across all patterns.
-
-        let totalMatches = 0;
-        CITATION_PATTERNS.forEach(regex => {
-            // Global match to count all
-            const globalRegex = new RegExp(regex.source, 'gi');
-            const found = scanText.match(globalRegex);
-            if (found) totalMatches += found.length;
-        });
-        citationCount = totalMatches;
+        const textOnlyResult = scoreEditorialFromText(bodyText);
+        const citationCount = textOnlyResult.details.citationCount;
 
         // 4. Scoring Logic (Tiered)
         // - 0 Sources (No link, no text citation): -15 pts
         // - 1-2 Vague Mentions: -5 pts
         // - 3+ Authority Citations: +10 pts
 
-        let scoreModifier = -15; // Default Penalty (Opinion/Rumor)
-
         const totalEvidences = externalLinkCount + citationCount;
+        let scoreModifier = -15; // Default Penalty (Opinion/Rumor)
 
         if (totalEvidences >= 3 || hasAuthorityLinks) {
             scoreModifier = 10; // Bonus

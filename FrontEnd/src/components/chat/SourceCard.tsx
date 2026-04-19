@@ -32,6 +32,7 @@ export interface SourceData {
     logo: string;
     category: string;
     score: number | null;
+    isEnriching?: boolean;
     description?: string | null;
     criteria?: SourceCriteria[];
     metrics?: SourceMetrics;
@@ -69,12 +70,12 @@ function getCategoryStyle(category: string) {
     return `${base} bg-gray-100 text-gray-900 dark:bg-neutral-800 dark:text-white border-gray-200`;
 }
 
-function ScoreBadge({ score }: { score: number | null }) {
-    if (score === null) {
+function ScoreBadge({ score, isEnriching = false }: { score: number | null; isEnriching?: boolean }) {
+    if (score === null || isEnriching) {
         return (
             <div className="flex items-center gap-2 rounded-full px-2 py-1 bg-gray-100 dark:bg-white/10 border border-gray-200 dark:border-white/5 animate-pulse">
                 <span className="text-[10px] font-bold uppercase tracking-wider text-gray-400 dark:text-gray-500">
-                    Analyse...
+                    Analyse en cours...
                 </span>
                 <div className="h-5 w-5 rounded-full bg-gray-200 dark:bg-white/20" />
             </div>
@@ -105,7 +106,7 @@ function ScoreBadge({ score }: { score: number | null }) {
 export default function SourceCard({ source, isFocused }: SourceCardProps) {
     const [isExpanded, setIsExpanded] = useState(false);
     const cardRef = React.useRef<HTMLDivElement>(null);
-    const isPending = source.score === null;
+    const isPending = source.score === null || source.isEnriching === true;
 
     React.useEffect(() => {
         if (isFocused && cardRef.current) {
@@ -179,7 +180,7 @@ export default function SourceCard({ source, isFocused }: SourceCardProps) {
                 )}
 
                 <div className="flex items-center gap-3 shrink-0">
-                    <ScoreBadge score={source.score} />
+                    <ScoreBadge score={source.score} isEnriching={source.isEnriching} />
                     {!isPending && (
                         <ChevronDown
                             className={`h-5 w-5 text-gray-600 transition-transform duration-200 ${isExpanded ? 'rotate-180' : ''}`}

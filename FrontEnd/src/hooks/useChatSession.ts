@@ -86,6 +86,237 @@ function autoTitleFrom(text: string) {
   return (t.slice(0, 40) + (t.length > 40 ? '…' : '')) || 'New chat';
 }
 
+type StreamSourceLike = Record<string, any>;
+type StreamEventLike = Record<string, any>;
+
+function createSseJsonParser(onEvent: (event: StreamEventLike) => void) {
+  let lineBuffer = '';
+  let dataLines: string[] = [];
+
+  const flushEvent = () => {
+    if (dataLines.length === 0) {
+      return;
+    }
+
+    const payload = dataLines.join('\n').trim();
+    dataLines = [];
+
+    if (!payload) {
+      return;
+    }
+
+    try {
+      onEvent(JSON.parse(payload));
+    } catch {
+      // Ignore malformed SSE payloads instead of corrupting the UI stream.
+    }
+  };
+
+  return {
+    push(chunk: string, finalize = false) {
+      lineBuffer += chunk;
+
+      while (true) {
+        const newlineIndex = lineBuffer.indexOf('\n');
+        if (newlineIndex === -1) {
+          break;
+        }
+
+        let line = lineBuffer.slice(0, newlineIndex);
+        lineBuffer = lineBuffer.slice(newlineIndex + 1);
+
+        if (line.endsWith('\r')) {
+          line = line.slice(0, -1);
+        }
+
+        if (line === '') {
+          flushEvent();
+          continue;
+        }
+
+        if (line.startsWith(':')) {
+          continue;
+        }
+
+        if (line.startsWith('data:')) {
+          let value = line.slice(5);
+          if (value.startsWith(' ')) {
+            value = value.slice(1);
+          }
+          dataLines.push(value);
+        }
+      }
+
+      if (!finalize) {
+        return;
+      }
+
+      if (lineBuffer.length > 0) {
+        let line = lineBuffer;
+        if (line.endsWith('\r')) {
+          line = line.slice(0, -1);
+        }
+        if (line.startsWith('data:')) {
+          let value = line.slice(5);
+          if (value.startsWith(' ')) {
+            value = value.slice(1);
+          }
+          dataLines.push(value);
+        }
+      }
+
+      lineBuffer = '';
+      flushEvent();
+    },
+  };
+}
+
+function resolveStreamSourceDomain(source: StreamSourceLike): string {
+  if (typeof source?.domain === 'string' && source.domain.trim()) {
+    return source.domain.trim();
+  }
+
+  if (typeof source?.url === 'string' && source.url.trim()) {
+    try {
+      return new URL(source.url).hostname.replace(/^www\./, '');
+    } catch {
+      return source.url;
+    }
+  }
+
+  if (typeof source?.title === 'string' && source.title.trim()) {
+    return source.title.trim();
+  }
+
+  if (typeof source?.name === 'string' && source.name.trim()) {
+    return source.name.trim();
+  }
+
+  return 'Source inconnue';
+}
+
+function inferPendingSourceCategory(source: StreamSourceLike, domain: string): string {
+  const normalizedDomain = domain.toLowerCase();
+  const rawType = typeof source?.type === 'string'
+    ? source.type
+    : typeof source?.category === 'string'
+      ? source.category
+      : null;
+
+  if (rawType) {
+    return rawType;
+  }
+
+  if (
+    source?.provider === 'rag' ||
+    normalizedDomain === 'epion.io' ||
+    normalizedDomain.endsWith('.epion.io') ||
+    (typeof source?.url === 'string' && source.url.startsWith('/article/'))
+  ) {
+    return 'DATABASE';
+  }
+
+  if (normalizedDomain.endsWith('.gov') || normalizedDomain.endsWith('.gouv.fr')) {
+    return 'GOVERNMENT';
+  }
+
+  if (normalizedDomain.endsWith('.edu') || normalizedDomain.includes('.ac.')) {
+    return 'ACADEMIC';
+  }
+
+  return 'MEDIA';
+}
+
+function toPendingStreamSource(source: StreamSourceLike, index: number): StreamSourceLike {
+  const domain = resolveStreamSourceDomain(source);
+  const category = inferPendingSourceCategory(source, domain);
+  const provider = source?.provider === 'rag' ? 'rag' : 'serper';
+
+  return {
+    id: typeof source?.id === 'number' ? source.id : index + 1,
+    name: source?.title || source?.name || domain,
+    domain,
+    url: source?.url || '#',
+    logo: source?.logo || source?.favicon || `https://www.google.com/s2/favicons?domain=${domain !== 'Source inconnue' ? domain : 'example.com'}&sz=64`,
+    category,
+    type: category,
+    score: null,
+    trustScore: null,
+    dbScore: null,
+    description: source?.description || (typeof source?.content === 'string' ? source.content.slice(0, 220) : null) || null,
+    justification: source?.provider === 'rag'
+      ? `Analyse en cours pour la source interne ${domain}.`
+      : `Analyse en cours pour la source ${domain}.`,
+    metadata: {
+      provider,
+      publishedDate: source?.publishedDate,
+      searchScore: typeof source?.score === 'number' ? source.score : 0,
+      dbScore: null,
+      articleSlug: source?.articleSlug,
+    },
+    isEnriching: true,
+  };
+}
+
+function getStreamSourceKey(source: StreamSourceLike): string | null {
+  if (typeof source?.url === 'string' && source.url.trim()) {
+    return `url:${source.url.trim()}`;
+  }
+
+  if (typeof source?.domain === 'string' && source.domain.trim()) {
+    return `domain:${source.domain.trim().toLowerCase()}`;
+  }
+
+  if (typeof source?.id === 'number') {
+    return `id:${source.id}`;
+  }
+
+  return null;
+}
+
+function mergeStreamSource(
+  currentSources: StreamSourceLike[] | undefined,
+  enrichedSource: StreamSourceLike,
+): StreamSourceLike[] {
+  const safeCurrentSources = Array.isArray(currentSources) ? currentSources : [];
+  const enrichedKey = getStreamSourceKey(enrichedSource);
+  let didReplace = false;
+
+  const merged = safeCurrentSources.map((source) => {
+    const sourceKey = getStreamSourceKey(source);
+    const matchesByKey = enrichedKey !== null && sourceKey === enrichedKey;
+    const matchesById =
+      !matchesByKey &&
+      typeof source?.id === 'number' &&
+      typeof enrichedSource?.id === 'number' &&
+      source.id === enrichedSource.id;
+
+    if (!matchesByKey && !matchesById) {
+      return source;
+    }
+
+    didReplace = true;
+
+    return {
+      ...source,
+      ...enrichedSource,
+      isEnriching: false,
+    };
+  });
+
+  if (didReplace) {
+    return merged;
+  }
+
+  return [
+    ...merged,
+    {
+      ...enrichedSource,
+      isEnriching: false,
+    },
+  ];
+}
+
 export function useChatSession(sessionId?: string) {
   const [sessions, setSessions] = React.useState<ChatSessionItem[]>([]);
   const [messages, setMessages] = React.useState<ChatMessageItem[]>([]);
@@ -369,108 +600,96 @@ export function useChatSession(sessionId?: string) {
         const decoder = new TextDecoder('utf-8');
 
         let rawAccumulator = '';
-        let sseBuffer = '';
+        let latestEnrichmentSources: any[] | undefined;
+        let latestEnrichmentMean: number | undefined;
+        let latestAction: string | null = null;
+
+        const syncAssistantMessage = () => {
+          setMessages((prev) =>
+            prev.map((m) =>
+              m.id === tempAiId ? {
+                ...m,
+                content: rawAccumulator,
+                sources: latestEnrichmentSources ?? m.sources,
+                metadata: {
+                  ...m.metadata,
+                  currentAction: latestAction || m.metadata?.currentAction,
+                  ...(typeof latestEnrichmentMean === 'number'
+                    ? { factScore: latestEnrichmentMean }
+                    : {}),
+                }
+              } : m
+            )
+          );
+        };
+
+        const processStreamEvent = (ev: any) => {
+          if (!ev || typeof ev !== 'object') {
+            return;
+          }
+
+          if (ev.type === 'status') {
+            latestAction = typeof ev.message === 'string' ? ev.message : latestAction;
+            if (typeof ev.message === 'string' && ev.message) {
+              setCurrentActions((prev) => prev.includes(ev.message) ? prev : [...prev, ev.message]);
+            }
+            return;
+          }
+
+          if (ev.type === 'sources_pending') {
+            if (Array.isArray(ev.sources)) {
+              latestEnrichmentSources = ev.sources.map((source, index) => toPendingStreamSource(source, index));
+            }
+            return;
+          }
+
+          if (ev.type === 'source_enriched') {
+            if (ev.source) {
+              latestEnrichmentSources = mergeStreamSource(latestEnrichmentSources, ev.source);
+            }
+            return;
+          }
+
+          if (ev.type === 'enrichment') {
+            if (Array.isArray(ev.sources)) {
+              latestEnrichmentSources = ev.sources.map((source: any) => ({
+                ...source,
+                isEnriching: false,
+              }));
+            }
+            if (typeof ev.sourcesMean === 'number') {
+              latestEnrichmentMean = ev.sourcesMean;
+            }
+            return;
+          }
+
+          if (ev.type === 'text') {
+            rawAccumulator += ev.content || '';
+          }
+        };
+
+        const sseParser = createSseJsonParser(processStreamEvent);
 
         while (true) {
           const { done, value } = await reader.read();
           if (done) break;
 
           const chunkText = decoder.decode(value, { stream: true });
-          sseBuffer += chunkText;
-
-          const parts = sseBuffer.split('\n\n');
-          sseBuffer = parts.pop() || '';
-
-          const events: any[] = [];
-          for (const part of parts) {
-            if (part.startsWith('data: ')) {
-              const dataStr = part.slice(6).trim();
-              if (dataStr) {
-                try {
-                  events.push(JSON.parse(dataStr));
-                } catch (e) {
-                  // Ignore invalid JSON parsing error
-                }
-              }
-            } else {
-              // It's raw text
-              rawAccumulator += part;
-              // Re-add the \n\n if this wasn't an event, since it was split
-              rawAccumulator += '\n\n';
-            }
-          }
-          
-          let latestAction = null;
-          let latestEnrichment = null;
-
-          for (const ev of events) {
-            if (ev.type === 'status') {
-              latestAction = ev.message;
-              setCurrentActions(prev => prev.includes(ev.message) ? prev : [...prev, ev.message]);
-            } else if (ev.type === 'enrichment') {
-              latestEnrichment = ev;
-            } else if (ev.type === 'text') {
-              // In case backend ever switches to wrapped text
-              rawAccumulator += ev.content || '';
-            }
-          }
-
-          // Live Update UI
-          setMessages((prev) =>
-            prev.map((m) =>
-              m.id === tempAiId ? { 
-                ...m, 
-                content: rawAccumulator + (sseBuffer.startsWith('data: ') ? '' : sseBuffer),
-                sources: latestEnrichment ? latestEnrichment.sources : m.sources,
-                metadata: {
-                  ...m.metadata,
-                  currentAction: latestAction || m.metadata?.currentAction,
-                  ...(latestEnrichment ? { 
-                    factScore: latestEnrichment.sourcesMean 
-                  } : {})
-                }
-              } : m
-            )
-          );
+          sseParser.push(chunkText);
+          syncAssistantMessage();
         }
 
-        // Process any remaining SSE buffer that wasn't terminated with \n\n
-        if (sseBuffer.trim()) {
-          if (sseBuffer.trim().startsWith('data: ')) {
-            const dataStr = sseBuffer.trim().slice(6).trim();
-            if (dataStr) {
-              try {
-                const ev = JSON.parse(dataStr);
-                if (ev.type === 'enrichment') {
-                  setMessages((prev) =>
-                    prev.map((m) =>
-                      m.id === tempAiId ? {
-                        ...m,
-                        sources: ev.sources,
-                        metadata: {
-                          ...m.metadata,
-                          factScore: ev.sourcesMean,
-                        }
-                      } : m
-                    )
-                  );
-                }
-              } catch (e) { /* ignore */ }
-            }
-          } else {
-            rawAccumulator += sseBuffer;
-            setMessages((prev) =>
-              prev.map((m) =>
-                m.id === tempAiId ? { ...m, content: rawAccumulator } : m
-              )
-            );
-          }
+        sseParser.push('', true);
+
+        if (latestEnrichmentSources || typeof latestEnrichmentMean === 'number') {
+          syncAssistantMessage();
         }
 
-        // 3. Sync finished — small delay to ensure backend DB write has committed
-        await new Promise(resolve => setTimeout(resolve, 300));
-        loadMessages(id).catch(() => { });
-        listSessions().catch(() => { });
+        await Promise.allSettled([
+          loadMessages(id),
+          listSessions(),
+        ]);
+
 
         return; // No specific return needed anymore
       } catch (err) {
