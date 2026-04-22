@@ -153,7 +153,7 @@ export default function Home(): JSX.Element {
   ] as const;
 
   const heroTitleClass =
-    'reveal mb-6 font-serif font-light leading-[1.2] tracking-[-0.02em] [font-size:clamp(2.2rem,4vw,4rem)] [font-variation-settings:"opsz"_72,"wght"_300]';
+    'reveal mb-6 font-serif font-medium tracking-tight leading-tight text-5xl md:text-7xl';
 
   const sectionTitleClass =
     'reveal mb-6 font-serif font-light md:font-normal leading-[1.05] tracking-[-0.03em] text-balance [font-variation-settings:"opsz"_72,"wght"_300] md:[font-variation-settings:"opsz"_100,"wght"_400]';
@@ -165,17 +165,17 @@ export default function Home(): JSX.Element {
     <div className="home-snap-container relative w-full overflow-hidden">
       <MagnifierBackground />
 
-      <section className="home-snap-section z-10 px-4 py-16 sm:px-6 sm:py-20 md:px-10 md:py-24 lg:px-16 lg:py-28 xl:py-32">
-        <div className="mx-auto flex w-full max-w-7xl flex-col items-center gap-14 lg:flex-row lg:items-center lg:gap-12 xl:gap-16">
-          <div className="mt-2 flex flex-1 flex-col items-center text-center lg:items-start lg:text-left lg:mt-0 lg:basis-[58%]">
+      <section className="home-snap-section z-10 px-4 pt-28 pb-16 sm:px-6 sm:pt-32 sm:pb-20 md:px-10 md:pt-36 md:pb-24 lg:px-16 lg:pt-40 lg:pb-28 xl:pb-32">
+        <div className="mx-auto flex w-full max-w-7xl flex-col items-center gap-10 lg:flex-row lg:items-center lg:gap-12 xl:gap-16">
+          <div className="flex flex-1 flex-col items-center gap-8 text-center lg:items-start lg:text-left lg:mt-0 lg:basis-[58%]">
             <h1 data-reveal className={heroTitleClass}>
               {locale === 'fr' ? (
-                <>Ne vous contentez pas de consommer<br />l'information. Comprenez-la.</>
+                <>Comprendre,<br />pas juste consommer.</>
               ) : (
-                <>Don't just consume<br />information. Understand it.</>
+                <>Stop consuming.<br />Start understanding.</>
               )}
             </h1>
-            <p data-reveal className="reveal reveal-delay-2 mb-6 max-w-xl text-base leading-[1.7] text-gray-600 text-pretty dark:text-gray-400 sm:text-lg">
+            <p data-reveal className="reveal reveal-delay-2 max-w-xl text-base leading-[1.7] text-gray-600 text-pretty dark:text-gray-400 sm:text-lg">
               {t('home_informed_desc')}
             </p>
             <div data-reveal className="reveal reveal-delay-3 w-full sm:w-auto md:w-[22rem]">
@@ -192,7 +192,7 @@ export default function Home(): JSX.Element {
             </div>
           </div>
 
-          <div data-reveal className="reveal reveal-delay-2 flex w-full flex-shrink-0 items-center justify-center lg:basis-[42%]">
+          <div data-reveal className="reveal reveal-delay-2 flex w-full flex-shrink-0 items-center justify-center mt-10 lg:mt-0 lg:basis-[42%]">
             <div className="home-showcase-card w-full max-w-[25rem] xl:max-w-[26rem]">
               <div className="home-showcase-glow"></div>
               <img
