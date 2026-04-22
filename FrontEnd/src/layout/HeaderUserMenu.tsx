@@ -3,6 +3,7 @@ import { Link, useNavigate } from 'react-router-dom';
 import { useMe } from '@/contexts/MeContext';
 import { useSavedArticles } from '@/hooks/useSavedArticles';
 import { PiChartPie } from "react-icons/pi";
+import { Button } from '@/components/ui';
 
 export default function HeaderUserMenu() {
   const [open, setOpen] = React.useState(false);
@@ -50,18 +51,12 @@ export default function HeaderUserMenu() {
   return (
     <div ref={rootRef} className="relative">
       {/* Compact pill */}
-      <button
+      <Button
         type="button"
+        variant="secondary"
+        size="auto"
         onClick={() => setOpen((v) => !v)}
-        className="
-          inline-flex items-center gap-2
-          rounded-xl border border-black/10 bg-white/70
-          px-3 py-1 text-[13px] font-medium leading-none text-neutral-900
-          hover:bg-white
-          dark:border-white/10 dark:bg-neutral-900/80 dark:text-neutral-100
-          dark:hover:bg-neutral-900
-          transition
-        "
+        className="gap-2 h-9 px-3 text-[13px] font-medium leading-none"
       >
         {/* Mini avatar */}
         {/* Mini avatar */}
@@ -95,7 +90,7 @@ export default function HeaderUserMenu() {
         >
           <path d="M6 8l4 4 4-4" strokeLinecap="round" strokeLinejoin="round" />
         </svg>
-      </button>
+      </Button>
 
       {/* Dropdown */}
       {open && (

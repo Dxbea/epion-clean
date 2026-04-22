@@ -12,16 +12,6 @@ export default function NewFolderModal({ onClose, onCreated }: Props) {
   const [loading, setLoading] = useState(false);
   const inputRef = useRef<HTMLInputElement>(null);
 
-  useEffect(() => { inputRef.current?.focus(); }, []);
-   <input
-    ref={inputRef}
-    type="text"
-    placeholder="Nom du dossier"
-    value={name}
-    onChange={e => setName(e.target.value)}
-    className="w-full rounded-md border px-3 py-2 mb-3"
-  />
-
 
   useEffect(() => {
     inputRef.current?.focus();
@@ -37,6 +27,9 @@ export default function NewFolderModal({ onClose, onCreated }: Props) {
       const folder = await createFolder(name.trim());
       onCreated?.(folder);
       onClose();
+    } catch (err: any) {
+      console.error('Erreur création dossier:', err);
+      alert('Impossible de créer le dossier.');
     } finally {
       setLoading(false);
     }

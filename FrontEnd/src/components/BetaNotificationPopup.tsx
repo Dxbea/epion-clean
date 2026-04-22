@@ -2,6 +2,7 @@ import React, { useState, useEffect } from 'react';
 import { Instagram, ArrowRight, Github, X } from 'lucide-react';
 import { useTranslation } from 'react-i18next';
 import { createPortal } from 'react-dom';
+import { Button } from '@/components/ui';
 
 /**
  * BetaNotificationPopup - Theme-aware Compact version.
@@ -54,13 +55,14 @@ export default function BetaNotificationPopup() {
             <h1 className="text-2xl font-bold text-gray-900 dark:text-white tracking-tight leading-none">
               {t('beta_popup_title')}
             </h1>
-            <button 
+            <Button 
+              variant="ghost"
+              size="icon"
               onClick={handleClose}
-              className="p-1 hover:opacity-50 transition-opacity"
               aria-label="Close"
             >
               <X className="w-5 h-5 text-gray-400 dark:text-neutral-600" />
-            </button>
+            </Button>
           </div>
 
           {/* Theme-aware Message Section */}
@@ -119,12 +121,14 @@ export default function BetaNotificationPopup() {
 
           {/* Theme-aware CTA Button */}
           <div className="mt-auto pt-4 flex-shrink-0">
-            <button 
+            <Button 
+              variant="primary"
+              size="auto"
               onClick={handleClose}
-              className="w-full bg-black text-white dark:bg-white dark:text-black font-bold py-4 rounded-xl text-lg tracking-tight transition-all hover:opacity-90 active:scale-[0.97] shadow-xl"
+              className="w-full py-4 rounded-xl text-lg font-bold"
             >
               {t('beta_popup_cta')}
-            </button>
+            </Button>
           </div>
         </div>
       </div>

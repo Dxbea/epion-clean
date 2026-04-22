@@ -1,17 +1,19 @@
 // src/components/Header.tsx
 import React, { JSX } from 'react'
-import { NavLink, Link } from 'react-router-dom'
+import { NavLink, Link, useLocation } from 'react-router-dom'
 import { ThemeToggle } from './ThemeToggle'
 import MobileDrawer from './MobileDrawer'
 import logoLight from '@/assets/LG_Text_Noir.png'
 import logoDark from '@/assets/LG_text_Blanc.png'
 import HeaderUserMenu from '@/layout/HeaderUserMenu'
 import { useI18n } from '@/i18n/I18nContext'
+import { Button } from '@/components/ui'
 
 export default function Header(
   props: React.HTMLAttributes<HTMLElement>
 ): JSX.Element {
   const [open, setOpen] = React.useState(false)
+  const location = useLocation()
   const { t, locale } = useI18n()
   const { className = '', ...rest } = props
 
@@ -45,16 +47,18 @@ export default function Header(
         "
       >
         {/* burger mobile */}
-        <button
+        <Button
+          variant="secondary"
+          size="icon"
           aria-label="Open menu"
-          onClick={() => setOpen(true)}
-          className="
-            lg:hidden rounded-lg border border-black/10 bg-white/70 p-2 text-sm
-            hover:bg-white
-            dark:border-white/10 dark:bg-neutral-900/80 dark:text-neutral-100
-            dark:hover:bg-neutral-900
-            transition
-          "
+          onClick={() => {
+            if (location.pathname.startsWith('/chat')) {
+              window.dispatchEvent(new Event('toggleMobileChatDrawer'))
+            } else {
+              setOpen(true)
+            }
+          }}
+          className="lg:hidden"
         >
           <svg
             width="20"
@@ -66,7 +70,7 @@ export default function Header(
           >
             <path d="M4 6h16M4 12h16M4 18h16" />
           </svg>
-        </button>
+        </Button>
 
         {/* logo */}
         <Link to="/" className="flex items-center gap-3 select-none">
@@ -114,19 +118,15 @@ export default function Header(
           <ThemeToggle />
 
           {/* Download button */}
-          <Link
+          <Button
+            as={Link}
             to="/download"
-            className="
-              hidden sm:inline-flex items-center gap-2
-              rounded-xl border border-black/10 bg-white/70 px-3 py-3 text-[13px] font-medium leading-none text-neutral-900
-              hover:bg-white
-              dark:border-white/10 dark:bg-neutral-900/80 dark:text-neutral-100
-              dark:hover:bg-neutral-900
-              transition
-            "
+            variant="secondary"
+            size="auto"
+            className="hidden sm:inline-flex h-9 px-4 text-[13px] font-medium"
           >
             {t('nav_download') || 'Download epion'}
-          </Link>
+          </Button>
 
           {/* User menu (avatar + dropdown) */}
           <HeaderUserMenu />

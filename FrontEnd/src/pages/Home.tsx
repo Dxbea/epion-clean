@@ -5,6 +5,7 @@ import { FaAndroid, FaApple, FaWindows } from 'react-icons/fa';
 import { Button } from '@/components/ui';
 import { useI18n } from '@/i18n/I18nContext';
 import { useTheme } from '@/hooks/useTheme';
+import MagnifierBackground, { Magnifier } from '@/components/ui/MagnifierBackground';
 
 import './Home.css';
 
@@ -152,25 +153,21 @@ export default function Home(): JSX.Element {
   ] as const;
 
   const heroTitleClass =
-    'reveal mb-6 max-w-[15ch] text-5xl font-serif font-normal leading-[1.05] tracking-[-0.03em] text-balance md:text-6xl lg:max-w-[15ch] lg:text-[3.95rem] xl:text-[4.35rem]';
+    'reveal mb-6 max-w-[15ch] text-5xl font-serif font-light md:font-normal leading-[1.05] tracking-[-0.03em] text-balance md:text-6xl lg:max-w-[15ch] lg:text-[3.95rem] xl:text-[4.35rem]';
 
   const sectionTitleClass =
-    'reveal mb-6 font-serif font-normal leading-[1.05] tracking-[-0.03em] text-balance';
+    'reveal mb-6 font-serif font-light md:font-normal leading-[1.05] tracking-[-0.03em] text-balance';
 
   const featureTitleClass =
-    'reveal font-serif font-normal tracking-[-0.03em] leading-[1.08] text-balance';
+    'reveal font-serif font-light md:font-normal tracking-[-0.03em] leading-[1.08] text-balance';
 
   return (
-    <div className="home-snap-container relative w-full">
-      <div className="fixed inset-0 z-0 overflow-hidden pointer-events-none">
-        <div className="bg-blob-tr"></div>
-        <div className="bg-blob-bl"></div>
-        <div className="bg-blob-center"></div>
-      </div>
+    <div className="home-snap-container relative w-full overflow-hidden">
+      <MagnifierBackground />
 
       <section className="home-snap-section z-10 px-4 py-16 sm:px-6 sm:py-20 md:px-10 md:py-24 lg:px-16 lg:py-28 xl:py-32">
         <div className="mx-auto flex w-full max-w-7xl flex-col items-center gap-14 lg:flex-row lg:items-center lg:gap-12 xl:gap-16">
-          <div className="mt-2 flex flex-1 flex-col items-start text-left lg:mt-0 lg:basis-[58%]">
+          <div className="mt-2 flex flex-1 flex-col items-center text-center lg:items-start lg:text-left lg:mt-0 lg:basis-[58%]">
             <h1 data-reveal className={heroTitleClass}>
               {t('home_informed_title')}
             </h1>
@@ -183,6 +180,7 @@ export default function Home(): JSX.Element {
                 to="/news"
                 onMouseEnter={prefetchArticles}
                 variant="primary"
+                size="auto"
                 className="w-full whitespace-nowrap rounded-full px-8 py-3 text-lg"
               >
                 {t('home_read_articles')}
@@ -206,7 +204,7 @@ export default function Home(): JSX.Element {
       <section className="z-10 px-4 pt-20 pb-8 sm:px-6 sm:pt-24 sm:pb-8 md:px-10 md:pt-28 md:pb-10 lg:px-16 lg:pt-32 lg:pb-12">
         <div className="mx-auto w-full max-w-7xl">
           <div className="flex flex-col items-center gap-14 lg:flex-row lg:items-center lg:gap-12 xl:gap-16">
-            <div className="flex flex-1 flex-col items-start text-left lg:basis-[58%]">
+            <div className="flex flex-1 flex-col items-center text-center lg:items-start lg:text-left lg:basis-[58%]">
               <h2 data-reveal className={`${sectionTitleClass} max-w-[15ch] text-5xl md:text-6xl lg:max-w-[15ch] lg:text-[3.95rem] xl:text-[4.35rem]`}>
                 {t('home_ai_chat_title')}
               </h2>
@@ -219,6 +217,7 @@ export default function Home(): JSX.Element {
                   to="/chat"
                   onMouseEnter={prefetchChat}
                   variant="primary"
+                  size="auto"
                   className="w-full whitespace-nowrap rounded-full px-8 py-3 text-lg"
                 >
                   {t('home_open_ai_chat')}
@@ -240,8 +239,12 @@ export default function Home(): JSX.Element {
         </div>
       </section>
 
-      <section className="z-10 px-4 py-24 sm:px-6 sm:py-28 md:px-10 md:py-32 lg:px-16 lg:py-36">
-        <div className="mx-auto flex max-w-5xl flex-col items-center text-center">
+      <section className="relative z-10 px-4 py-24 sm:px-6 sm:py-28 md:px-10 md:py-32 lg:px-16 lg:py-36">
+        {/* Magnifier 1: Access everywhere (Right side) */}
+        <div className="absolute top-[10%] md:top-[20%] right-0 translate-x-[30%] sm:translate-x-[20%] lg:translate-x-[10%] w-[75vw] h-[75vw] max-w-[600px] max-h-[600px] min-w-[250px] min-h-[250px] opacity-20 dark:opacity-10 blur-[2px] pointer-events-none z-0">
+          <Magnifier className="w-full h-full transform rotate-[5deg]" />
+        </div>
+        <div className="relative z-10 mx-auto flex max-w-5xl flex-col items-center text-center">
           <h2
             data-reveal
             className={`${sectionTitleClass} mb-10 max-w-[15ch] text-3xl sm:text-4xl md:text-5xl lg:max-w-none lg:text-[3.4rem] xl:text-[3.9rem]`}
@@ -256,13 +259,15 @@ export default function Home(): JSX.Element {
               <div className="flex flex-wrap justify-center gap-4">
                 <Button
                   variant="primary"
-                  className="rounded-full px-5"
+                  size="auto"
+                  className="py-2.5 px-6 rounded-full"
                 >
                   <FaWindows className="mr-2" /> Windows
                 </Button>
                 <Button
                   variant="primary"
-                  className="rounded-full px-5"
+                  size="auto"
+                  className="py-2.5 px-6 rounded-full"
                 >
                   <FaApple className="mr-2 mb-[2px]" /> Mac
                 </Button>
@@ -276,13 +281,15 @@ export default function Home(): JSX.Element {
               <div className="flex flex-wrap justify-center gap-4">
                 <Button
                   variant="primary"
-                  className="h-auto rounded-full px-6 py-2 text-base"
+                  size="auto"
+                  className="h-auto rounded-full text-base py-2 px-6"
                 >
                   <FaApple className="mr-2 mb-[2px]" /> iOS
                 </Button>
                 <Button
                   variant="primary"
-                  className="h-auto rounded-full px-6 py-2 text-base"
+                  size="auto"
+                  className="h-auto rounded-full text-base py-2 px-6"
                 >
                   <FaAndroid className="mr-2" /> Android
                 </Button>
@@ -304,7 +311,7 @@ export default function Home(): JSX.Element {
           {whyItems.map((item, idx) => (
             <div
               key={idx}
-              className={`why-block max-w-xl rounded-2xl border border-white/70 p-8 shadow-[0_18px_50px_rgba(11,11,10,0.06)] dark:border-white/10 ${
+              className={`why-block max-w-xl rounded-2xl border border-white/70 p-8 shadow-[0_18px_50px_rgba(11,11,10,0.06)] dark:border-white/10 text-center md:text-left ${
                 item.align === 'right' ? 'md:ml-auto' : 'md:mr-auto'
               }`}
               style={{
@@ -315,7 +322,7 @@ export default function Home(): JSX.Element {
                 backdropFilter: 'blur(10px)',
               }}
             >
-              <h3 className="mb-4 text-2xl font-serif font-normal leading-[1.08] tracking-[-0.03em] text-balance text-gray-900 dark:text-white md:text-3xl">
+              <h3 className="mb-4 text-2xl font-serif font-light md:font-normal leading-[1.08] tracking-[-0.03em] text-balance text-gray-900 dark:text-white md:text-3xl">
                 {item.title}
               </h3>
               <p className="text-base leading-relaxed text-gray-600 dark:text-neutral-300 md:text-lg">
@@ -326,8 +333,12 @@ export default function Home(): JSX.Element {
         </div>
       </section>
 
-      <section className="home-feature-section z-10 border-t border-gray-100 bg-gray-50/50 px-6 pt-20 pb-28 dark:border-gray-800 dark:bg-neutral-900/20 md:px-16 md:pt-24 md:pb-32 lg:px-32 lg:pt-28 lg:pb-36">
-        <div className="mx-auto flex max-w-6xl flex-col gap-28 md:gap-32">
+      <section className="home-feature-section relative z-10 bg-transparent px-6 pt-20 pb-28 md:px-16 md:pt-24 md:pb-32 lg:px-32 lg:pt-28 lg:pb-36">
+        {/* Magnifier 2: Article Feed (Left side, top of the feature section) */}
+        <div className="absolute top-[2%] md:top-[5%] left-0 -translate-x-[30%] sm:-translate-x-[20%] lg:-translate-x-[10%] w-[70vw] h-[70vw] max-w-[550px] max-h-[550px] min-w-[200px] min-h-[200px] opacity-15 dark:opacity-[0.08] blur-[4px] pointer-events-none z-0">
+          <Magnifier className="w-full h-full transform scale-x-[-1] -rotate-[10deg]" />
+        </div>
+        <div className="relative z-10 mx-auto flex max-w-6xl flex-col gap-28 md:gap-32">
           {featureSections.map((feature, idx) => (
             <div
               key={feature.title}

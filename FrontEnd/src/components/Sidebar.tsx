@@ -1,5 +1,6 @@
 import React from 'react';
 import { FiX, FiMenu, FiPlus, FiUser, FiSettings, FiMessageCircle } from 'react-icons/fi';
+import { Button } from '@/components/ui';
 import LG_Picto_N from '../assets/LG_Picto_N.png';
 import { getEpionBrandGradient } from '@/lib/color-utils';
 
@@ -9,12 +10,13 @@ export default function Sidebar(): React.ReactElement {
   return (
     <>
       {!isOpen && (
-        <button
+        <Button
+          size="icon"
           onClick={() => setIsOpen(true)}
-          className="fixed top-4 left-4 z-50 p-2 bg-black text-white rounded-md shadow-lg"
+          className="fixed top-4 left-4 z-50 bg-black text-white shadow-lg border-0"
         >
           <FiMenu size={20} />
-        </button>
+        </Button>
       )}
 
       {isOpen && (
@@ -24,9 +26,9 @@ export default function Sidebar(): React.ReactElement {
               <img src={LG_Picto_N} alt="Epion" className="w-8 h-8" />
               <span className="font-bold text-lg" style={{ background: getEpionBrandGradient(), WebkitBackgroundClip: 'text', backgroundClip: 'text', color: 'transparent' }}>Epion</span>
             </div>
-            <button onClick={() => setIsOpen(false)} className="p-1 hover:bg-gray-100 rounded">
+            <Button variant="ghost" size="icon" onClick={() => setIsOpen(false)}>
               <FiX size={20} className="text-gray-900" />
-            </button>
+            </Button>
           </div>
 
           <div className="p-4 border-b border-white/20 hover:bg-gray-100 cursor-pointer flex items-center gap-2">

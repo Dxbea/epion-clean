@@ -393,7 +393,7 @@ export default function ChatMessage({ message }: { message: Msg }) {
         </div>
       ) : (
         <>
-          <div className="w-full max-w-[85%] rounded-2xl border border-black/5 bg-white p-5 dark:border-white/10 dark:bg-white/5">
+          <div className="w-full max-w-full lg:max-w-[85%] rounded-2xl border border-black/5 bg-white p-5 dark:border-white/10 dark:bg-white/5">
             {/* Header */}
             {transparencyData && (
               <TrustHeader

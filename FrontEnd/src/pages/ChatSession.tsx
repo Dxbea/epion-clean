@@ -42,13 +42,13 @@ export default function ChatSession() {
 
   const [rigor, setRigor] = React.useState<Rigor>('balanced');
   const [collapsed, setCollapsed] = React.useState(false);
-  const [hideAppHeader, setHideAppHeader] = React.useState<boolean>(false);
-  const [hideAppFooter, setHideAppFooter] = React.useState<boolean>(false);
   const [activeFolderId, setActiveFolderId] = React.useState<string | null>(null);
   const [rigorLoaded, setRigorLoaded] = React.useState(false);
+
   // Cacher le footer automatiquement à l'arrivée sur la page chat
   React.useEffect(() => {
-    setHideAppFooter(true);
+    document.body.classList.add('chat-hide-app-footer');
+    return () => document.body.classList.remove('chat-hide-app-footer');
   }, []);
 
 
@@ -95,11 +95,8 @@ export default function ChatSession() {
   // L'effet d'auto-send a été supprimé pour éviter la duplication et l'envoi visible.
   // Le contexte est maintenant attaché silencieusement via handleSend.
 
-  // appliquer classes <body> pour le layout local
-  React.useEffect(() => {
-    document.body.classList.toggle('chat-hide-app-header', hideAppHeader);
-    document.body.classList.toggle('chat-hide-app-footer', hideAppFooter);
-  }, [hideAppHeader, hideAppFooter]);
+  // Le contexte est maintenant attaché silencieusement via handleSend.
+
 
   const onNewChat = async () => {
     try {
@@ -319,7 +316,7 @@ export default function ChatSession() {
       style={{ minHeight: 'calc(100dvh - var(--app-header-h,64px))' }}
     >
       <div
-        className={`grid isolate h-full min-h-0 bg-[#FAFAF5] text-neutral-900 dark:bg-neutral-950 dark:text-white ${collapsed ? 'grid-cols-[3.5rem_1fr]' : 'grid-cols-[15rem_1fr]'
+        className={`flex flex-col isolate h-full min-h-0 bg-[#FAFAF5] text-neutral-900 dark:bg-neutral-950 dark:text-white md:grid ${collapsed ? 'md:grid-cols-[3.5rem_1fr]' : 'md:grid-cols-[15rem_1fr]'
           }`}
       >
         {/* Sidebar */}
@@ -402,7 +399,7 @@ export default function ChatSession() {
 
           {/* Input */}
           <div
-            className="sticky bottom-0 z-10 border-black/10 bg-[#FAFAF5]/90 backdrop-blur dark:border-white/10 dark:bg-neutral-950/90"
+            className="sticky bottom-0 z-10 bg-gradient-to-t from-[#FAFAF5] via-[#FAFAF5] to-transparent pt-8 pb-3 dark:from-neutral-950 dark:via-neutral-950"
             style={{ ['--chat-input-h' as any]: '120px' }}
           >
             {attachedContext && attachedContext.type === 'article' && (
@@ -540,43 +537,6 @@ export default function ChatSession() {
         </div>
       )}
 
-      {settingsOpen && (
-        <div
-          className="fixed inset-0 z-50 bg-black/50 backdrop-blur-sm"
-          onClick={() => setSettingsOpen(false)}
-        >
-          <div
-            className="absolute left-1/2 top-24 w-full max-w-md -translate-x-1/2 rounded-2xl border border-black/10 bg:white p-4 shadow-2xl dark:border-white/10 dark:bg-neutral-900"
-            onClick={(e) => e.stopPropagation()}
-          >
-            <div className="mb-3 text-lg font-semibold">Paramètres</div>
-            <label className="flex items-center justify-between rounded-lg px-3 py-2 hover:bg-black/5 dark:hover:bg:white/10">
-              <span>Hide app header</span>
-              <input
-                type="checkbox"
-                checked={hideAppHeader}
-                onChange={(e) => setHideAppHeader(e.target.checked)}
-              />
-            </label>
-            <label className="mt-1 flex items-center justify-between rounded-lg px-3 py-2 hover:bg-black/5 dark:hover:bg:white/10">
-              <span>Hide footer</span>
-              <input
-                type="checkbox"
-                checked={hideAppFooter}
-                onChange={(e) => setHideAppFooter(e.target.checked)}
-              />
-            </label>
-            <div className="mt-4 flex justify-end">
-              <button
-                onClick={() => setSettingsOpen(false)}
-                className="rounded-lg border border-black/10 px-3 py-1.5 text-sm hover:bg:black/5 dark:border-white/10 dark:hover:bg:white/10"
-              >
-                Fermer
-              </button>
-            </div>
-          </div>
-        </div>
-      )}
 
       {/* Toasts d’erreur pour le chat */}
       {createPortal(

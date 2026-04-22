@@ -11,7 +11,7 @@ import {
 import { useNavigate } from 'react-router-dom';
 import RenameDialog from '@/components/chat/RenameDialog';
 import { API_BASE } from '@/config/api';
-
+import { Button } from '@/components/ui';
 
 /* ========================= Types ========================= */
 type Conversation = { id: string; title: string };
@@ -105,14 +105,18 @@ async function updateSessionTitle(sessionId: string, title: string): Promise<voi
 function IconBtn({
   children, onClick, title, size = 'md',
 }: { children: React.ReactNode; onClick?: () => void; title?: string; size?: 'sm' | 'md' }) {
-  const cls = size === 'sm' ? 'h-9 w-9 rounded-md' : 'h-10 w-10 rounded-md';
+  const cls = size === 'sm' ? 'h-9 w-9' : 'h-10 w-10';
   return (
-    <button
+    <Button
+      variant="secondary"
+      size="auto"
       onClick={onClick}
       title={title}
       aria-label={title}
-      className={`inline-flex items-center justify-center border border-surface-200 bg-white/80 hover:bg-white/90 dark:border-neutral-800 dark:bg-neutral-900/70 dark:hover:bg-neutral-900 ${cls}`}
-    >{children}</button>
+      className={`rounded-md ${cls}`}
+    >
+      {children}
+    </Button>
   );
 }
 
@@ -211,7 +215,7 @@ function RowMenu({
     <div
       ref={menuRef}
       style={style}
-      className="z-[130] rounded-lg border border-surface-200 bg-white/95 p-1 shadow-xl backdrop-blur-sm dark:border-neutral-800 dark:bg-neutral-900"
+      className="z-[130] rounded-lg border border-surface-200 bg-white/95 p-1 shadow-xl backdrop-blur-sm dark:border-neutral-800 dark:bg-neutral-900 animate-in zoom-in-95 fade-in duration-200"
       onMouseDown={(e) => e.stopPropagation()}
       role="menu"
     >
@@ -255,7 +259,7 @@ function MoveMenu({
       ref={menuRef}
       style={style}
       className="z-[131] rounded-lg border border-surface-200 bg-white/95 p-1 shadow-xl backdrop-blur-sm
-                 dark:border-neutral-800 dark:bg-neutral-900"
+                 dark:border-neutral-800 dark:bg-neutral-900 animate-in zoom-in-95 fade-in duration-200"
       onMouseDown={(e) => e.stopPropagation()}
       role="menu"
     >
@@ -303,51 +307,7 @@ function MenuItem({ onClick, label, icon }: { onClick: () => void; label: string
 }
 
 /* --------- MENU DÉROULANT PRINCIPAL (QuickMenu) --------- */
-function QuickMenu({
-  anchorEl, onClose, onHome, onnews,
-  hideAppHeader, setHideAppHeader, hideAppFooter, setHideAppFooter,
-  onSettings,
-}: {
-  anchorEl: HTMLElement | null;
-  onClose: () => void;
-  onHome: () => void;
-  onnews: () => void;
-  hideAppHeader: boolean; setHideAppHeader: (v: boolean) => void;
-  hideAppFooter: boolean; setHideAppFooter: (v: boolean) => void;
-  onSettings: () => void;
-}) {
-  const menuRef = React.useRef<HTMLDivElement>(null);
-  const style = useSmartMenuPosition(anchorEl, menuRef, 300);
-  React.useEffect(() => {
-    const onDown = (e: MouseEvent) => {
-      if (!(e.target instanceof Node)) return;
-      if (anchorEl?.contains(e.target)) return;
-      onClose();
-    };
-    window.addEventListener('mousedown', onDown);
-    return () => window.removeEventListener('mousedown', onDown);
-  }, [anchorEl, onClose]);
-  const run = (fn: () => void) => () => { fn(); onClose(); };
-  if (!anchorEl) return null;
-  return (
-    <div style={style} onMouseDown={(e) => e.stopPropagation()} className="rounded-xl border border-surface-200 bg-white/95 p-2 shadow-xl backdrop-blur-sm dark:border-neutral-800 dark:bg-neutral-900">
-      <div className="px-2 pb-1 pt-1 text-[11px] font-medium uppercase tracking-wide text-black/60 dark:text-white/60">Navigation</div>
-      <MenuItem onClick={run(onHome)} icon={<FiHome />} label="Accueil" />
-      <MenuItem onClick={run(onnews)} icon={<FiGrid />} label="news" />
-      <div className="mt-2 px-2 pb-1 pt-1 text-[11px] font-medium uppercase tracking-wide text-black/60 dark:text-white/60">Layout</div>
-      <label className="flex w-full cursor-pointer items-center justify-between gap-2 rounded-lg px-2 py-2 text-sm hover:bg-black/5 dark:hover:bg-white/10">
-        <span className="flex items-center gap-2"><FiSliders className="opacity-80" />Masquer le header de l’app</span>
-        <input type="checkbox" checked={hideAppHeader} onChange={(e) => setHideAppHeader(e.target.checked)} />
-      </label>
-      <label className="flex w-full cursor-pointer items-center justify-between gap-2 rounded-lg px-2 py-2 text-sm hover:bg-black/5 dark:hover:bg-white/10">
-        <span className="flex items-center gap-2"><FiSliders className="opacity-80" />Masquer le footer</span>
-        <input type="checkbox" checked={hideAppFooter} onChange={(e) => setHideAppFooter(e.target.checked)} />
-      </label>
-      <div className="mt-2 px-2 pb-1 pt-1 text-[11px] font-medium uppercase tracking-wide text-black/60 dark:text-white/60">App</div>
-      <MenuItem onClick={run(onSettings)} icon={<FiSettings />} label="Paramètres" />
-    </div>
-  );
-}
+
 
 /* ======================= Component ======================= */
 export default function ChatSidebar(props: Props) {
@@ -356,26 +316,27 @@ export default function ChatSidebar(props: Props) {
 
   const nav = useNavigate();
 
-  // états menu principal (dropdown)
-  const [menuOpen, setMenuOpen] = React.useState(false);
-  const menuBtnRef = React.useRef<HTMLButtonElement | null>(null);
-  const [hideAppHeader, setHideAppHeader] = React.useState(false);
-  const [hideAppFooter, setHideAppFooter] = React.useState(false);
-  React.useEffect(() => {
-    document.body.classList.toggle('chat-hide-app-header', hideAppHeader);
-    document.body.classList.toggle('chat-hide-app-footer', hideAppFooter);
-
-    return () => {
-      // garanti que ça ne "fuitera" pas en dehors de la page chat
-      document.body.classList.remove('chat-hide-app-header');
-      document.body.classList.remove('chat-hide-app-footer');
-    };
-  }, [hideAppHeader, hideAppFooter]);
 
   const [moveMenu, setMoveMenu] = React.useState<{
     chatId: string;
     anchor: HTMLElement | null;
   } | null>(null);
+
+  // Drawer / Mobile layout
+  const [isMobile, setIsMobile] = React.useState(window.innerWidth < 768);
+  const [mobileOpen, setMobileOpen] = React.useState(false);
+
+  React.useEffect(() => {
+    const onResize = () => setIsMobile(window.innerWidth < 768);
+    window.addEventListener('resize', onResize);
+    return () => window.removeEventListener('resize', onResize);
+  }, []);
+
+  React.useEffect(() => {
+    const fn = () => setMobileOpen(v => !v);
+    window.addEventListener('toggleMobileChatDrawer', fn);
+    return () => window.removeEventListener('toggleMobileChatDrawer', fn);
+  }, []);
 
   // dossiers
   const [folders, setFolders] = React.useState<{ id: string; name: string }[]>([]);
@@ -496,38 +457,27 @@ export default function ChatSidebar(props: Props) {
 
   if (!open) return null;
 
+  const mobileBackdrop = mobileOpen && isMobile ? (
+    <div className="fixed inset-0 z-[45] bg-black/40 backdrop-blur-sm lg:hidden animate-in fade-in duration-300" onClick={() => setMobileOpen(false)} />
+  ) : null;
+
+  const asideClasses = `
+    fixed inset-y-0 left-0 z-50 transform transition-transform duration-300 ease-in-out bg-white/95 dark:bg-neutral-950/95 backdrop-blur-xl shadow-2xl border-r border-surface-200 dark:border-neutral-800
+    w-[85vw] max-w-sm
+    md:sticky md:z-40 md:transform-none md:shadow-none md:bg-white/80 md:dark:bg-neutral-950/80 md:transition-all
+    ${isMobile ? (mobileOpen ? 'translate-x-0' : '-translate-x-full') : 'translate-x-0'}
+  `;
+
   /* ============== RAIL (fermé) ============== */
-  if (collapsed) {
+  if (collapsed && !isMobile) {
     return (
       <aside
-        className="sticky z-40 w-14 shrink-0 overflow-hidden border-r border-surface-200 bg-white/80 text-neutral-900 backdrop-blur dark:border-neutral-800 dark:bg-neutral-950/80 dark:text-white"
+        className={`${asideClasses} md:w-14 items-center shrink-0`}
         style={{ top: 'var(--app-header-h,64px)', height: 'calc(100dvh - var(--app-header-h,64px))' }}
         aria-label="Chat sidebar (collapsed)"
       >
         <div className="flex h-full min-h-0 flex-col items-center gap-3 py-3">
           <IconBtn size="sm" onClick={onCollapseToggle} title="Déployer"><FiChevronRight /></IconBtn>
-
-          <button
-            ref={menuBtnRef}
-            onClick={() => setMenuOpen(v => !v)}
-            title="Menu"
-            className="inline-flex h-9 w-9 items-center justify-center rounded-md border border-surface-200 bg-white/80 hover:bg-white/90 dark:border-neutral-800 dark:bg-neutral-900/70 dark:hover:bg-neutral-900"
-          >
-            <FiGrid className="h-4 w-4 opacity-80" />
-          </button>
-
-          {menuOpen && createPortal(
-            <QuickMenu
-              anchorEl={menuBtnRef.current}
-              onClose={() => setMenuOpen(false)}
-              onHome={() => nav('/')}
-              onnews={() => nav('/news')}
-              hideAppHeader={hideAppHeader} setHideAppHeader={setHideAppHeader}
-              hideAppFooter={hideAppFooter} setHideAppFooter={setHideAppFooter}
-              onSettings={() => (onOpenSettings ? onOpenSettings() : nav('/settings'))}
-            />,
-            document.body
-          )}
 
           <div className="mt-1 flex flex-col items-center gap-2">
             <IconBtn size="sm" onClick={onNewChat} title="Nouveau chat"><FiPlus className="opacity-80" /></IconBtn>
@@ -548,47 +498,36 @@ export default function ChatSidebar(props: Props) {
     );
   }
 
-  /* ============== VERSION LARGE (ouverte) ============== */
+  /* ============== VERSION LARGE (ouverte ou mobile) ============== */
   const visibleFolders = folders.slice(0, 3);
 
   return (
-    <aside
-      className="sticky z-40 w-72 shrink-0 overflow-hidden border-r border-surface-200 bg-white/80 text-neutral-900 backdrop-blur dark:border-neutral-800 dark:bg-neutral-950/80 dark:text-white"
-      style={{ top: 'var(--app-header-h,64px)', height: 'calc(100dvh - var(--app-header-h,64px))' }}
-      aria-label="Chat sidebar"
-    >
+    <>
+      {mobileBackdrop}
+      <aside
+        className={`${asideClasses} md:w-72 shrink-0 overflow-hidden flex flex-col`}
+        style={{ top: 'var(--app-header-h,64px)', height: 'calc(100dvh - var(--app-header-h,64px))' }}
+        aria-label="Chat sidebar"
+      >
       <div className="h-full flex flex-col">
         {/* Header */}
         <div className="flex items-center justify-between px-3 pt-3 pb-2">
-          <IconBtn size="sm" onClick={onCollapseToggle} title="Réduire"><FiChevronLeft /></IconBtn>
-
-          <button
-            ref={menuBtnRef}
-            onClick={() => setMenuOpen(v => !v)}
-            className="inline-flex items-center gap-2 rounded-md border border-surface-200 bg-white/80 px-3 py-2 text-sm hover:bg-white/90 dark:border-neutral-800 dark:bg-neutral-900/70 dark:hover:bg-neutral-900"
-            title="Menu"
-          >
-            <FiGrid className="opacity-80" /><span>Menu</span>
-          </button>
-
-          {menuOpen && createPortal(
-            <QuickMenu
-              anchorEl={menuBtnRef.current}
-              onClose={() => setMenuOpen(false)}
-              onHome={() => nav('/')}
-              onnews={() => nav('/news')}
-              hideAppHeader={hideAppHeader} setHideAppHeader={setHideAppHeader}
-              hideAppFooter={hideAppFooter} setHideAppFooter={setHideAppFooter}
-              onSettings={() => { setMenuOpen(false); nav('/settings'); }}
-            />,
-            document.body
-          )}
+          <IconBtn size="sm" onClick={() => isMobile ? setMobileOpen(false) : onCollapseToggle()} title={isMobile ? "Fermer" : "Réduire"}><FiChevronLeft /></IconBtn>
         </div>
 
         {/* ======== SCROLL WRAPPER (unique) ======== */}
         <div className="flex-1 min-h-0 overflow-y-auto thin-scroll px-3 pb-3" style={{ paddingBottom: 'calc(var(--footer-offset,0px) + var(--chat-input-h,0px) + 8px)' }}>
+          {/* Mobile App Links (Fusion Menu) */}
+          {isMobile && (
+            <div className="mb-4 space-y-1 border-b border-surface-200 pb-4 dark:border-neutral-800">
+              <MenuItem onClick={() => { setMobileOpen(false); nav('/'); }} icon={<FiHome />} label="Accueil" />
+              <MenuItem onClick={() => { setMobileOpen(false); nav('/news'); }} icon={<FiGrid />} label="News" />
+              <MenuItem onClick={() => { setMobileOpen(false); nav('/settings'); }} icon={<FiSettings />} label="Paramètres" />
+            </div>
+          )}
+
           {/* Actions */}
-          <PrimaryAction onClick={() => { setMenuOpen(false); onNewChat(); pushToast('Nouveau chat'); }} icon={<FiPlus />} label="Nouveau chat" />
+          <PrimaryAction onClick={() => { isMobile && setMobileOpen(false); onNewChat(); pushToast('Nouveau chat'); }} icon={<FiPlus />} label="Nouveau chat" />
           <div className="mt-3 space-y-2">
             <SecondaryAction onClick={onSearch} icon={<FiSearch />} label="Rechercher" />
             <SecondaryAction onClick={() => setShowNewFolder(true)} icon={<FiFolderPlus />} label="Nouveau dossier" />
@@ -857,5 +796,6 @@ export default function ChatSidebar(props: Props) {
         )}
       </div>
     </aside>
+    </>
   );
 }

@@ -1,0 +1,50 @@
+.topo-wrapper {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.topo-container {
+  /* Epion gradient applied to the lines */
+  background: linear-gradient(135deg, #00dc82, #38a6a6, #78dce3);
+  
+  /* Mask to only show thin concentric rings */
+  -webkit-mask-image: repeating-radial-gradient(
+    circle at center,
+    transparent 0,
+    transparent 38px,
+    black 39px,
+    black 40px
+  );
+  mask-image: repeating-radial-gradient(
+    circle at center,
+    transparent 0,
+    transparent 38px,
+    black 39px,
+    black 40px
+  );
+  
+  /* Fade out edges so it blends nicely into the background */
+  mask-image: radial-gradient(circle at center, black 20%, transparent 70%), repeating-radial-gradient(circle at center, transparent 0, transparent 38px, black 39px, black 40px);
+  mask-composite: intersect;
+  -webkit-mask-image: radial-gradient(circle at center, black 20%, transparent 70%), repeating-radial-gradient(circle at center, transparent 0, transparent 38px, black 39px, black 40px);
+  -webkit-mask-composite: source-in;
+  
+  /* Apply the organic distortion filter to distort the rings into topographic contours */
+  filter: url(#topo-distortion);
+  
+  /* Very slow rotation for the imperceptible movement */
+  animation: topo-spin 180s linear infinite;
+  
+  /* Subtle opacity to not distract from the text */
+  opacity: 0.25;
+}
+
+.dark .topo-container {
+  opacity: 0.15;
+}
+
+@keyframes topo-spin {
+  0% { transform: rotate(0deg); }
+  100% { transform: rotate(360deg); }
+}

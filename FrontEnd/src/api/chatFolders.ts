@@ -1,6 +1,5 @@
-import axios from 'axios';
-
 import { API_BASE } from '@/config/api';
+import { withCsrf } from '@/lib/csrf';
 
 export type ChatFolder = {
   id: string;
@@ -10,21 +9,37 @@ export type ChatFolder = {
 };
 
 export async function fetchFolders(): Promise<ChatFolder[]> {
-  // 👉 URL correcte côté back
-  const { data } = await axios.get(`${API_BASE}/api/chat/folders`, { withCredentials: true });
-  return data;
+  const res = await fetch(`${API_BASE}/api/chat/folders`, {
+    method: 'GET',
+    credentials: 'include',
+  });
+  if (!res.ok) throw new Error('HTTP ' + res.status);
+  return res.json();
 }
 
 export async function createFolder(name: string): Promise<ChatFolder> {
-  const { data } = await axios.post(`${API_BASE}/api/chat/folders`, { name }, { withCredentials: true });
-  return data;
+  const res = await fetch(`${API_BASE}/api/chat/folders`, await withCsrf({
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ name })
+  }));
+  if (!res.ok) throw new Error('HTTP ' + res.status);
+  return res.json();
 }
 
 export async function renameFolder(id: string, name: string): Promise<ChatFolder> {
-  const { data } = await axios.patch(`${API_BASE}/api/chat/folders/${id}`, { name }, { withCredentials: true });
-  return data;
+  const res = await fetch(`${API_BASE}/api/chat/folders/${id}`, await withCsrf({
+    method: 'PATCH',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ name })
+  }));
+  if (!res.ok) throw new Error('HTTP ' + res.status);
+  return res.json();
 }
 
 export async function deleteFolder(id: string): Promise<void> {
-  await axios.delete(`${API_BASE}/api/chat/folders/${id}`, { withCredentials: true });
+  const res = await fetch(`${API_BASE}/api/chat/folders/${id}`, await withCsrf({
+    method: 'DELETE',
+  }));
+  if (!res.ok) throw new Error('HTTP ' + res.status);
 }

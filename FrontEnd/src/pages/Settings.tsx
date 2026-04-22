@@ -121,18 +121,15 @@ function EmailAndVerificationBlock(): React.JSX.Element {
         </span>
 
         {!verified && (
-          <button
+          <Button
+            variant="primary"
+            size="auto"
             onClick={resendVerification}
             disabled={busyResend}
-            className="
-              inline-flex items-center rounded-xl
-              bg-black px-3 py-1 text-sm font-medium text-white
-              dark:bg-white dark:text-black
-              disabled:opacity-50
-            "
+            className="px-3 py-1 text-sm font-medium"
           >
             {busyResend ? t('sending') : t('resend_email')}
-          </button>
+          </Button>
         )}
       </div>
 
@@ -151,18 +148,15 @@ function EmailAndVerificationBlock(): React.JSX.Element {
                dark:border-white/10 dark:bg-neutral-950"
           />
 
-          <button
+          <Button
+            variant="primary"
+            size="auto"
             onClick={requestEmailChange}
             disabled={!newEmail || busyChangeEmail}
-            className="
-      shrink-0 whitespace-nowrap
-      rounded-xl bg-neutral-700 px-4 py-2 text-sm font-medium text-white
-      dark:bg-neutral-300 dark:text-black
-      disabled:opacity-50
-    "
+            className="shrink-0 whitespace-nowrap px-4 py-2 text-sm font-medium"
           >
             {busyChangeEmail ? t('sending') : t('settings_send_link')}
-          </button>
+          </Button>
         </div>
 
         <p className="text-[11px] opacity-70">

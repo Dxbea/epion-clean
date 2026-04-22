@@ -192,10 +192,10 @@ export default function ChatInput({
   return (
     <div
       className={[
-        'relative mx-auto w-full max-w-3xl rounded-[24px]',
-        'border border-surface-200 bg-white shadow-lg', // Opaque bg
-        'dark:border-white/5 dark:bg-[#121212]',
-        'px-4 py-4'
+        'relative mx-auto w-full max-w-3xl rounded-3xl',
+        'border border-surface-200 bg-white/70 backdrop-blur-xl shadow-sm', // Glass effect
+        'dark:border-white/10 dark:bg-neutral-900/70',
+        'p-2 sm:p-3'
       ].join(' ')}
       onDragOver={(e) => e.preventDefault()}
       onDrop={(e) => { e.preventDefault(); addFiles(e.dataTransfer?.files || []); }}
@@ -206,18 +206,18 @@ export default function ChatInput({
       )}
 
       {/* Header: Model Selector */}
-      <div className="relative mb-3 flex items-center justify-between px-1">
+      <div className="relative mb-2 sm:mb-3 flex items-center justify-between px-1">
         <div className="relative z-50">
           <button
             onClick={(e) => { e.stopPropagation(); setShowModelMenu(!showModelMenu); }}
             className="flex items-center gap-1.5 rounded-lg px-2 py-1.5 text-sm font-medium text-gray-500 hover:bg-black/5 hover:text-gray-900 dark:text-gray-400 dark:hover:bg-white/10 dark:hover:text-white transition-colors"
           >
-            {model === AI_MODELS.RAG ? <FiDatabase className="text-base text-emerald-500" /> :
-              model === AI_MODELS.SONAR_PRO ? <FiCpu className="text-base text-purple-600" /> :
-                <FiZap className="text-base text-amber-500" />}
+            {model === AI_MODELS.RAG ? <FiDatabase className="text-base text-emerald-500 shrink-0" /> :
+              model === AI_MODELS.SONAR_PRO ? <FiCpu className="text-base text-purple-600 shrink-0" /> :
+                <FiZap className="text-base text-amber-500 shrink-0" />}
 
-            <span>{MODEL_DETAILS[model as keyof typeof MODEL_DETAILS]?.label || 'Model'}</span>
-            <FiChevronDown className={`text-xs transition-transform ${showModelMenu ? 'rotate-180' : ''}`} />
+            <span className="truncate max-w-[120px] sm:max-w-none">{MODEL_DETAILS[model as keyof typeof MODEL_DETAILS]?.label || 'Model'}</span>
+            <FiChevronDown className={`text-xs shrink-0 transition-transform ${showModelMenu ? 'rotate-180' : ''}`} />
           </button>
 
           {showModelMenu && (
@@ -373,7 +373,7 @@ export default function ChatInput({
       )}
 
       {/* Footer: Response Style & Tools */}
-      <div className="mt-3 flex items-center justify-between px-1">
+      <div className="mt-2 sm:mt-3 flex items-center justify-between px-1">
         {/* Style Selector (formerly Rigor) */}
         <ResponseStyleIcons style={responseStyle} onChange={setResponseStyle} disabled={submitting} />
 
@@ -472,8 +472,7 @@ function ResponseStyleIcons({
             ].join(' ')}
           >
             <span className="text-sm">{icon}</span>
-            {/* Only show label for active or all? User said "Boutons de Style", maybe labels are good */}
-            {active && <span>{label}</span>}
+            {active && <span className="hidden sm:inline">{label}</span>}
           </button>
         );
       })}

@@ -2,6 +2,7 @@
 import * as React from 'react'
 import { createPortal } from 'react-dom'
 import { Link, NavLink } from 'react-router-dom'
+import { Button } from '@/components/ui'
 
 type MobileDrawerProps = {
   open: boolean
@@ -21,6 +22,7 @@ function MobileDrawerContent({ open, onClose, items }: MobileDrawerProps) {
           fixed inset-0 z-[99]
           bg-black/40 backdrop-blur-sm
           lg:hidden
+          animate-in fade-in duration-300
         "
       />
 
@@ -33,17 +35,19 @@ function MobileDrawerContent({ open, onClose, items }: MobileDrawerProps) {
           shadow-2xl
           flex flex-col
           lg:hidden
+          animate-in slide-in-from-left duration-300 ease-out
         "
       >
         {/* header du drawer */}
         <div className="flex items-center justify-between px-4 py-3 border-b border-black/5 dark:border-white/10">
           <span className="text-sm font-medium">Menu</span>
-          <button
+          <Button
+            variant="secondary"
+            size="sm"
             onClick={onClose}
-            className="rounded-lg border border-black/10 bg-white/80 px-3 py-1 text-sm dark:border-white/10 dark:bg-neutral-900/60"
           >
             Close
-          </button>
+          </Button>
         </div>
 
         {/* contenu scrollable */}
