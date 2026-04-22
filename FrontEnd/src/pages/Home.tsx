@@ -10,7 +10,7 @@ import MagnifierBackground, { Magnifier } from '@/components/ui/MagnifierBackgro
 import './Home.css';
 
 export default function Home(): JSX.Element {
-  const { t } = useI18n();
+  const { t, locale } = useI18n();
   const { theme } = useTheme();
 
   const prefetchChat = () => import('./Chat');
@@ -153,13 +153,13 @@ export default function Home(): JSX.Element {
   ] as const;
 
   const heroTitleClass =
-    'reveal mb-6 max-w-[15ch] text-5xl font-serif font-light md:font-normal leading-[1.05] tracking-[-0.03em] text-balance md:text-6xl lg:max-w-[15ch] lg:text-[3.95rem] xl:text-[4.35rem]';
+    'reveal mb-6 font-serif font-light leading-[1.2] tracking-[-0.02em] [font-size:clamp(2.2rem,4vw,4rem)] [font-variation-settings:"opsz"_72,"wght"_300]';
 
   const sectionTitleClass =
-    'reveal mb-6 font-serif font-light md:font-normal leading-[1.05] tracking-[-0.03em] text-balance';
+    'reveal mb-6 font-serif font-light md:font-normal leading-[1.05] tracking-[-0.03em] text-balance [font-variation-settings:"opsz"_72,"wght"_300] md:[font-variation-settings:"opsz"_100,"wght"_400]';
 
   const featureTitleClass =
-    'reveal font-serif font-light md:font-normal tracking-[-0.03em] leading-[1.08] text-balance';
+    'reveal font-serif font-light md:font-normal tracking-[-0.03em] leading-[1.08] text-balance [font-variation-settings:"opsz"_72,"wght"_300] md:[font-variation-settings:"opsz"_100,"wght"_400]';
 
   return (
     <div className="home-snap-container relative w-full overflow-hidden">
@@ -169,7 +169,11 @@ export default function Home(): JSX.Element {
         <div className="mx-auto flex w-full max-w-7xl flex-col items-center gap-14 lg:flex-row lg:items-center lg:gap-12 xl:gap-16">
           <div className="mt-2 flex flex-1 flex-col items-center text-center lg:items-start lg:text-left lg:mt-0 lg:basis-[58%]">
             <h1 data-reveal className={heroTitleClass}>
-              {t('home_informed_title')}
+              {locale === 'fr' ? (
+                <>Ne vous contentez pas de consommer<br />l'information. Comprenez-la.</>
+              ) : (
+                <>Don't just consume<br />information. Understand it.</>
+              )}
             </h1>
             <p data-reveal className="reveal reveal-delay-2 mb-6 max-w-xl text-base leading-[1.7] text-gray-600 text-pretty dark:text-gray-400 sm:text-lg">
               {t('home_informed_desc')}

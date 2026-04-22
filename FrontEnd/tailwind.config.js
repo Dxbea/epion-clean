@@ -18,7 +18,13 @@ export default {
           'Inter',
           'Apple Color Emoji',
           'Segoe UI Emoji'
-        ]
+        ],
+        serif: [
+          'Thermal-variable',
+          'ui-serif',
+          'Georgia',
+          'serif'
+        ],
       },
       colors: {
         brand: {

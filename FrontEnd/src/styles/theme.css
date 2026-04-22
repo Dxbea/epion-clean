@@ -12,7 +12,12 @@
   }
   html { font-family: var(--font-body); }
   body { font-family: var(--font-body); }
-  h1, h2, h3, h4, .display { font-family: var(--font-display); font-variation-settings: "opsz" 100, "wght" 600; }
+  h1, h2, h3, h4, .display {
+    font-family: var(--font-display);
+    /* Light weight by default — Tailwind font-light/font-normal overrides from component level */
+    font-variation-settings: "opsz" 72, "wght" 300;
+    font-weight: 300;
+  }
 }
 
 :root {
