@@ -1,107 +1,111 @@
-
 import React from 'react';
-import { useParams, Link } from 'react-router-dom';
-import { API_BASE } from '@/config/api';
-import PageContainer from '@/components/ui/PageContainer';
-import ProfileHeader from '@/components/user/ProfileHeader';
-import ArticleCard from '@/components/articles/ArticleCard';
-import type { Article } from '@/types/article';
+import { Link, useParams } from 'react-router-dom';
 import { PiSpinner } from 'react-icons/pi';
 
+import ArticleCard from '@/components/articles/ArticleCard';
+import { Button } from '@/components/ui';
+import PageContainer from '@/components/ui/PageContainer';
+import ProfileHeader from '@/components/user/ProfileHeader';
+import { API_BASE } from '@/config/api';
+import type { Article } from '@/types/article';
+
 export default function Profile() {
-    const { userId } = useParams<{ userId: string }>();
-    const [user, setUser] = React.useState<any>(null);
-    const [loadingUser, setLoadingUser] = React.useState(true);
-    const [error, setError] = React.useState<string | null>(null);
+  const { userId } = useParams<{ userId: string }>();
+  const [user, setUser] = React.useState<any>(null);
+  const [loadingUser, setLoadingUser] = React.useState(true);
+  const [error, setError] = React.useState<string | null>(null);
+  const [articles, setArticles] = React.useState<Article[]>([]);
+  const [loadingArticles, setLoadingArticles] = React.useState(false);
 
-    // Articles state
-    const [articles, setArticles] = React.useState<Article[]>([]);
-    const [loadingArticles, setLoadingArticles] = React.useState(false);
+  React.useEffect(() => {
+    if (!userId) return;
 
-    // Fetch User
-    React.useEffect(() => {
-        if (!userId) return;
-        setLoadingUser(true);
-        setError(null);
-        (async () => {
-            try {
-                const r = await fetch(`${API_BASE}/api/users/${userId}`, { credentials: 'include' }); // Supports ID or Username
-                if (!r.ok) {
-                    if (r.status === 404) throw new Error('User not found');
-                    throw new Error('Failed to load profile');
-                }
-                const data = await r.json();
-                setUser(data);
-            } catch (err: any) {
-                setError(err.message);
-            } finally {
-                setLoadingUser(false);
-            }
-        })();
-    }, [userId]);
+    setLoadingUser(true);
+    setError(null);
 
-    // Fetch Articles (once user is loaded and we have their real ID)
-    React.useEffect(() => {
-        if (!user?.id) return;
-        setLoadingArticles(true);
-        (async () => {
-            try {
-                const r = await fetch(`${API_BASE}/api/articles?authorId=${user.id}&status=PUBLISHED&take=20`);
-                if (!r.ok) return;
-                const data = await r.json();
-                setArticles(data.items || []);
-            } catch {
-                // ignore
-            } finally {
-                setLoadingArticles(false);
-            }
-        })();
-    }, [user?.id]);
+    (async () => {
+      try {
+        const response = await fetch(`${API_BASE}/api/users/${userId}`, {
+          credentials: 'include',
+        });
+        if (!response.ok) {
+          if (response.status === 404) throw new Error('User not found');
+          throw new Error('Failed to load profile');
+        }
 
-    if (loadingUser) {
-        return (
-            <div className="flex h-[50vh] items-center justify-center">
-                <PiSpinner className="h-8 w-8 animate-spin text-neutral-400" />
-            </div>
-        );
-    }
+        const data = await response.json();
+        setUser(data);
+      } catch (err: any) {
+        setError(err.message);
+      } finally {
+        setLoadingUser(false);
+      }
+    })();
+  }, [userId]);
 
-    if (error || !user) {
-        return (
-            <div className="flex h-[50vh] flex-col items-center justify-center gap-4 text-center">
-                <h1 className="text-2xl font-bold">Profile not found</h1>
-                <p className="text-neutral-500">The user you are looking for does not exist.</p>
-                <Link to="/" className="text-emerald-600 hover:underline">Go Home</Link>
-            </div>
-        );
-    }
+  React.useEffect(() => {
+    if (!user?.id) return;
 
+    setLoadingArticles(true);
+
+    (async () => {
+      try {
+        const response = await fetch(`${API_BASE}/api/articles?authorId=${user.id}&status=PUBLISHED&take=20`);
+        if (!response.ok) return;
+
+        const data = await response.json();
+        setArticles(data.items || []);
+      } catch {
+        // Ignore sidebar article loading errors.
+      } finally {
+        setLoadingArticles(false);
+      }
+    })();
+  }, [user?.id]);
+
+  if (loadingUser) {
     return (
-        <PageContainer className="py-0 pb-20">
-            <ProfileHeader
-                user={user}
-                isOwnProfile={user.isMe}
-            />
-
-            <div className="mt-8 px-4 max-w-5xl mx-auto space-y-8">
-                <div>
-                    <h2 className="text-2xl font-bold font-display mb-6">Published Articles</h2>
-
-                    {loadingArticles ? (
-                        <div className="py-12 text-center opacity-50">Loading articles...</div>
-                    ) : articles.length > 0 ? (
-                        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
-                            {articles.map(article => (
-                                <ArticleCard key={article.id} article={article} />
-                            ))}
-                        </div>
-                    ) : (
-                        <div className="rounded-2xl border border-dashed border-neutral-200 dark:border-neutral-800 p-12 text-center">
-                            <p className="text-neutral-500">No published articles yet.</p>
-                        </div>
-                    )}
-                </div>
-            </div>
-        </PageContainer>
+      <div className="flex h-[50vh] items-center justify-center">
+        <PiSpinner className="h-8 w-8 animate-spin text-neutral-400" />
+      </div>
     );
+  }
+
+  if (error || !user) {
+    return (
+      <div className="flex h-[50vh] flex-col items-center justify-center gap-4 text-center">
+        <h1 className="font-serif text-3xl font-medium tracking-tight">Profile not found</h1>
+        <p className="text-neutral-500">The user you are looking for does not exist.</p>
+        <Button as={Link} to="/" variant="ghost" size="auto" className="min-h-[44px] rounded-full px-5 py-2.5 text-sm">
+          Go Home
+        </Button>
+      </div>
+    );
+  }
+
+  return (
+    <PageContainer className="pt-6 pb-20 sm:pt-8">
+      <ProfileHeader user={user} isOwnProfile={user.isMe} />
+
+      <div className="mx-auto mt-8 max-w-5xl space-y-8 px-0 sm:px-4">
+        <div>
+          <h2 className="mb-6 font-serif text-3xl font-medium tracking-tight">Published Articles</h2>
+
+          {loadingArticles ? (
+            <div className="py-12 text-center opacity-50">Loading articles...</div>
+          ) : articles.length > 0 ? (
+            <div className="grid grid-cols-1 gap-6 md:grid-cols-2 lg:grid-cols-3">
+              {articles.map((article) => (
+                <ArticleCard key={article.id} article={article} />
+              ))}
+            </div>
+          ) : (
+            <div className="rounded-2xl border border-dashed border-neutral-200 p-12 text-center dark:border-neutral-800">
+              <p className="text-neutral-500">No published articles yet.</p>
+            </div>
+          )}
+        </div>
+      </div>
+    </PageContainer>
+  );
 }

@@ -12,13 +12,13 @@ type Props = {
 
 export default function FormSection({ id, title, description, children, footer, className = "" }: Props) {
   return (
-    <section id={id} className={`anchor-section rounded-2xl border border-surface-200 bg-white p-5 shadow-soft dark:border-neutral-800 dark:bg-neutral-950 ${className}`}>
-      <div className="mb-4">
+    <section id={id} className={`anchor-section rounded-3xl border border-surface-200 bg-[var(--bg)] p-5 shadow-soft dark:border-neutral-800 sm:p-6 ${className}`}>
+      <div className="mb-5 space-y-1">
         <H3 as="div" className="text-lg">{title}</H3>
         {description && <Body className="mt-1">{description}</Body>}
       </div>
       <div>{children}</div>
-      {footer && <div className="mt-4 flex items-center justify-end">{footer}</div>}
+      {footer && <div className="mt-5 flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-end">{footer}</div>}
     </section>
   );
 }

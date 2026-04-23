@@ -251,7 +251,7 @@ export default function Home(): JSX.Element {
         <div className="relative z-10 mx-auto flex max-w-5xl flex-col items-center text-center">
           <h2
             data-reveal
-            className={`${sectionTitleClass} mb-10 max-w-[15ch] text-3xl sm:text-4xl md:text-5xl lg:max-w-none lg:text-[3.4rem] xl:text-[3.9rem]`}
+            className={`${sectionTitleClass} mb-10 max-w-[15ch] text-4xl sm:text-5xl md:text-[3.35rem] lg:max-w-none lg:text-[3.7rem] xl:text-[4.1rem]`}
           >
             {t('home_access_everywhere')}
           </h2>

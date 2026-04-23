@@ -50,15 +50,15 @@ export default function Header(
         <Button
           variant="secondary"
           size="icon"
-          aria-label="Open menu"
+          aria-label={open ? 'Close menu' : 'Open menu'}
           onClick={() => {
             if (location.pathname.startsWith('/chat')) {
               window.dispatchEvent(new Event('toggleMobileChatDrawer'))
             } else {
-              setOpen(true)
+              setOpen((value) => !value)
             }
           }}
-          className="lg:hidden"
+          className="lg:hidden transition-transform duration-300 ease-out hover:scale-[0.98]"
         >
           <svg
             width="20"
@@ -67,6 +67,7 @@ export default function Header(
             fill="none"
             stroke="currentColor"
             strokeWidth="2"
+            className={`transition-transform duration-300 ease-out ${open ? 'rotate-90 scale-95' : 'rotate-0 scale-100'}`}
           >
             <path d="M4 6h16M4 12h16M4 18h16" />
           </svg>

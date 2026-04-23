@@ -1,63 +1,55 @@
 import React from 'react';
-import { useNavigate, Link } from 'react-router-dom';
-import SectionHeader from '@/components/SectionHeader';
-import { API_BASE } from '@/config/api';
-import { useMe } from '@/contexts/MeContext';
-import { withCsrf } from '@/lib/csrf';
-import { useAuthPrompt } from '@/contexts/AuthPromptContext';
+import { Link, useNavigate } from 'react-router-dom';
+
 import { generateArticleWithAI } from '@/api/articles';
-
-// Anti-XSS rapide
-const stripTags = (s: string) => s.replace(/<[^>]*>/g, '');
-
-// Empêche HTML dans les champs
-const forbidHtml = (s: string): boolean => /<|>/.test(s);
-
+import SectionHeader from '@/components/SectionHeader';
 import EpionSelect from '@/components/ui/EpionSelect';
+import { Button } from '@/components/ui';
+import { API_BASE } from '@/config/api';
+import { useAuthPrompt } from '@/contexts/AuthPromptContext';
+import { useMe } from '@/contexts/MeContext';
 
 const MAX_PROMPT_CHARS = 2000;
 
-
 type Category = { id: string; name: string; slug: string };
+
+const forbidHtml = (value: string): boolean => /<|>/.test(value);
 
 export default function CreateArticlePage() {
   const navigate = useNavigate();
   const { me, loading: meLoading } = useMe();
   const { requireAuth } = useAuthPrompt();
 
-  // 1) ce que l’utilisateur veut que l’IA écrive
   const [prompt, setPrompt] = React.useState('');
   const [tone, setTone] = React.useState<'neutral' | 'explainer' | 'short' | 'indepth'>('neutral');
   const [language, setLanguage] = React.useState<'fr' | 'en'>('fr');
-
-  // 2) métadonnées
   const [cats, setCats] = React.useState<Category[]>([]);
   const [categoryId, setCategoryId] = React.useState<string | ''>('');
-
-  // ui
   const [isGenerating, setIsGenerating] = React.useState(false);
   const [error, setError] = React.useState<string | null>(null);
 
   const emailNotVerified = !!me && !me.emailVerifiedAt;
+  const promptTooLong = prompt.length > MAX_PROMPT_CHARS;
 
-  // charger catégories
   React.useEffect(() => {
     let alive = true;
+
     (async () => {
       try {
-        const r = await fetch(`${API_BASE}/api/categories`);
-        if (!r.ok) throw new Error();
-        const j = await r.json();
-        const list: Category[] = (j.items || []).map((c: any) => ({
-          id: c.id,
-          name: c.name,
-          slug: c.slug,
+        const response = await fetch(`${API_BASE}/api/categories`);
+        if (!response.ok) throw new Error();
+        const json = await response.json();
+        const list: Category[] = (json.items || []).map((category: any) => ({
+          id: category.id,
+          name: category.name,
+          slug: category.slug,
         }));
         if (alive) setCats(list);
       } catch {
         if (alive) setCats([]);
       }
     })();
+
     return () => {
       alive = false;
     };
@@ -67,24 +59,19 @@ export default function CreateArticlePage() {
     if (!meLoading && emailNotVerified) {
       requireAuth({
         kind: 'verify_email',
-        message:
-          'You need to verify your email address before creating articles. Go to Settings → Account to resend the verification link.',
+        message: 'You need to verify your email address before creating articles. Go to Settings -> Account to resend the verification link.',
         redirectTo: '/settings#account',
       });
     }
-  }, [meLoading, emailNotVerified, requireAuth]);
+  }, [emailNotVerified, meLoading, requireAuth]);
 
-
-  const promptTooLong = prompt.length > MAX_PROMPT_CHARS;
-
-  // Find selected category for the prompt context
-  const cat = React.useMemo(
-    () => cats.find((c) => c.id === categoryId) || null,
-    [cats, categoryId],
+  const selectedCategory = React.useMemo(
+    () => cats.find((category) => category.id === categoryId) || null,
+    [cats, categoryId]
   );
 
-  async function onSubmit(e: React.FormEvent) {
-    e.preventDefault();
+  async function onSubmit(event: React.FormEvent) {
+    event.preventDefault();
 
     if (!me) {
       requireAuth({
@@ -97,24 +84,21 @@ export default function CreateArticlePage() {
     if (emailNotVerified) {
       requireAuth({
         kind: 'verify_email',
-        message:
-          'You need to verify your email address before creating articles. Go to Settings → Account to resend the verification link.',
+        message: 'You need to verify your email address before creating articles. Go to Settings -> Account to resend the verification link.',
         redirectTo: '/settings#account',
       });
       return;
     }
 
-
     if (!prompt.trim()) return;
 
-    // 🔒 XSS
     if (forbidHtml(prompt)) {
       setError('HTML tags are not allowed in the prompt.');
       return;
     }
 
     if (promptTooLong) {
-      setError(`Le prompt est trop long (${prompt.length} / ${MAX_PROMPT_CHARS} caractères).`);
+      setError(`Le prompt est trop long (${prompt.length} / ${MAX_PROMPT_CHARS} caracteres).`);
       return;
     }
 
@@ -122,24 +106,20 @@ export default function CreateArticlePage() {
     setError(null);
 
     try {
-      // Appel IA
       const result = await generateArticleWithAI({
         topic: prompt.trim(),
         language,
         style: tone,
-        categoryId, // ⬅️ ID officiel pour la liaison BDD
-        categoryName: cat ? cat.name : '', // ⬅️ Nom pour le prompt context IA
-        generateImage: true
+        categoryId,
+        categoryName: selectedCategory ? selectedCategory.name : '',
+        generateImage: true,
       });
 
-      // Redirection vers l'édition
-      // L'API renvoie { article: { id: ... }, message: ... }
       if (result.article && result.article.id) {
         navigate(`/account/articles/${result.article.id}/edit`);
       } else {
-        throw new Error("Invalid response from server");
+        throw new Error('Invalid response from server');
       }
-
     } catch (err: any) {
       setError(err?.message || 'Unable to generate article');
     } finally {
@@ -147,18 +127,17 @@ export default function CreateArticlePage() {
     }
   }
 
-  // garde pour invités
   if (meLoading) {
     return (
-      <main className="mx-auto w-full max-w-3xl px-4 py-10">
-        <p className="opacity-70 text-sm">Loading…</p>
+      <main className="mx-auto w-full max-w-3xl px-4 py-8 sm:px-6 sm:py-10">
+        <p className="text-sm opacity-70">Loading...</p>
       </main>
     );
   }
 
   if (!me) {
     return (
-      <main className="mx-auto w-full max-w-3xl px-4 py-10 space-y-6">
+      <main className="mx-auto w-full max-w-3xl px-4 py-8 sm:px-6 sm:py-10">
         <nav className="text-sm opacity-70">
           <Link to="/news" className="hover:underline">
             news
@@ -167,23 +146,17 @@ export default function CreateArticlePage() {
           <span>Create</span>
         </nav>
 
-        <SectionHeader title="Create an article (AI-first)" />
+        <SectionHeader title="Create an article (AI-first)" className="mt-4" />
 
-        <div className="rounded-2xl border border-black/10 bg-white p-4 text-sm shadow-sm dark:border-white/10 dark:bg-neutral-950">
+        <div className="mt-6 rounded-3xl border border-black/10 bg-[var(--bg)] p-5 text-sm shadow-soft dark:border-white/10 sm:p-6">
           <p className="mb-3">You need an account to create articles with Epion.</p>
-          <div className="flex gap-3">
-            <Link
-              to="/settings#account"
-              className="rounded-xl bg-black px-4 py-2 text-white dark:bg-white dark:text-black"
-            >
+          <div className="flex flex-col gap-3 sm:flex-row">
+            <Button as={Link} to="/settings#account" variant="primary" size="auto" className="min-h-[44px] rounded-full px-5 py-2.5">
               Sign in / Create account
-            </Link>
-            <Link
-              to="/news"
-              className="rounded-xl border px-4 py-2 hover:bg-black/5 dark:border-white/10"
-            >
+            </Button>
+            <Button as={Link} to="/news" variant="ghost" size="auto" className="min-h-[44px] rounded-full px-5 py-2.5">
               Back to news
-            </Link>
+            </Button>
           </div>
         </div>
       </main>
@@ -192,7 +165,7 @@ export default function CreateArticlePage() {
 
   if (emailNotVerified) {
     return (
-      <main className="mx-auto w-full max-w-3xl px-4 py-10 space-y-6">
+      <main className="mx-auto w-full max-w-3xl px-4 py-8 sm:px-6 sm:py-10">
         <nav className="text-sm opacity-70">
           <Link to="/news" className="hover:underline">
             news
@@ -201,26 +174,19 @@ export default function CreateArticlePage() {
           <span>Create</span>
         </nav>
 
-        <SectionHeader title="Create an article (AI-first)" />
+        <SectionHeader title="Create an article (AI-first)" className="mt-4" />
 
-        <div className="rounded-2xl border border-black/10 bg-white p-4 text-sm shadow-sm dark:border-white/10 dark:bg-neutral-950">
+        <div className="mt-6 rounded-3xl border border-black/10 bg-[var(--bg)] p-5 text-sm shadow-soft dark:border-white/10 sm:p-6">
           <p className="mb-3">
-            You need to verify your email address before creating articles.
-            Go to Settings → Account to resend the verification link.
+            You need to verify your email address before creating articles. Go to Settings / Account to resend the verification link.
           </p>
-          <div className="flex gap-3">
-            <Link
-              to="/settings#account"
-              className="rounded-xl bg-black px-4 py-2 text-white dark:bg-white dark:text-black"
-            >
+          <div className="flex flex-col gap-3 sm:flex-row">
+            <Button as={Link} to="/settings#account" variant="primary" size="auto" className="min-h-[44px] rounded-full px-5 py-2.5">
               Go to account
-            </Link>
-            <Link
-              to="/news"
-              className="rounded-xl border px-4 py-2 hover:bg-black/5 dark:border-white/10"
-            >
+            </Button>
+            <Button as={Link} to="/news" variant="ghost" size="auto" className="min-h-[44px] rounded-full px-5 py-2.5">
               Back to news
-            </Link>
+            </Button>
           </div>
         </div>
       </main>
@@ -228,7 +194,7 @@ export default function CreateArticlePage() {
   }
 
   return (
-    <main className="mx-auto w-full max-w-3xl px-4 py-10 space-y-8">
+    <main className="mx-auto w-full max-w-3xl px-4 py-8 sm:px-6 sm:py-10">
       <nav className="text-sm opacity-70">
         <Link to="/news" className="hover:underline">
           news
@@ -237,31 +203,28 @@ export default function CreateArticlePage() {
         <span>Create</span>
       </nav>
 
-      <SectionHeader title="Create an article (AI-first)" />
+      <SectionHeader title="Create an article (AI-first)" className="mt-4" />
 
-      <form onSubmit={onSubmit} className="space-y-5">
-        {error && (
+      <form onSubmit={onSubmit} className="mt-8 space-y-6">
+        {error ? (
           <div className="rounded-xl border border-red-300 bg-red-50 px-3 py-2 text-sm text-red-700 dark:border-red-700/40 dark:bg-red-950/40">
             {error}
           </div>
-        )}
+        ) : null}
 
-        {/* 1. prompt */}
         <div>
-          <label className="mb-1 block text-sm opacity-70">
-            What should Epion write? *
-          </label>
+          <label className="mb-1 block text-sm opacity-70">What should Epion write? *</label>
           <textarea
             value={prompt}
-            onChange={(e) => setPrompt(e.target.value)}
+            onChange={(event) => setPrompt(event.target.value)}
             rows={5}
             required
-            placeholder="Ex: Fais-moi un article de 600 mots sur l’arrivée de la norme Euro 7 pour le grand public. Ajoute une section ‘Pourquoi ça compte ?’ et une ‘Ce qu’il faut surveiller’."
+            placeholder="Ex: Fais-moi un article de 600 mots sur l'arrivee de la norme Euro 7 pour le grand public. Ajoute une section 'Pourquoi ca compte ?' et une 'Ce qu'il faut surveiller'."
             className="form-textarea"
           />
           <div className="mt-1 flex items-center justify-between text-xs">
             <p className="opacity-60">
-              Décris le résultat attendu. Tu pourras affiner sur l’écran suivant.
+              Decris le resultat attendu. Tu pourras affiner sur l'ecran suivant.
             </p>
             <p className={promptTooLong ? 'text-red-600 dark:text-red-400' : 'opacity-60'}>
               {prompt.length} / {MAX_PROMPT_CHARS}
@@ -269,12 +232,11 @@ export default function CreateArticlePage() {
           </div>
         </div>
 
-        {/* 2. réglages IA rapides */}
         <div className="grid grid-cols-1 gap-4 sm:grid-cols-3">
           <EpionSelect
             label="Language"
             value={language}
-            onChange={(v) => setLanguage(v as any)}
+            onChange={(value) => setLanguage(value as any)}
             options={[
               { value: 'fr', label: 'French' },
               { value: 'en', label: 'English' },
@@ -284,11 +246,11 @@ export default function CreateArticlePage() {
           <EpionSelect
             label="Style"
             value={tone}
-            onChange={(v) => setTone(v as any)}
+            onChange={(value) => setTone(value as any)}
             options={[
               { value: 'neutral', label: 'Neutral / reporter' },
-              { value: 'explainer', label: 'Explainer / pédagogique' },
-              { value: 'short', label: 'Short / Brève' },
+              { value: 'explainer', label: 'Explainer / pedagogique' },
+              { value: 'short', label: 'Short / breve' },
               { value: 'indepth', label: 'In-depth' },
             ]}
           />
@@ -296,46 +258,39 @@ export default function CreateArticlePage() {
           <EpionSelect
             label="Category *"
             value={categoryId}
-            onChange={(v) => setCategoryId(v)}
+            onChange={(value) => setCategoryId(value)}
             placeholder="Select..."
             options={[
-              { value: '', label: '— None —' },
-              ...cats.map((c) => ({ value: c.id, label: c.name })),
+              { value: '', label: '-- None --' },
+              ...cats.map((category) => ({ value: category.id, label: category.name })),
             ]}
           />
         </div>
 
-
-
-        {/* actions */}
-        <div className="flex items-center gap-3">
-          <button
+        <div className="flex flex-col gap-3 sm:flex-row sm:items-center">
+          <Button
             type="submit"
+            variant="primary"
+            size="auto"
             disabled={isGenerating || !prompt.trim() || promptTooLong || !categoryId}
-            className={`flex items-center gap-2 rounded-xl px-4 py-2 text-white transition-all
-              ${isGenerating || !prompt.trim() || promptTooLong || !categoryId
-                ? 'bg-neutral-400 cursor-not-allowed opacity-60'
-                : 'bg-black hover:opacity-90 dark:bg-white dark:text-black'
-              }`}
+            className="min-h-[48px] justify-center rounded-full px-6 py-3 text-sm sm:min-w-[12rem]"
           >
             {isGenerating ? (
               <>
-                <svg className="animate-spin -ml-1 mr-2 h-4 w-4 text-white dark:text-black" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
-                  <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle>
-                  <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
+                <svg className="-ml-1 mr-2 h-4 w-4 animate-spin text-current" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
+                  <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
+                  <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z" />
                 </svg>
                 Generating...
               </>
             ) : (
               'Generate with AI'
             )}
-          </button>
-          <Link
-            to="/news"
-            className="rounded-xl border px-4 py-2 text-sm hover:bg-black/5 dark:border-white/10"
-          >
+          </Button>
+
+          <Button as={Link} to="/news" variant="ghost" size="auto" className="min-h-[44px] rounded-full px-5 py-2.5 text-sm">
             Cancel
-          </Link>
+          </Button>
         </div>
       </form>
     </main>

@@ -54,6 +54,12 @@ export const DICT = {
     account: "Account",
     account_desc: "Manage your profile info.",
     security: "Security",
+    settings_security: "Security",
+    settings_security_desc: "Email verification, password, sessions and account protection.",
+    settings_email_verification: "Email verification",
+    settings_change_email: "Change email",
+    settings_send_link: "Send secure link",
+    settings_email_help: "We'll send a confirmation link to the new address before applying the change.",
     twofa: "Two‑factor (soon)",
     sessions: "Active sessions",
     notifications: "Notifications",
@@ -63,6 +69,7 @@ export const DICT = {
     data: "Data & compliance",
     accessibility: "Accessibility",
     jump_to: "Jump to",
+    profile_and_auth: "Profile and authentication",
 
     // ───────────────── GENERAL
     theme: "Theme",
@@ -84,6 +91,8 @@ export const DICT = {
     notif_email_mentions_desc: "When someone interacts with you.",
     notif_push_all: "Push notifications",
     notif_push_all_desc: "Receive notifications on this device.",
+    push_not_supported: "Push notifications are not supported on this browser.",
+    push_denied: "Browser permission is disabled. You can re-enable it in browser settings.",
 
     // ───────────────── PRIVACY
     profile_visibility: "Profile visibility (coming soon)",

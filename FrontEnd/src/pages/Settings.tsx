@@ -1,10 +1,8 @@
 // src/pages/Settings.tsx
 import * as React from 'react';
-import { Link } from 'react-router-dom';
-
 import PageContainer from '@/components/ui/PageContainer';
 import Breadcrumbs from '@/components/ui/Breadcrumbs';
-import { H2, H3, Body, Button } from '@/components/ui';
+import { H3, Body, Button } from '@/components/ui';
 import FormSection from '@/components/settings/FormSection';
 import ToggleRow from '@/components/settings/ToggleRow';
 import { ThemeToggle } from '@/components/ThemeToggle';
@@ -28,6 +26,15 @@ import { API_BASE } from '@/config/api';
 import { useUnsavedChanges } from '@/hooks/useUnsavedChanges';
 import VerifyEmailBanner from '@/components/account/VerifyEmailBanner';
 
+function resolveLabel(
+  t: (key: string) => string,
+  key: string,
+  fallback: string
+) {
+  const value = t(key);
+  return value === key ? fallback : value;
+}
+
 //
 // ─────────────────────────────────────────────────────────────
 // Helpers locaux (Email & verification UI pour le bloc Security)
@@ -40,6 +47,14 @@ function EmailAndVerificationBlock(): React.JSX.Element {
   const { me, refresh } = useMe();
   const { push } = useToast();
   const { t } = useI18n();
+  const emailVerificationLabel = resolveLabel(t, 'settings_email_verification', 'Email verification');
+  const changeEmailLabel = resolveLabel(t, 'settings_change_email', 'Change email');
+  const sendLinkLabel = resolveLabel(t, 'settings_send_link', 'Send secure link');
+  const emailHelpLabel = resolveLabel(
+    t,
+    'settings_email_help',
+    "We'll send a confirmation link to the new address before applying the change."
+  );
 
   // change email form local state
   const [newEmail, setNewEmail] = React.useState('');
@@ -100,12 +115,12 @@ function EmailAndVerificationBlock(): React.JSX.Element {
     <div className="space-y-4">
       {/* Titre de sous-section */}
       <H3 as="div" className="text-base font-semibold">
-        {t('settings_email_verification')}
+        {emailVerificationLabel}
       </H3>
 
       {/* Ligne email actuelle + badge + resend */}
       <div className="flex flex-wrap items-center gap-2 text-sm">
-        <span className="inline-flex items-center rounded-xl border border-black/10 bg-white px-3 py-1 text-sm dark:border-white/10 dark:bg-neutral-950">
+        <span className="inline-flex items-center rounded-xl border border-black/10 bg-[var(--bg)] px-3 py-1 text-sm dark:border-white/10">
           {me?.email || 'unknown@email.com'}
         </span>
 
@@ -135,7 +150,7 @@ function EmailAndVerificationBlock(): React.JSX.Element {
 
       {/* Change email */}
       <div className="grid gap-2 text-sm md:max-w-md">
-        <label className="text-sm font-medium">{t('settings_change_email')}</label>
+        <label className="text-sm font-medium">{changeEmailLabel}</label>
 
         <div className="flex flex-col gap-2 sm:flex-row sm:items-center">
           <input
@@ -143,9 +158,7 @@ function EmailAndVerificationBlock(): React.JSX.Element {
             value={newEmail}
             onChange={(e) => setNewEmail(e.target.value)}
             placeholder="new@email.com"
-            className="w-full rounded-xl border border-black/10 bg-white px-3 py-2 text-sm outline-none
-               focus:ring-2 focus:ring-brand-blue
-               dark:border-white/10 dark:bg-neutral-950"
+            className="form-input"
           />
 
           <Button
@@ -155,12 +168,12 @@ function EmailAndVerificationBlock(): React.JSX.Element {
             disabled={!newEmail || busyChangeEmail}
             className="shrink-0 whitespace-nowrap px-4 py-2 text-sm font-medium"
           >
-            {busyChangeEmail ? t('sending') : t('settings_send_link')}
+            {busyChangeEmail ? t('sending') : sendLinkLabel}
           </Button>
         </div>
 
         <p className="text-[11px] opacity-70">
-          {t('settings_email_help')}
+          {emailHelpLabel}
         </p>
       </div>
     </div>
@@ -177,6 +190,16 @@ function NotificationsSection({ id }: { id?: string }): React.JSX.Element {
   const { t } = useI18n();
   const { push } = useToast();
   const { me } = useMe();
+  const pushNotSupportedLabel = resolveLabel(
+    t,
+    'push_not_supported',
+    'Push notifications are not supported on this browser.'
+  );
+  const pushDeniedLabel = resolveLabel(
+    t,
+    'push_denied',
+    'Browser permission is disabled. You can re-enable it in browser settings.'
+  );
 
   type NotifState = {
     emailNews: boolean;
@@ -317,12 +340,12 @@ function NotificationsSection({ id }: { id?: string }): React.JSX.Element {
           />
           {!pushSupported && (
             <div className="mt-1 text-xs text-neutral-500">
-              {t('push_not_supported')}
+              {pushNotSupportedLabel}
             </div>
           )}
           {pushSupported && permission === 'denied' && (
             <div className="mt-1 text-xs text-neutral-500">
-              {t('push_denied')}
+              {pushDeniedLabel}
             </div>
           )}
         </li>
@@ -517,15 +540,21 @@ function GeneralSection({ id }: { id?: string }): React.JSX.Element {
 
 function SecurityBlock({ id }: { id?: string }): React.JSX.Element {
   const { t } = useI18n();
+  const securityTitle = resolveLabel(t, 'settings_security', 'Security');
+  const securityDesc = resolveLabel(
+    t,
+    'settings_security_desc',
+    'Email verification, password, sessions and account protection.'
+  );
   return (
     <FormSection
       id={id}
-      title={t('settings_security')}
-      description={t('settings_security_desc')}
+      title={securityTitle}
+      description={securityDesc}
     >
-      <div className="space-y-8">
+      <div className="space-y-5">
         {/* 1. Email & verification (on garde la carte ici car c'est du contenu inline) */}
-        <div className="rounded-2xl border border-surface-200 p-4 dark:border-neutral-800">
+        <div className="settings-subcard">
           <EmailAndVerificationBlock />
         </div>
 
@@ -554,6 +583,7 @@ export default function Settings(): React.JSX.Element {
   const { t, locale } = useI18n();
   const { push } = useToast();
   const { refresh } = useMe();
+  const profileAndAuthLabel = resolveLabel(t, 'profile_and_auth', 'Profile and authentication');
 
   // items pour la nav latérale / menu mobile
   const items = React.useMemo(
@@ -639,7 +669,7 @@ export default function Settings(): React.JSX.Element {
         </label>
         <select
           id="settings-jump"
-          className="w-full rounded-xl border border-surface-200 bg-white px-3 py-2 text-sm dark:border-neutral-800 dark:bg-neutral-950"
+          className="form-select min-h-[44px] text-sm"
           onChange={(e) => {
             const id = e.target.value;
             document
@@ -662,7 +692,7 @@ export default function Settings(): React.JSX.Element {
         </aside>
 
         {/* main content */}
-        <div className="space-y-10">
+        <div className="space-y-8 sm:space-y-10">
           {/* GENERAL */}
           <GeneralSection id="general" />
 
@@ -670,7 +700,7 @@ export default function Settings(): React.JSX.Element {
 
           {/* ACCOUNT (connexion / signup / logout / go to my account) */}
           <section id="account" className="space-y-4">
-            <H3 as="div" className="text-base font-semibold">{t('profile_and_auth')}</H3>
+            <H3 as="div" className="text-base font-semibold">{profileAndAuthLabel}</H3>
             <AccountProfileForm />
             <AccountAuthBox />
           </section>

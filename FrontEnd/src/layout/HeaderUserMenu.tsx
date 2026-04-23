@@ -7,6 +7,8 @@ import { Button } from '@/components/ui';
 
 export default function HeaderUserMenu() {
   const [open, setOpen] = React.useState(false);
+  const [isMounted, setIsMounted] = React.useState(false);
+  const [isVisible, setIsVisible] = React.useState(false);
   const { me, logout } = useMe();
   const { ids: savedIds } = useSavedArticles();
   const navigate = useNavigate();
@@ -35,6 +37,18 @@ export default function HeaderUserMenu() {
     }
     if (open) window.addEventListener('mousedown', onClick);
     return () => window.removeEventListener('mousedown', onClick);
+  }, [open]);
+
+  React.useEffect(() => {
+    if (open) {
+      setIsMounted(true);
+      const raf = window.requestAnimationFrame(() => setIsVisible(true));
+      return () => window.cancelAnimationFrame(raf);
+    }
+
+    setIsVisible(false);
+    const timer = window.setTimeout(() => setIsMounted(false), 180);
+    return () => window.clearTimeout(timer);
   }, [open]);
 
   function handlePrimaryClick() {
@@ -82,7 +96,7 @@ export default function HeaderUserMenu() {
 
         {/* Chevron */}
         <svg
-          className="ml-1 h-4 w-4 opacity-70"
+          className={`ml-1 h-4 w-4 opacity-70 transition-transform duration-200 ease-out ${open ? 'rotate-180' : 'rotate-0'}`}
           viewBox="0 0 20 20"
           fill="none"
           stroke="currentColor"
@@ -93,13 +107,19 @@ export default function HeaderUserMenu() {
       </Button>
 
       {/* Dropdown */}
-      {open && (
+      {isMounted && (
         <div
           className="
             absolute right-0 z-40 mt-2 w-64 rounded-2xl border border-black/10
             bg-white p-3 shadow-xl
             dark:border-white/10 dark:bg-neutral-950
+            origin-top-right transform-gpu transition-[opacity,transform] duration-200 ease-out
           "
+          style={{
+            opacity: isVisible ? 1 : 0,
+            transform: isVisible ? 'translateY(0) scale(1)' : 'translateY(-8px) scale(0.98)',
+            pointerEvents: isVisible ? 'auto' : 'none',
+          }}
         >
           <div className="flex items-start gap-3 pb-3 border-b border-black/5 dark:border-white/10">
             <div className="relative h-9 w-9 overflow-hidden rounded-full bg-black/90 dark:bg-white text-xs font-semibold text-white dark:text-neutral-900 flex items-center justify-center">

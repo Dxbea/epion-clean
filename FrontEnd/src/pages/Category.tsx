@@ -1,10 +1,11 @@
-// DEBUT BLOC (remplace tout ce qui est entre ce commentaire et "FIN BLOC")
 import React from 'react';
-import { useParams, Link } from 'react-router-dom';
+import { Link, useParams } from 'react-router-dom';
+
 import ArticleCard from '@/components/articles/ArticleCard';
-import type { Article } from '@/types/article';
 import SectionHeader from '@/components/SectionHeader';
+import { Button } from '@/components/ui';
 import { API_BASE } from '@/config/api';
+import type { Article } from '@/types/article';
 
 function labelFromSlug(slug: string) {
   const pretty = slug.replace(/-/g, ' ');
@@ -25,18 +26,22 @@ export default function CategoryPage() {
   const load = React.useCallback(async (cursor?: string | null) => {
     try {
       if (!cursor) setLoading(true);
-      const qs = new URLSearchParams();
-      qs.set('take', '24');
-      if (cursor) qs.set('cursor', cursor);
-      const res = await fetch(`${API_BASE}/api/categories/${slug}/articles?` + qs.toString());
-      if (!res.ok) throw new Error(`HTTP ${res.status}`);
-      const json = await res.json();
-      const page: Article[] = (Array.isArray(json.items) ? json.items : []);
-      setItems(prev => cursor ? [...prev, ...page] : page);
+
+      const params = new URLSearchParams();
+      params.set('take', '24');
+      if (cursor) params.set('cursor', cursor);
+
+      const response = await fetch(`${API_BASE}/api/categories/${slug}/articles?${params.toString()}`);
+      if (!response.ok) throw new Error(`HTTP ${response.status}`);
+
+      const json = await response.json();
+      const page: Article[] = Array.isArray(json.items) ? json.items : [];
+
+      setItems((prev) => (cursor ? [...prev, ...page] : page));
       setNextCursor(json.nextCursor ?? null);
       setError(null);
-    } catch (e: any) {
-      setError(e?.message || 'Failed to load');
+    } catch (err: any) {
+      setError(err?.message || 'Failed to load');
       if (!cursor) setItems([]);
       setNextCursor(null);
     } finally {
@@ -46,63 +51,66 @@ export default function CategoryPage() {
   }, [slug]);
 
   React.useEffect(() => {
-    // reset et 1er chargement à chaque changement de slug
     setItems([]);
     setNextCursor(null);
     setInitialLoaded(false);
     load(null);
-  }, [slug, load]);
-
-  const onLoadMore = React.useCallback(() => {
-    if (nextCursor && !loading) load(nextCursor);
-  }, [nextCursor, loading, load]);
+  }, [load]);
 
   return (
-    <main className="mx-auto w-full max-w-7xl px-4 py-10 space-y-8">
-      <header className="space-y-2">
+    <main className="mx-auto w-full max-w-7xl px-4 py-8 sm:px-6 sm:py-10 lg:px-8">
+      <header className="space-y-4">
         <nav className="text-sm opacity-70">
-          <Link to="/news" className="hover:underline">news</Link>
-          <span className="mx-2">/</span><span>{label}</span>
+          <Link to="/news" className="hover:underline">
+            news
+          </Link>
+          <span className="mx-2">/</span>
+          <span>{label}</span>
         </nav>
+
         <SectionHeader title={label} />
       </header>
 
-      {/* état de chargement initial */}
-      {!initialLoaded && loading ? (
-        <div className="text-center opacity-70">Loading…</div>
-      ) : error ? (
-        <div className="rounded-2xl border border-black/10 p-6 text-center text-red-600 dark:border-white/10">
-          {error}
-        </div>
-      ) : items.length ? (
-        <>
-          <div className="grid grid-cols-1 gap-6 sm:grid-cols-2 lg:grid-cols-3">
-            {items.map(a => <ArticleCard key={a.id} article={a} />)}
+      <div className="mt-8 space-y-8">
+        {!initialLoaded && loading ? (
+          <div className="text-center opacity-70">Loading...</div>
+        ) : error ? (
+          <div className="rounded-3xl border border-black/10 p-6 text-center text-red-600 dark:border-white/10 sm:p-8">
+            {error}
           </div>
+        ) : items.length ? (
+          <>
+            <div className="grid grid-cols-1 gap-6 sm:grid-cols-2 lg:grid-cols-3">
+              {items.map((article) => (
+                <ArticleCard key={article.id} article={article} />
+              ))}
+            </div>
 
-          <div className="flex items-center justify-center">
-            {nextCursor ? (
-              <button
-                onClick={onLoadMore}
-                disabled={loading}
-                className="mt-6 rounded-full border px-4 py-2 text-sm hover:bg-black/5 disabled:opacity-60 dark:border-white/10"
-              >
-                {loading ? 'Loading…' : 'Afficher plus'}
-              </button>
-            ) : (
-              <span className="mt-6 text-sm opacity-60">Fin des résultats</span>
-            )}
+            <div className="flex items-center justify-center">
+              {nextCursor ? (
+                <Button
+                  variant="secondary"
+                  size="auto"
+                  className="mt-4 min-h-[44px] rounded-full px-5 py-2.5 text-sm"
+                  onClick={() => !loading && load(nextCursor)}
+                  disabled={loading}
+                >
+                  {loading ? 'Loading...' : 'Afficher plus'}
+                </Button>
+              ) : (
+                <span className="mt-6 text-sm opacity-60">Fin des resultats</span>
+              )}
+            </div>
+          </>
+        ) : (
+          <div className="rounded-3xl border border-black/10 p-6 text-center dark:border-white/10 sm:p-8">
+            <div className="text-lg font-medium">Aucun article trouve</div>
+            <div className="mt-1 text-sm opacity-70">
+              Essaie une autre categorie ou <Link to="/news" className="underline">retourne aux articles</Link>.
+            </div>
           </div>
-        </>
-      ) : (
-        <div className="rounded-2xl border border-black/10 p-6 text-center dark:border-white/10">
-          <div className="text-lg font-medium">Aucun article trouvé</div>
-          <div className="mt-1 text-sm opacity-70">
-            Essaie une autre catégorie ou <Link to="/news" className="underline">retourne aux articles</Link>.
-          </div>
-        </div>
-      )}
+        )}
+      </div>
     </main>
   );
 }
-// FIN BLOC

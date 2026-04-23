@@ -1,80 +1,149 @@
-// DEBUT BLOC (remplace tout ce qui est entre ce commentaire et "FIN BLOC")
 import React from 'react';
-import HeroArticle from '@/components/articles/HeroArticle';
+import { Link, useNavigate } from 'react-router-dom';
+
 import ArticleSection from '@/components/articles/ArticleSection';
-import SectionHeader from '@/components/SectionHeader';
-import type { Article } from '@/types/article';
-import { usePaginatedArticles } from '@/hooks/usePaginatedArticles';
+import HeroArticle from '@/components/articles/HeroArticle';
 import TopOfWeekRow from '@/components/articles/TOTW';
-import { useLocation, Link, useNavigate } from 'react-router-dom';
-import { useMe } from '@/contexts/MeContext';
-import { useI18n } from '@/i18n/I18nContext';
+import SectionHeader from '@/components/SectionHeader';
+import { Button } from '@/components/ui';
 import { api } from '@/config/api';
+import { useMe } from '@/contexts/MeContext';
+import { usePaginatedArticles } from '@/hooks/usePaginatedArticles';
 import { useAuthRequired } from '@/hooks/useAuthRequired';
+import { useI18n } from '@/i18n/I18nContext';
+import type { Article } from '@/types/article';
 
-
-
-
-// -------- Mock/fallback (sert si l’API ne renvoie rien) --------
 const FALLBACK: Article[] = [
   {
-    id: '1', title: 'Startups raise...', imageUrl: '/img/a1.jpg', url: 'https://example.com/1', publishedAt: new Date().toISOString(), category: 'Economy', views: 300,
-    excerpt: ''
+    id: '1',
+    title: 'Startups raise...',
+    imageUrl: '/img/a1.jpg',
+    url: 'https://example.com/1',
+    publishedAt: new Date().toISOString(),
+    category: 'Economy',
+    views: 300,
+    excerpt: '',
   },
   {
-    id: '2', title: 'Energy prices fall', imageUrl: '/img/a2.jpg', url: 'https://example.com/2', publishedAt: new Date().toISOString(), category: 'Economy', views: 80,
-    excerpt: ''
+    id: '2',
+    title: 'Energy prices fall',
+    imageUrl: '/img/a2.jpg',
+    url: 'https://example.com/2',
+    publishedAt: new Date().toISOString(),
+    category: 'Economy',
+    views: 80,
+    excerpt: '',
   },
   {
-    id: '3', title: 'Eurozone PMI slips', imageUrl: '/img/a3.jpg', url: 'https://example.com/3', publishedAt: new Date().toISOString(), category: 'Economy', views: 260,
-    excerpt: ''
+    id: '3',
+    title: 'Eurozone PMI slips',
+    imageUrl: '/img/a3.jpg',
+    url: 'https://example.com/3',
+    publishedAt: new Date().toISOString(),
+    category: 'Economy',
+    views: 260,
+    excerpt: '',
   },
   {
-    id: '4', title: 'UK condemns Hong Kong...', imageUrl: '/img/a4.jpg', url: 'https://example.com/4', publishedAt: new Date().toISOString(), category: 'World Conflict', views: 120,
-    excerpt: ''
+    id: '4',
+    title: 'UK condemns Hong Kong...',
+    imageUrl: '/img/a4.jpg',
+    url: 'https://example.com/4',
+    publishedAt: new Date().toISOString(),
+    category: 'World Conflict',
+    views: 120,
+    excerpt: '',
   },
   {
-    id: '5', title: 'Thai & Cambodian...', imageUrl: '/img/a5.jpg', url: 'https://example.com/5', publishedAt: new Date().toISOString(), category: 'World Conflict', views: 150,
-    excerpt: ''
+    id: '5',
+    title: 'Thai & Cambodian...',
+    imageUrl: '/img/a5.jpg',
+    url: 'https://example.com/5',
+    publishedAt: new Date().toISOString(),
+    category: 'World Conflict',
+    views: 150,
+    excerpt: '',
   },
   {
-    id: '6', title: 'School leavers joining...', imageUrl: '/img/a6.jpg', url: 'https://example.com/6', publishedAt: new Date().toISOString(), category: 'World Conflict', views: 90,
-    excerpt: ''
+    id: '6',
+    title: 'School leavers joining...',
+    imageUrl: '/img/a6.jpg',
+    url: 'https://example.com/6',
+    publishedAt: new Date().toISOString(),
+    category: 'World Conflict',
+    views: 90,
+    excerpt: '',
   },
   {
-    id: '7', title: 'Tonight as Arsenal...', imageUrl: '/img/a7.jpg', url: 'https://example.com/7', publishedAt: new Date().toISOString(), category: 'Sport', views: 520,
-    excerpt: ''
+    id: '7',
+    title: 'Tonight as Arsenal...',
+    imageUrl: '/img/a7.jpg',
+    url: 'https://example.com/7',
+    publishedAt: new Date().toISOString(),
+    category: 'Sport',
+    views: 520,
+    excerpt: '',
   },
   {
-    id: '8', title: 'Popcar set for Tour...', imageUrl: '/img/a8.jpg', url: 'https://example.com/8', publishedAt: new Date().toISOString(), category: 'Sport', views: 410,
-    excerpt: ''
+    id: '8',
+    title: 'Popcar set for Tour...',
+    imageUrl: '/img/a8.jpg',
+    url: 'https://example.com/8',
+    publishedAt: new Date().toISOString(),
+    category: 'Sport',
+    views: 410,
+    excerpt: '',
   },
   {
-    id: '9', title: 'Unforios Lions...', imageUrl: '/img/a9.jpg', url: 'https://example.com/9', publishedAt: new Date().toISOString(), category: 'Sport', views: 380,
-    excerpt: ''
+    id: '9',
+    title: 'Unforios Lions...',
+    imageUrl: '/img/a9.jpg',
+    url: 'https://example.com/9',
+    publishedAt: new Date().toISOString(),
+    category: 'Sport',
+    views: 380,
+    excerpt: '',
   },
   {
-    id: '10', title: 'Insurance giant...', imageUrl: '/img/a10.jpg', url: 'https://example.com/10', publishedAt: new Date().toISOString(), category: 'Tech', views: 260,
-    excerpt: ''
+    id: '10',
+    title: 'Insurance giant...',
+    imageUrl: '/img/a10.jpg',
+    url: 'https://example.com/10',
+    publishedAt: new Date().toISOString(),
+    category: 'Tech',
+    views: 260,
+    excerpt: '',
   },
   {
-    id: '11', title: 'Opticians split...', imageUrl: '/img/a11.jpg', url: 'https://example.com/11', publishedAt: new Date().toISOString(), category: 'Tech', views: 190,
-    excerpt: ''
+    id: '11',
+    title: 'Opticians split...',
+    imageUrl: '/img/a11.jpg',
+    url: 'https://example.com/11',
+    publishedAt: new Date().toISOString(),
+    category: 'Tech',
+    views: 190,
+    excerpt: '',
   },
   {
-    id: '12', title: 'Video game creation...', imageUrl: '/img/a12.jpg', url: 'https://example.com/12', publishedAt: new Date().toISOString(), category: 'Tech', views: 130,
-    excerpt: ''
+    id: '12',
+    title: 'Video game creation...',
+    imageUrl: '/img/a12.jpg',
+    url: 'https://example.com/12',
+    publishedAt: new Date().toISOString(),
+    category: 'Tech',
+    views: 130,
+    excerpt: '',
   },
 ];
 
-// -------- utils --------
 function groupBy<T, K extends string | number>(arr: T[], key: (x: T) => K) {
-  return arr.reduce((acc, it) => {
-    const k = key(it);
-    (acc[k] ||= []).push(it);
+  return arr.reduce((acc, item) => {
+    const k = key(item);
+    (acc[k] ||= []).push(item);
     return acc;
   }, {} as Record<K, T[]>);
 }
+
 const since24h = (iso: string) => Date.now() - new Date(iso).getTime() <= 24 * 3600 * 1000;
 
 export default function News() {
@@ -82,149 +151,152 @@ export default function News() {
   const { me } = useMe();
   const { t } = useI18n();
   const { requireAuth } = useAuthRequired();
-  // 🔗 Récupère les articles paginés depuis l’API
   const { items, hasMore, loadMore } = usePaginatedArticles({ take: 24 });
 
-  // Articles suivis
   const [followingArticles, setFollowingArticles] = React.useState<Article[]>([]);
-  const [loadingFollowing, setLoadingFollowing] = React.useState(false);
+  const [apiHero, setApiHero] = React.useState<Article | null>(null);
 
-  // Fallback si l’API est vide / down
-  const articles: Article[] = items.length ? items : FALLBACK;
+  const articles = items.length ? items : FALLBACK;
 
-  // 1. Hero stable calculé seulement depuis la liste des articles paginés
   const memoHero = React.useMemo(() => {
     if (!articles.length) return null;
+
     const last24 = [...articles]
-      .filter(a => since24h(a.publishedAt))
+      .filter((article) => since24h(article.publishedAt))
       .sort((a, b) => (b.views || 0) - (a.views || 0))[0];
+
     return last24 || [...articles].sort((a, b) => (b.views || 0) - (a.views || 0))[0];
   }, [articles]);
 
-  // 2. Hero spécifique chargé depuis l'API (Top All Time)
-  const [apiHero, setApiHero] = React.useState<Article | null>(null);
-
-  // 3. Le héros final est celui de l'API s'il est prêt, sinon le calculé
   const hero = apiHero || memoHero;
 
-  // -------- sections par catégorie (top 4 + tie-breaker aléatoire) --------
-  const byCat = React.useMemo(() => {
-    const valid = articles.filter(a => {
-      const name = (a.category ?? '').trim();
+  const byCategory = React.useMemo(() => {
+    const valid = articles.filter((article) => {
+      const name = (article.category ?? '').trim();
       return name && name.toLowerCase() !== 'null';
     });
-    return groupBy(valid, a => a.category!);
+
+    return groupBy(valid, (article) => article.category!);
   }, [articles]);
 
-  const popularCats = React.useMemo(() => {
-    const rows = Object.entries(byCat).map(([name, arr]) => {
-      const totalViews = arr.reduce((s, a) => s + (a.views ?? 0), 0);
-      const newest = Math.max(...arr.map(a => +new Date(a.publishedAt)));
-      return { name, totalViews, newest };
-    });
-
-    return rows
+  const popularCategories = React.useMemo(() => {
+    return Object.entries(byCategory)
+      .map(([name, categoryArticles]) => ({
+        name,
+        totalViews: categoryArticles.reduce((sum, article) => sum + (article.views ?? 0), 0),
+        newest: Math.max(...categoryArticles.map((article) => +new Date(article.publishedAt))),
+      }))
       .sort((a, b) => {
         if (b.totalViews !== a.totalViews) return b.totalViews - a.totalViews;
         if (b.newest !== a.newest) return b.newest - a.newest;
         return Math.random() - 0.5;
       })
       .slice(0, 4)
-      .map(r => r.name);
-  }, [byCat]);
+      .map((row) => row.name);
+  }, [byCategory]);
 
-  const catSections = React.useMemo(() => {
-    return popularCats.map(name => ({
+  const categorySections = React.useMemo(() => {
+    return popularCategories.map((name) => ({
       title: name,
       category: name,
-      articles: [...byCat[name]].sort(
+      articles: [...byCategory[name]].sort(
         (a, b) => +new Date(b.publishedAt) - +new Date(a.publishedAt)
       ),
     }));
-  }, [popularCats, byCat]);
+  }, [popularCategories, byCategory]);
 
-  // Discovery = 2 lignes * 3 cartes minimum, même si le pool 10% est trop petit
   const discoveryRows = React.useMemo(() => {
     if (!articles.length) return [[], []] as [Article[], Article[]];
 
     const sortedByViewsAsc = [...articles].sort((a, b) => (a.views || 0) - (b.views || 0));
-    const poolSize = Math.max(6, Math.ceil(sortedByViewsAsc.length * 0.10));
+    const poolSize = Math.max(6, Math.ceil(sortedByViewsAsc.length * 0.1));
     const pool = sortedByViewsAsc.slice(0, poolSize);
     const shuffled = [...pool].sort(() => Math.random() - 0.5);
 
-    const need = (n: number, taken: Article[]) => {
-      const rest = sortedByViewsAsc.filter(a => !taken.includes(a));
-      return taken.concat(rest.slice(0, Math.max(0, n - taken.length)));
+    const fillRow = (count: number, taken: Article[]) => {
+      const remaining = sortedByViewsAsc.filter((article) => !taken.includes(article));
+      return taken.concat(remaining.slice(0, Math.max(0, count - taken.length)));
     };
 
-    const row1 = need(3, shuffled.slice(0, 3));
-    const row2Start = shuffled.slice(3, 6);
-    const row2 = need(3, row2Start);
+    const row1 = fillRow(3, shuffled.slice(0, 3));
+    const row2 = fillRow(3, shuffled.slice(3, 6));
 
     return [row1.slice(0, 3), row2.slice(0, 3)] as [Article[], Article[]];
   }, [articles]);
 
-
   React.useEffect(() => {
     let alive = true;
-    (async () => {
-      try {
-        const j = await api<{ items: Article[] }>('/api/articles/top?period=all&take=1');
-        if (alive) setApiHero((j.items?.[0] as Article) || null);
-      } catch { }
-    })();
-    return () => { alive = false; };
-  }, []);
 
-  // Fetch following feed
-  React.useEffect(() => {
-    if (!me) return;
-    let alive = true;
     (async () => {
-      setLoadingFollowing(true);
       try {
-        const j = await api<{ items: Article[] }>('/api/articles/following');
-        if (alive) setFollowingArticles(Array.isArray(j.items) ? j.items : []);
-      } catch (e) {
-        console.error("Failed to fetch following feed", e);
-      } finally {
-        if (alive) setLoadingFollowing(false);
+        const response = await api<{ items: Article[] }>('/api/articles/top?period=all&take=1');
+        if (alive) setApiHero((response.items?.[0] as Article) || null);
+      } catch {
+        // Keep the memoized hero fallback.
       }
     })();
-    return () => { alive = false; };
+
+    return () => {
+      alive = false;
+    };
+  }, []);
+
+  React.useEffect(() => {
+    if (!me) return;
+
+    let alive = true;
+
+    (async () => {
+      try {
+        const response = await api<{ items: Article[] }>('/api/articles/following');
+        if (alive) setFollowingArticles(Array.isArray(response.items) ? response.items : []);
+      } catch (error) {
+        console.error('Failed to fetch following feed', error);
+      }
+    })();
+
+    return () => {
+      alive = false;
+    };
   }, [me]);
 
   return (
-    <main className="mx-auto w-full max-w-7xl px-4 py-10 space-y-10">
-      {/* Header simple */}
-      <header>
-        <h1 className="text-3xl font-semibold">{t('news_title')}</h1>
-        <p className="mt-2 max-w-2xl text-black/80 dark:text-white/80">
-          {t('news_lead')}
-        </p>
-        <div className="mt-4">
-          <Link
+    <main className="mx-auto flex w-full max-w-7xl flex-col gap-12 px-4 py-8 sm:px-6 sm:py-10 lg:px-8">
+      <header className="space-y-6">
+        <div className="space-y-3">
+          <h1 className="font-serif text-4xl font-medium tracking-tight sm:text-5xl">
+            {t('news_title')}
+          </h1>
+          <p className="max-w-2xl text-base leading-relaxed text-black/80 dark:text-white/80 sm:text-lg">
+            {t('news_lead')}
+          </p>
+        </div>
+
+        <div>
+          <Button
+            as={Link}
             to="/create"
-            onClick={(e) => {
-              if (!requireAuth('Connectez-vous pour utiliser cette fonctionnalité.')) {
-                e.preventDefault();
+            variant="primary"
+            size="auto"
+            className="min-h-[44px] rounded-full px-6 py-3 text-sm sm:text-base"
+            onClick={(event) => {
+              if (!requireAuth('Connectez-vous pour utiliser cette fonctionnalite.')) {
+                event.preventDefault();
               }
             }}
-            className="rounded-xl bg-black px-4 py-2 text-white hover:opacity-90 dark:bg-white dark:text-black"
           >
             {t('news_ask_create')}
-          </Link>
+          </Button>
         </div>
       </header>
 
-      {/* Hero */}
-      <SectionHeader title={t('news_highlight')} />
-      <HeroArticle article={hero} />
+      <section className="space-y-6">
+        <SectionHeader title={t('news_highlight')} />
+        <HeroArticle article={hero} />
+      </section>
 
-      {/* TOTW */}
       <TopOfWeekRow />
 
-      {/* Following Section (Logged in only) */}
       {me && (
         followingArticles.length > 0 ? (
           <ArticleSection
@@ -232,7 +304,7 @@ export default function News() {
             articles={followingArticles.slice(0, 4)}
           />
         ) : (
-          <section className="rounded-2xl border border-black/5 bg-black/[0.02] p-8 text-center dark:border-white/5 dark:bg-white/[0.02]">
+          <section className="rounded-3xl border border-black/5 bg-black/[0.02] p-6 text-center dark:border-white/5 dark:bg-white/[0.02] sm:p-8">
             <p className="text-sm text-neutral-500 dark:text-neutral-400">
               {t('news_no_following')}
             </p>
@@ -240,80 +312,81 @@ export default function News() {
         )
       )}
 
-      {/* Catégories populaires */}
       <section className="space-y-10">
-        {catSections.map(sec => (
+        {categorySections.map((section) => (
           <ArticleSection
-            key={sec.title}
-            title={sec.title}
-            category={sec.category}
-            articles={sec.articles}
+            key={section.title}
+            title={section.title}
+            category={section.category}
+            articles={section.articles}
           />
         ))}
       </section>
 
-      {/* Discovery : 2 lignes, 3 cartes par ligne */}
       <section className="space-y-6">
         <SectionHeader title={t('news_discovery')} />
         <ArticleSection title="" articles={discoveryRows[0]} showHeader={false} />
         <ArticleSection title="" articles={discoveryRows[1]} showHeader={false} />
 
-        {/* Load more — charge la page suivante de l’API si disponible */}
         <div className="flex items-center justify-center">
           {hasMore ? (
-            <button
-              onClick={(e) => {
-                if (!requireAuth('Connectez-vous pour charger plus d\'articles.')) {
-                  e.preventDefault();
+            <Button
+              variant="secondary"
+              size="auto"
+              className="mt-2 min-h-[44px] rounded-full px-5 py-2.5 text-sm"
+              onClick={(event) => {
+                if (!requireAuth("Connectez-vous pour charger plus d'articles.")) {
+                  event.preventDefault();
                   return;
                 }
+
                 loadMore();
               }}
-              className="mt-4 rounded-full border px-4 py-2 text-sm hover:bg-black/5 dark:border-white/10"
             >
               {t('news_load_more')}
-            </button>
+            </Button>
           ) : null}
         </div>
       </section>
 
-      {/* Search & Explore */}
-      <section className="mt-8 space-y-3">
+      <section className="space-y-4">
         <SectionHeader title={t('news_search_explore')} />
-        <div className="flex flex-col items-center gap-3 rounded-2xl border border-black/10 p-4 dark:border-white/10">
+        <div className="flex flex-col items-stretch gap-4 rounded-3xl border border-black/10 p-6 dark:border-white/10 sm:p-8">
           <input
             type="search"
             placeholder={t('news_search_placeholder')}
-            className="w-full max-w-2xl rounded-xl border border-black/10 px-4 py-2 focus:outline-none focus:ring-2 focus:ring-black
-                       dark:border-white/10 dark:bg-neutral-950"
-            onKeyDown={(e) => {
-              if (e.key === 'Enter') {
-                if (!requireAuth('Connectez-vous pour faire une recherche.')) {
-                  e.preventDefault();
-                  return;
-                }
-                const q = (e.target as HTMLInputElement).value.trim();
-                if (q) navigate(`/news/search?q=${encodeURIComponent(q)}`);
+            className="form-input h-11 max-w-2xl sm:h-12"
+            onKeyDown={(event) => {
+              if (event.key !== 'Enter') return;
+
+              if (!requireAuth('Connectez-vous pour faire une recherche.')) {
+                event.preventDefault();
+                return;
               }
+
+              const query = (event.target as HTMLInputElement).value.trim();
+              if (query) navigate(`/news/search?q=${encodeURIComponent(query)}`);
             }}
           />
-          <div className="flex items-center gap-2">
-            <Link
+
+          <div className="flex flex-col items-stretch gap-3 sm:flex-row sm:items-center">
+            <Button
+              as={Link}
               to="/news/categories"
-              onClick={(e) => {
-                if (!requireAuth('Connectez-vous pour explorer les catégories.')) {
-                  e.preventDefault();
+              variant="secondary"
+              size="auto"
+              className="min-h-[44px] rounded-full px-5 py-2.5 text-sm"
+              onClick={(event) => {
+                if (!requireAuth('Connectez-vous pour explorer les categories.')) {
+                  event.preventDefault();
                 }
               }}
-              className="rounded-xl border px-4 py-2 text-sm hover:bg-black/5 dark:border-white/10"
             >
               {t('news_search_categories')}
-            </Link>
-
+            </Button>
           </div>
         </div>
       </section>
     </main>
   );
 }
-// FIN BLOC

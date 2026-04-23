@@ -166,7 +166,7 @@ function GuestAuthForm({
           <div>
             <label className="mb-1 block text-sm">Display name</label>
             <input
-              className="w-full rounded-xl border border-surface-200 bg-white px-3 py-2 text-sm outline-none focus:ring-2 focus:ring-brand-blue dark:border-neutral-800 dark:bg-neutral-950"
+              className="form-input"
               value={displayName}
               onChange={e => setDisplayName(e.target.value)}
               placeholder="Jane Doe"
@@ -195,7 +195,7 @@ function GuestAuthForm({
             type="email"
             inputMode="email"
             autoComplete="email"
-            className={`w-full rounded-xl border bg-white px-3 py-2 text-sm outline-none focus:ring-2 focus:ring-brand-blue dark:border-neutral-800 dark:bg-neutral-950 ${
+            className={`form-input ${
               emailErr ? 'border-red-500' : 'border-surface-200'
             }`}
             value={email}
@@ -211,21 +211,23 @@ function GuestAuthForm({
             <input
               type={showPw ? 'text' : 'password'}
               autoComplete={mode === 'login' ? 'current-password' : 'new-password'}
-              className={`no-native-reveal w-full rounded-xl border bg-white px-3 py-2 pr-12 text-sm outline-none focus:ring-2 focus:ring-brand-blue dark:border-neutral-800 dark:bg-neutral-950 ${
+              className={`no-native-reveal form-input pr-16 ${
                 pwErr ? 'border-red-500' : 'border-surface-200'
               }`}
               value={password}
               onChange={e => setPassword(e.target.value)}
               placeholder={mode === 'login' ? '••••••••' : 'At least 8 characters'}
             />
-            <button
+            <Button
               type="button"
+              variant="ghost"
+              size="sm"
               aria-label={showPw ? 'Hide password' : 'Show password'}
               onClick={() => setShowPw(s => !s)}
-              className="absolute right-2 top-1/2 -translate-y-1/2 rounded px-2 py-1 text-xs hover:bg-surface-100 dark:hover:bg-neutral-900"
+              className="absolute right-1 top-1/2 h-8 -translate-y-1/2 rounded-lg px-2 text-xs"
             >
               {showPw ? 'Hide' : 'Show'}
-            </button>
+            </Button>
           </div>
 
           {pwErr && <p className="mt-1 text-xs text-red-600">{pwErr}</p>}

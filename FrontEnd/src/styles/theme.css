@@ -109,6 +109,10 @@ html[data-hide-footer] { --footer-visible-h: 0px !important; }
            border-black/10
            dark:border-white/10;
   }
+  .settings-subcard {
+    @apply rounded-[1.75rem] border border-black/10 bg-white/70 p-5 shadow-[0_12px_32px_rgba(15,23,42,0.06)]
+           backdrop-blur-sm dark:border-white/10 dark:bg-neutral-950/70 dark:shadow-[0_12px_32px_rgba(0,0,0,0.24)];
+  }
   .btn-primary {
   @apply rounded-xl px-4 py-2 text-white disabled:opacity-60;
   background: var(--brand-turquoise);

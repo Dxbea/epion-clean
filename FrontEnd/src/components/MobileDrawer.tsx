@@ -1,7 +1,7 @@
-// DEBUT BLOC (remplace tout ce qui est entre ce commentaire et "FIN BLOC")
 import * as React from 'react'
 import { createPortal } from 'react-dom'
 import { Link, NavLink } from 'react-router-dom'
+
 import { Button } from '@/components/ui'
 
 type MobileDrawerProps = {
@@ -11,82 +11,77 @@ type MobileDrawerProps = {
 }
 
 function MobileDrawerContent({ open, onClose, items }: MobileDrawerProps) {
-  if (!open) return null
+  const [isMounted, setIsMounted] = React.useState(open)
+  const [isVisible, setIsVisible] = React.useState(false)
+
+  React.useEffect(() => {
+    if (open) {
+      setIsMounted(true)
+      const raf = window.requestAnimationFrame(() => setIsVisible(true))
+      return () => window.cancelAnimationFrame(raf)
+    }
+
+    setIsVisible(false)
+    const timer = window.setTimeout(() => setIsMounted(false), 260)
+    return () => window.clearTimeout(timer)
+  }, [open])
+
+  if (!isMounted) return null
 
   return (
     <>
-      {/* backdrop */}
       <div
         onClick={onClose}
-        className="
-          fixed inset-0 z-[99]
-          bg-black/40 backdrop-blur-sm
-          lg:hidden
-          animate-in fade-in duration-300
-        "
+        className="fixed inset-0 z-[99] bg-black/40 backdrop-blur-sm transition-opacity duration-300 ease-out lg:hidden"
+        style={{ opacity: isVisible ? 1 : 0 }}
       />
 
-      {/* panneau */}
       <div
-        className="
-          fixed inset-y-0 left-0 z-[100]
-          w-[85vw] max-w-sm
-          bg-[#FAFAF5] dark:bg-neutral-950
-          shadow-2xl
-          flex flex-col
-          lg:hidden
-          animate-in slide-in-from-left duration-300 ease-out
-        "
+        className="fixed inset-y-0 left-0 z-[100] flex w-[85vw] max-w-sm transform-gpu flex-col bg-[var(--bg)] shadow-2xl transition-[transform,opacity] duration-300 ease-[cubic-bezier(0.22,1,0.36,1)] lg:hidden"
+        style={{
+          opacity: isVisible ? 1 : 0,
+          transform: isVisible ? 'translateX(0)' : 'translateX(-18px)',
+        }}
       >
-        {/* header du drawer */}
-        <div className="flex items-center justify-between px-4 py-3 border-b border-black/5 dark:border-white/10">
+        <div className="flex items-center justify-between border-b border-black/5 px-4 py-3 dark:border-white/10">
           <span className="text-sm font-medium">Menu</span>
-          <Button
-            variant="secondary"
-            size="sm"
-            onClick={onClose}
-          >
+          <Button variant="secondary" size="sm" onClick={onClose}>
             Close
           </Button>
         </div>
 
-        {/* contenu scrollable */}
-        <div className="flex-1 overflow-y-auto px-4 py-4 space-y-2">
+        <div className="flex-1 space-y-2 overflow-y-auto px-4 py-4">
           {items.map((item) => (
             <NavLink
               key={item.to}
               to={item.to}
               onClick={onClose}
               className={({ isActive }) =>
-                `
-                block rounded-xl px-3 py-2 text-sm
-                ${
+                `block rounded-xl px-3 py-2 text-sm transition-colors ${
                   isActive
                     ? 'bg-black/5 font-medium dark:bg-white/10'
                     : 'hover:bg-black/5 dark:hover:bg-white/5'
-                }
-              `
+                }`
               }
             >
               {item.label}
             </NavLink>
           ))}
 
-          {/* petit séparateur */}
           <div className="pt-3 text-xs font-semibold tracking-wide text-black/50 dark:text-white/50">
             Account
           </div>
           <Link
             to="/account"
             onClick={onClose}
-            className="block rounded-xl px-3 py-2 text-sm hover:bg-black/5 dark:hover:bg-white/5"
+            className="block rounded-xl px-3 py-2 text-sm transition-colors hover:bg-black/5 dark:hover:bg-white/5"
           >
             My account
           </Link>
           <Link
             to="/settings"
             onClick={onClose}
-            className="block rounded-xl px-3 py-2 text-sm hover:bg-black/5 dark:hover:bg-white/5"
+            className="block rounded-xl px-3 py-2 text-sm transition-colors hover:bg-black/5 dark:hover:bg-white/5"
           >
             Settings
           </Link>
@@ -99,7 +94,6 @@ function MobileDrawerContent({ open, onClose, items }: MobileDrawerProps) {
 export default function MobileDrawer(props: MobileDrawerProps) {
   const { open } = props
 
-  // Bloque le scroll du body quand le menu est ouvert
   React.useEffect(() => {
     if (!open) return
     const prevOverflow = document.body.style.overflow
@@ -109,9 +103,5 @@ export default function MobileDrawer(props: MobileDrawerProps) {
     }
   }, [open])
 
-  if (!open) return null
-
-  // Portal vers <body> pour éviter tous les problèmes de z-index / overflow
   return createPortal(<MobileDrawerContent {...props} />, document.body)
 }
-// FIN BLOC
