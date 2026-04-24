@@ -110,7 +110,7 @@ export function MeProvider({ children }: { children: React.ReactNode }) {
 
       if (!res.ok) {
         const text = await res.text().catch(() => `HTTP ${res.status}`)
-        throw new Error(text || `HTTP ${res.status}`)
+        throw new Error(`HTTP ${res.status} ${text || ''}`.trim())
       }
 
       await refresh()
@@ -129,7 +129,7 @@ export function MeProvider({ children }: { children: React.ReactNode }) {
 
       if (!res.ok) {
         const text = await res.text().catch(() => `HTTP ${res.status}`)
-        throw new Error(text || `HTTP ${res.status}`)
+        throw new Error(`HTTP ${res.status} ${text || ''}`.trim())
       }
 
       await refresh()

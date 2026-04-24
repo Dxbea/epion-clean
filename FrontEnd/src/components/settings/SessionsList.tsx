@@ -87,7 +87,7 @@ export default function SessionsList({ id }: { id?: string }) {
     <section id={id} className="settings-subcard space-y-5">
       <div className="flex flex-col gap-4 sm:flex-row sm:items-end sm:justify-between">
         <div className="space-y-1">
-          <h4 className="font-serif text-3xl font-medium tracking-tight text-neutral-900 dark:text-neutral-50">
+          <h4 className="text-base font-semibold text-neutral-900 dark:text-neutral-50">
             {t('sessions')}
           </h4>
           <p className="text-sm text-neutral-600 dark:text-neutral-400">

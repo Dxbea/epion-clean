@@ -1,5 +1,6 @@
 // src/components/settings/AccountAuthBox.tsx
 import * as React from 'react';
+import { Eye, EyeOff } from 'lucide-react';
 import Button from '@/components/ui/Button';
 import { H3, Body } from '@/components/ui/Typography';
 import { useToast } from '@/components/ui/Toast';
@@ -26,6 +27,36 @@ function httpStatusFromErr(e: any): number {
   const m = String(e?.message || '').match(/\b(\d{3})\b/);
   return m ? Number(m[1]) : 500;
 }
+
+function betaErrorMessage(error: string) {
+  if (error.includes('MISSING_INVITE')) return 'Please enter your beta code.';
+  if (error.includes('EXPIRED_INVITE')) return 'This beta code has expired.';
+  if (error.includes('INVITE_CODE_FULL')) return 'This beta code has already reached its limit.';
+  if (error.includes('INVALID_INVITE')) return 'This beta code is invalid.';
+  return 'Invalid or missing beta code. Please check your code.';
+}
+
+function PasswordRevealButton({
+  show,
+  onClick,
+}: {
+  show: boolean;
+  onClick: () => void;
+}) {
+  const Icon = show ? EyeOff : Eye;
+
+  return (
+    <button
+      type="button"
+      aria-label={show ? 'Hide password' : 'Show password'}
+      title={show ? 'Hide password' : 'Show password'}
+      onClick={onClick}
+      className="absolute right-2 top-1/2 z-10 inline-flex h-8 w-8 -translate-y-1/2 items-center justify-center rounded-lg text-neutral-500 transition hover:bg-black/5 hover:text-neutral-900 focus:outline-none focus-visible:ring-2 focus-visible:ring-brand-blue dark:text-neutral-400 dark:hover:bg-white/10 dark:hover:text-neutral-100"
+    >
+      <Icon aria-hidden="true" size={18} strokeWidth={1.8} />
+    </button>
+  );
+}
 /* -----------------------------------------------------------------------------
    GUEST BLOCK (form login / signup)
    réutilisé dans COMPACT et FULL quand me === null
@@ -49,16 +80,33 @@ function GuestAuthForm({
   const [displayName, setDisplayName] = React.useState('');
   const [showPw, setShowPw] = React.useState(false);
   const [busy, setBusy] = React.useState(false);
+  const [betaMode, setBetaMode] = React.useState(false);
 
   const [emailErr, setEmailErr] = React.useState<string | null>(null);
   const [pwErr, setPwErr] = React.useState<string | null>(null);
+  const [inviteErr, setInviteErr] = React.useState<string | null>(null);
   const [formErr, setFormErr] = React.useState<string | null>(null);
 
   // Beta invite code from localStorage (set by the beta gate popup)
   const [inviteCode, setInviteCode] = React.useState(() => {
     try { return localStorage.getItem('epion_invite_code') || ''; } catch { return ''; }
   });
-  const hasBetaCode = !!inviteCode;
+
+  React.useEffect(() => {
+    let alive = true;
+    fetch(`${API_BASE}/api/auth/beta-status`)
+      .then((res) => (res.ok ? res.json() : null))
+      .then((data) => {
+        if (alive) setBetaMode(Boolean(data?.betaMode));
+      })
+      .catch(() => {
+        if (alive) setBetaMode(false);
+      });
+
+    return () => {
+      alive = false;
+    };
+  }, []);
 
   // reset erreurs quand on tape
   React.useEffect(() => {
@@ -72,6 +120,10 @@ function GuestAuthForm({
   React.useEffect(() => {
     setFormErr(null);
   }, [displayName]);
+  React.useEffect(() => {
+    setInviteErr(null);
+    setFormErr(null);
+  }, [inviteCode]);
 
   async function handleLogin(e: React.FormEvent) {
     e.preventDefault();
@@ -118,10 +170,14 @@ function GuestAuthForm({
       setPwErr(msg);
       return;
     }
+    if (betaMode && !inviteCode.trim()) {
+      setInviteErr('Please enter your beta code.');
+      return;
+    }
 
     try {
       setBusy(true);
-      await onSignup(email, password, displayName.trim(), inviteCode || undefined);
+      await onSignup(email, password, displayName.trim(), inviteCode.trim() || undefined);
       // Clear invite code from localStorage on success
       try { localStorage.removeItem('epion_invite_code'); } catch {}
     } catch (err: any) {
@@ -132,7 +188,7 @@ function GuestAuthForm({
         // Try to parse the error for invite code issues
         const text = String(err?.message || '');
         if (text.includes('INVITE_CODE') || text.includes('MISSING_INVITE')) {
-          setFormErr('Invalid or missing invite code. Please check your code.');
+          setInviteErr(betaErrorMessage(text));
         } else {
           setFormErr('Something went wrong. Please try again.');
         }
@@ -143,22 +199,25 @@ function GuestAuthForm({
   }
 
   const handleSubmit = mode === 'login' ? handleLogin : handleSignup;
+  const switchMode = () => {
+    setMode(m => (m === 'login' ? 'signup' : 'login'));
+    setFormErr(null);
+    setEmailErr(null);
+    setPwErr(null);
+    setInviteErr(null);
+  };
 
   return (
-    <div className="grid gap-3 md:max-w-md">
-      <div className="mb-3 flex items-center gap-2">
+    <div className="grid gap-4 md:max-w-md">
+      <div className="space-y-1">
         <H3 as="div" className="text-base">
           {mode === 'login' ? 'Sign in' : 'Create account'}
         </H3>
-        <Button
-          variant="ghost"
-          onClick={() => {
-            setMode(m => (m === 'login' ? 'signup' : 'login'));
-            setFormErr(null);
-          }}
-        >
-          {mode === 'login' ? 'Switch to Signup' : 'Switch to Login'}
-        </Button>
+        <Body className="text-sm">
+          {mode === 'login'
+            ? 'Access your Epion account.'
+            : 'Create your account with your beta code.'}
+        </Body>
       </div>
 
       <form noValidate onSubmit={handleSubmit} className="grid gap-3">
@@ -174,18 +233,25 @@ function GuestAuthForm({
           </div>
         )}
 
-        {mode === 'signup' && hasBetaCode && (
+        {mode === 'signup' && betaMode && (
           <div>
             <label className="mb-1 flex items-center gap-2 text-sm">
-              Invite code
-              <span className="inline-flex items-center rounded-full bg-violet-500/10 px-2 py-0.5 text-[10px] font-semibold text-violet-500">BETA</span>
+              Beta code
+              <span className="inline-flex items-center rounded-full bg-brand-cyan/20 px-2 py-0.5 text-[10px] font-semibold text-neutral-700 dark:text-neutral-200">Required</span>
             </label>
             <input
-              className="w-full rounded-xl border border-violet-500/30 bg-violet-50/5 px-3 py-2 text-sm font-mono tracking-wider outline-none focus:ring-2 focus:ring-violet-500/50 dark:border-violet-500/20 dark:bg-violet-950/10"
+              className={`form-input font-mono uppercase tracking-wider ${
+                inviteErr ? 'border-red-500' : 'border-surface-200'
+              }`}
               value={inviteCode}
               onChange={e => setInviteCode(e.target.value.toUpperCase())}
               placeholder="XXXX-XXXX"
+              autoComplete="one-time-code"
             />
+            <p className="mt-1 text-xs text-neutral-500">
+              Epion is in closed beta. A valid code is required to create an account.
+            </p>
+            {inviteErr && <p className="mt-1 text-xs text-red-600">{inviteErr}</p>}
           </div>
         )}
 
@@ -211,23 +277,14 @@ function GuestAuthForm({
             <input
               type={showPw ? 'text' : 'password'}
               autoComplete={mode === 'login' ? 'current-password' : 'new-password'}
-              className={`no-native-reveal form-input pr-16 ${
+              className={`no-native-reveal form-input pr-12 ${
                 pwErr ? 'border-red-500' : 'border-surface-200'
               }`}
               value={password}
               onChange={e => setPassword(e.target.value)}
               placeholder={mode === 'login' ? '••••••••' : 'At least 8 characters'}
             />
-            <Button
-              type="button"
-              variant="ghost"
-              size="sm"
-              aria-label={showPw ? 'Hide password' : 'Show password'}
-              onClick={() => setShowPw(s => !s)}
-              className="absolute right-1 top-1/2 h-8 -translate-y-1/2 rounded-lg px-2 text-xs"
-            >
-              {showPw ? 'Hide' : 'Show'}
-            </Button>
+            <PasswordRevealButton show={showPw} onClick={() => setShowPw(s => !s)} />
           </div>
 
           {pwErr && <p className="mt-1 text-xs text-red-600">{pwErr}</p>}
@@ -252,13 +309,16 @@ function GuestAuthForm({
 
         {formErr && <p className="mt-1 text-sm text-red-600">{formErr}</p>}
 
-        <div className="mt-1 flex items-center gap-2">
+        <div className="mt-1 flex flex-col gap-2 sm:flex-row sm:items-center">
           <Button type="submit" variant="primary" disabled={busy}>
             {busy
               ? 'Please wait…'
               : mode === 'login'
               ? 'Sign in'
               : 'Create account'}
+          </Button>
+          <Button type="button" variant="ghost" onClick={switchMode}>
+            {mode === 'login' ? 'Create account' : 'Sign in instead'}
           </Button>
         </div>
       </form>
@@ -400,12 +460,7 @@ function SignedInFull({
   }
 
   return (
-    <div
-      className="
-        rounded-2xl border border-surface-200 p-4
-        dark:border-neutral-800
-      "
-    >
+    <div className="settings-subcard">
       <H3 as="div" className="mb-2 text-base">
         Your account
       </H3>
@@ -446,7 +501,7 @@ export function AccountAuthBoxCompact() {
   // invité ?
   if (!me) {
     return (
-      <div className="rounded-2xl border border-surface-200 p-4 dark:border-neutral-800">
+      <div className="settings-subcard">
         <GuestAuthForm
           onLogin={async (email, pw) => {
             await login(email, pw);
@@ -465,7 +520,7 @@ export function AccountAuthBoxCompact() {
 
   // connecté (vue légère)
   return (
-    <div className="rounded-2xl border border-surface-200 p-4 dark:border-neutral-800">
+    <div className="settings-subcard">
       <SignedInCompact
         me={me}
         onLogout={async () => {
@@ -486,7 +541,7 @@ export function AccountAuthBoxFull() {
     // si pas connecté mais on est sur /account,
     // on peut réutiliser GuestAuthForm direct mais sans wrapper spécial
     return (
-      <div className="rounded-2xl border border-surface-200 p-4 dark:border-neutral-800">
+      <div className="settings-subcard">
         <H3 as="div" className="text-base mb-3">Sign in</H3>
         <Body className="mb-4 text-sm opacity-80">
           You need an account to manage profile and security.

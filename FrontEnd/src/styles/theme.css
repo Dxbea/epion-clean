@@ -110,8 +110,8 @@ html[data-hide-footer] { --footer-visible-h: 0px !important; }
            dark:border-white/10;
   }
   .settings-subcard {
-    @apply rounded-[1.75rem] border border-black/10 bg-white/70 p-5 shadow-[0_12px_32px_rgba(15,23,42,0.06)]
-           backdrop-blur-sm dark:border-white/10 dark:bg-neutral-950/70 dark:shadow-[0_12px_32px_rgba(0,0,0,0.24)];
+    @apply rounded-xl border border-black/10 bg-white/70 p-4 shadow-[0_8px_24px_rgba(15,23,42,0.05)]
+           backdrop-blur-sm dark:border-white/10 dark:bg-neutral-950/70 dark:shadow-[0_8px_24px_rgba(0,0,0,0.2)] sm:p-5;
   }
   .btn-primary {
   @apply rounded-xl px-4 py-2 text-white disabled:opacity-60;

@@ -4,7 +4,7 @@ import { API_BASE } from '@/config/api';
 import { withCsrf } from '@/lib/csrf';
 
 type Creds = { email: string; password: string };
-type Signup = { email: string; password: string; displayName: string };
+type Signup = { email: string; password: string; displayName: string; inviteCode?: string };
 
 export async function apiMe() {
   const res = await fetch(`${API_BASE}/api/auth/me`, {

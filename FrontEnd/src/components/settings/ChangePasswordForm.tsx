@@ -1,5 +1,6 @@
 import * as React from 'react'
 import { Link } from 'react-router-dom'
+import { Eye, EyeOff } from 'lucide-react'
 
 import Button from '@/components/ui/Button'
 import { API_BASE } from '@/config/api'
@@ -15,37 +16,6 @@ function pwErr(password: string) {
   return null
 }
 
-function EyeIcon({ open }: { open: boolean }) {
-  return open ? (
-    <svg width="18" height="18" viewBox="0 0 24 24" aria-hidden="true">
-      <path
-        d="M12 5C7 5 3.1 8 1.5 12c1.6 4 5.5 7 10.5 7s8.9-3 10.5-7C20.9 8 17 5 12 5Z"
-        fill="none"
-        stroke="currentColor"
-        strokeWidth="1.8"
-      />
-      <circle
-        cx="12"
-        cy="12"
-        r="3.2"
-        fill="none"
-        stroke="currentColor"
-        strokeWidth="1.8"
-      />
-    </svg>
-  ) : (
-    <svg width="18" height="18" viewBox="0 0 24 24" aria-hidden="true">
-      <path d="M3 3l18 18" stroke="currentColor" strokeWidth="1.8" />
-      <path
-        d="M12 5c-5 0-8.9 3-10.5 7a12.7 12.7 0 0 0 5.1 5.9M20.9 16.2C22.5 14.9 23.5 13.4 24 12c-1.6-4-5.5-7-10.5-7-1.1 0-2.1.1-3 .4"
-        fill="none"
-        stroke="currentColor"
-        strokeWidth="1.8"
-      />
-    </svg>
-  )
-}
-
 type FieldProps = {
   label: string
   value: string
@@ -55,6 +25,28 @@ type FieldProps = {
   error?: string | null
   placeholder?: string
   autoComplete?: string
+}
+
+function PasswordRevealButton({
+  show,
+  onClick,
+}: {
+  show: boolean
+  onClick: () => void
+}) {
+  const Icon = show ? EyeOff : Eye
+
+  return (
+    <button
+      type="button"
+      className="absolute right-2 top-1/2 z-10 inline-flex h-8 w-8 -translate-y-1/2 items-center justify-center rounded-lg text-neutral-500 transition hover:bg-black/5 hover:text-neutral-900 focus:outline-none focus-visible:ring-2 focus-visible:ring-brand-blue dark:text-neutral-400 dark:hover:bg-white/10 dark:hover:text-neutral-100"
+      onClick={onClick}
+      aria-label={show ? 'Hide password' : 'Show password'}
+      title={show ? 'Hide password' : 'Show password'}
+    >
+      <Icon aria-hidden="true" size={18} strokeWidth={1.8} />
+    </button>
+  )
 }
 
 function PasswordField({
@@ -74,24 +66,14 @@ function PasswordField({
         <input
           type={show ? 'text' : 'password'}
           autoComplete={autoComplete}
-          className={`no-native-reveal form-input pr-24 ${
+          className={`no-native-reveal form-input pr-12 ${
             error ? 'border-red-500' : 'border-surface-200'
           }`}
           value={value}
           onChange={(event) => onChange(event.target.value)}
           placeholder={placeholder}
         />
-        <Button
-          type="button"
-          variant="ghost"
-          size="sm"
-          className="absolute right-1.5 top-1/2 h-9 -translate-y-1/2 rounded-full px-2.5 text-xs"
-          onClick={() => setShow(!show)}
-          aria-label={show ? 'Hide password' : 'Show password'}
-        >
-          <EyeIcon open={show} />
-          <span>{show ? 'Hide' : 'Show'}</span>
-        </Button>
+        <PasswordRevealButton show={show} onClick={() => setShow(!show)} />
       </div>
       {error ? <p className="mt-1 text-xs text-red-600">{error}</p> : null}
     </div>
@@ -209,13 +191,13 @@ export default function ChangePasswordForm({
   }
 
   return (
-    <section id={id} className="settings-subcard space-y-6 md:max-w-3xl">
+    <section id={id} className="settings-subcard space-y-5">
       <div className="space-y-1">
-        <h4 className="font-serif text-3xl font-medium tracking-tight text-neutral-900 dark:text-neutral-50">
+        <h4 className="text-base font-semibold text-neutral-900 dark:text-neutral-50">
           Change password
         </h4>
         <p className="text-sm text-neutral-600 dark:text-neutral-400">
-          Update your password without piling extra containers around the form.
+          Update your password and keep your account access current.
         </p>
       </div>
 
@@ -268,8 +250,8 @@ export default function ChangePasswordForm({
         </div>
       </form>
 
-      <div className="rounded-[1.5rem] border border-black/10 bg-[var(--bg)] p-5 dark:border-white/10">
-        <div className="mb-2 font-serif text-2xl font-medium tracking-tight text-neutral-900 dark:text-neutral-50">
+      <div className="rounded-xl border border-black/10 bg-[var(--bg)] p-4 dark:border-white/10">
+        <div className="mb-2 text-sm font-semibold text-neutral-900 dark:text-neutral-50">
           Can't remember your current password?
         </div>
         <p className="mb-4 text-sm leading-relaxed text-neutral-600 dark:text-neutral-400">

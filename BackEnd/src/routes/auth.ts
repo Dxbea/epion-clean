@@ -24,6 +24,7 @@ const signupSchema = z.object({
   email: z.string().email(),
   password: z.string().min(8),
   displayName: z.string().min(1),
+  inviteCode: z.string().optional(),
 });
 
 const loginSchema = z.object({
@@ -88,7 +89,7 @@ router.post('/auth/signup', async (req, res, next) => {
     // Beta mode: require invite code
     let inviteCodeId: string | undefined;
     if (BETA_MODE) {
-      const code = String(req.body?.inviteCode || '').trim().toUpperCase();
+      const code = String(input.inviteCode || '').trim().toUpperCase();
       if (!code) return res.status(400).json({ error: 'MISSING_INVITE_CODE' });
 
       const invite = await prisma.inviteCode.findUnique({ where: { code } });

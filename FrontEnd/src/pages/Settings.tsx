@@ -582,21 +582,24 @@ function SecurityBlock({ id }: { id?: string }): React.JSX.Element {
 export default function Settings(): React.JSX.Element {
   const { t, locale } = useI18n();
   const { push } = useToast();
-  const { refresh } = useMe();
-  const profileAndAuthLabel = resolveLabel(t, 'profile_and_auth', 'Profile and authentication');
+  const { me, loading, refresh } = useMe();
+  const signedIn = Boolean(me);
 
   // items pour la nav latérale / menu mobile
   const items = React.useMemo(
-    () => [
-      { id: 'general', label: t('general') },
-      { id: 'account', label: t('account') },
-      { id: 'security', label: t('security') },
-      { id: 'notifications', label: t('notifications') },
-      { id: 'privacy', label: t('privacy') },
-      { id: 'data', label: t('data') },
-      { id: 'accessibility', label: t('accessibility') },
-    ],
-    [t, locale]
+    () =>
+      signedIn
+        ? [
+            { id: 'general', label: t('general') },
+            { id: 'account', label: t('account') },
+            { id: 'security', label: t('security') },
+            { id: 'notifications', label: t('notifications') },
+            { id: 'privacy', label: t('privacy') },
+            { id: 'data', label: t('data') },
+            { id: 'accessibility', label: t('accessibility') },
+          ]
+        : [{ id: 'account', label: t('account') }],
+    [t, locale, signedIn]
   );
 
   // scroll to hash on mount (unchanged)
@@ -660,9 +663,10 @@ export default function Settings(): React.JSX.Element {
       <Breadcrumbs />
 
       {/* Bannière "verify your email" globale en haut */}
-      <VerifyEmailBanner />
+      {signedIn && <VerifyEmailBanner />}
 
       {/* Mobile jump */}
+      {signedIn && (
       <div className="mb-6 lg:hidden">
         <label htmlFor="settings-jump" className="sr-only">
           {t('jump_to')}
@@ -684,41 +688,53 @@ export default function Settings(): React.JSX.Element {
           ))}
         </select>
       </div>
+      )}
 
-      <div className="grid grid-cols-1 gap-8 lg:grid-cols-[240px_1fr]">
+      <div className={`grid grid-cols-1 gap-8 ${signedIn ? 'lg:grid-cols-[240px_1fr]' : ''}`}>
         {/* sidebar */}
+        {signedIn && (
         <aside className="sticky top-24 hidden h-max lg:block">
           <SettingsSidebarNav items={items} />
         </aside>
+        )}
 
         {/* main content */}
-        <div className="space-y-8 sm:space-y-10">
+        <div className={signedIn ? 'space-y-8 sm:space-y-10' : 'mx-auto w-full max-w-xl'}>
+          {loading && !me ? (
+            <div className="settings-subcard animate-pulse space-y-4">
+              <div className="h-5 w-32 rounded bg-neutral-200 dark:bg-neutral-800" />
+              <div className="h-10 rounded bg-neutral-200 dark:bg-neutral-800" />
+              <div className="h-10 rounded bg-neutral-200 dark:bg-neutral-800" />
+            </div>
+          ) : (
+          <>
           {/* GENERAL */}
-          <GeneralSection id="general" />
+          {signedIn && <GeneralSection id="general" />}
 
 
 
           {/* ACCOUNT (connexion / signup / logout / go to my account) */}
-          <section id="account" className="space-y-4">
-            <H3 as="div" className="text-base font-semibold">{profileAndAuthLabel}</H3>
-            <AccountProfileForm />
+          <section id="account" className="anchor-section space-y-5">
+            {signedIn && <AccountProfileForm />}
             <AccountAuthBox />
           </section>
 
           {/* BIG SECURITY BLOCK FUSIONNÉ */}
-          <SecurityBlock id="security" />
+          {signedIn && <SecurityBlock id="security" />}
 
           {/* Notifications */}
-          <NotificationsSection id="notifications" />
+          {signedIn && <NotificationsSection id="notifications" />}
 
           {/* Privacy */}
-          <PrivacySection id="privacy" />
+          {signedIn && <PrivacySection id="privacy" />}
 
           {/* Data / export / delete (ton bloc DataComplianceSection existant) */}
-          <DataComplianceSection id="data" />
+          {signedIn && <DataComplianceSection id="data" />}
 
           {/* Accessibility */}
-          <AccessibilitySection id="accessibility" />
+          {signedIn && <AccessibilitySection id="accessibility" />}
+          </>
+          )}
         </div>
       </div>
     </PageContainer>
