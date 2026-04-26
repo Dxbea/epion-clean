@@ -1,7 +1,7 @@
 // src/lib/api.ts
 const PROD_API_BASE = 'https://epion-clean.onrender.com';
 export const API_BASE =
-  import.meta.env.VITE_API_URL || 'http://localhost:5175';
+  import.meta.env.VITE_API_URL || (import.meta.env.PROD ? PROD_API_BASE : 'http://localhost:5175');
 
 /**
  * Petit helper interne : tente de recharger /api/me quand on a un 401,
