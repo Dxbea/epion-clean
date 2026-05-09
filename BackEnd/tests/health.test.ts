@@ -39,7 +39,7 @@ describe('Health Diagnostics Route', () => {
         expect(checks).toHaveProperty('database');
         expect(checks).toHaveProperty('vectors');
         expect(checks).toHaveProperty('openai');
-        expect(checks).toHaveProperty('perplexity');
+        expect(checks).toHaveProperty('serper');
     }, 10000); // 10s timeout
 
     it('should have database status up or down', async () => {
