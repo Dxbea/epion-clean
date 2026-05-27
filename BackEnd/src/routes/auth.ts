@@ -126,9 +126,10 @@ router.post('/auth/signup', async (req, res, next) => {
       });
     }
 
-    // 👉 crée la session DB
+    // 👉 crée la session DB (7 jours, aligné sur le JWT)
+    const sessionExpiresAt = new Date(Date.now() + 7 * 24 * 60 * 60 * 1000);
     const session = await prisma.session.create({
-      data: { userId: user.id, expiresAt: null },
+      data: { userId: user.id, expiresAt: sessionExpiresAt },
       select: { id: true },
     });
 
@@ -171,9 +172,10 @@ router.post('/auth/login', loginLimiter, async (req, res, next) => {
     logger.info(`[AUTH] Login success`, { userId: user.id });
 
 
-    // 4️⃣ Création de la session DB
+    // 4️⃣ Création de la session DB (7 jours, aligné sur le JWT)
+    const sessionExpiresAt = new Date(Date.now() + 7 * 24 * 60 * 60 * 1000);
     const session = await prisma.session.create({
-      data: { userId: user.id, expiresAt: null },
+      data: { userId: user.id, expiresAt: sessionExpiresAt },
       select: { id: true },
     });
 
@@ -319,7 +321,17 @@ router.post('/auth/forgot-password', forgotLimiter, async (req, res, next) => {
     await prisma.passwordReset.create({ data: { userId: user.id, token, expiresAt } });
 
     const resetUrl = `${process.env.FRONTEND_ORIGIN ?? 'http://localhost:5173'}/settings#security?resetToken=${token}`;
-    res.json({ ok: true, resetToken: token, resetUrl });
+    await sendMail({
+      to: user.email,
+      subject: 'Reset your password for Epion',
+      text: `Click this link to reset your password:\n\n${resetUrl}\n\nThis link is valid for 30 minutes.`,
+      html: `<p>Click this link to reset your password:</p>
+             <p><a href="${resetUrl}">${resetUrl}</a></p>
+             <p>This link is valid for 30 minutes.</p>`,
+    });
+
+    // Réponse neutre — le token est UNIQUEMENT envoyé par email
+    res.json({ ok: true });
   } catch (e) {
     next(e);
   }

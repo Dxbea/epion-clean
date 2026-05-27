@@ -8,6 +8,7 @@ import { GlobalTrustScoreModal } from './trust-score-ui/GlobalTrustScoreModal';
 import TrustHeader from '@/components/shared/TrustHeader';
 import ReactMarkdown from 'react-markdown';
 import { normalizeSourceForUi } from '@/lib/source-ui';
+import { deriveSupportLevelFromScore } from '@/lib/score-labels';
 
 export interface ScoreBreakdownItem {
   id: string;
@@ -36,7 +37,7 @@ export default function ChatMessage({ message }: { message: Msg }) {
   const [isBookmarked, setIsBookmarked] = useState(false);
   const [showOptions, setShowOptions] = useState(false);
 
-  // Parsing robuste avec useMemo
+  // Parsing robuste avec useMemo — reads backend scores, NO recalculation
   const transparencyData = React.useMemo<{
     answer: string;
     sources: any[];
@@ -44,52 +45,53 @@ export default function ChatMessage({ message }: { message: Msg }) {
     rawSourceScore: number;
     scoreBreakdown?: ScoreBreakdownItem[];
     outputScore?: number;
+    supportLevel?: string;
     liveAnalysis?: any | null;
   } | null>(() => {
     if (isUser) return null;
 
     let extractedSources: any[] = [];
-    let extractedScore: number | null = null;
     let extractedAnswer = message.content;
+    const meta = (message as any).metadata;
 
+    // Extract sources
     if (message.sources && Array.isArray(message.sources)) { extractedSources = message.sources; }
-    if (typeof (message as any).metadata?.factScore === 'number') { extractedScore = (message as any).metadata.factScore; }
-    else if ((message as any).score) { extractedScore = (message as any).score; }
 
-    let extractedOutputScore = 95;
-    if (typeof (message as any).metadata?.calculation?.outputScore === 'number') { extractedOutputScore = (message as any).metadata.calculation.outputScore; }
-    else if (typeof (message as any).metadata?.outputAnalysis?.score === 'number') { extractedOutputScore = (message as any).metadata.outputAnalysis.score; }
-
+    // Fallback: parse from content JSON (legacy)
     if (extractedSources.length === 0) {
       try {
         const parsed = JSON.parse(message.content);
         if (parsed && typeof parsed === 'object') {
           if (parsed.answer) extractedAnswer = parsed.answer;
           if (Array.isArray(parsed.sources)) extractedSources = parsed.sources;
-          if (typeof parsed.factScore === 'number') extractedScore = parsed.factScore;
         }
       } catch { }
     }
 
+    // Normalize sources for UI (no score recalculation)
     const contextualSources = extractedSources.map((source) =>
       normalizeSourceForUi(source, 'Source identifiee sur le web.')
     );
-    const scores = contextualSources
-      .map((source) => source?.trustScore ?? source?.dbScore ?? source?.score ?? null)
-      .filter((score: unknown): score is number => typeof score === 'number');
-    const avgSourceScore = scores.length > 0 ? Math.round(scores.reduce((a, b) => a + b, 0) / scores.length) : 0;
 
-    // 4. SCORING FINAL (Chat Logic)
-    let finalEffectiveScore = extractedScore;
+    // Read scores directly from backend AnswerScorePayload (v1 or legacy)
+    const score = typeof meta?.score === 'number'
+      ? meta.score
+      : typeof meta?.factScore === 'number'
+        ? meta.factScore
+        : null;
 
-    let rawSourceMean = avgSourceScore;
+    const rawSourceMean = typeof meta?.calculation?.sourcesMean === 'number'
+      ? meta.calculation.sourcesMean
+      : 0;
 
-    if (typeof (message as any).metadata?.calculation?.sourcesMean === 'number') {
-      rawSourceMean = (message as any).metadata.calculation.sourcesMean;
-    }
-    if (typeof finalEffectiveScore !== 'number' && avgSourceScore > 0) {
-      finalEffectiveScore = Math.round((avgSourceScore * 0.75) + (extractedOutputScore * 0.25));
-    }
+    const extractedOutputScore = typeof meta?.calculation?.outputScore === 'number'
+      ? meta.calculation.outputScore
+      : typeof meta?.outputAnalysis?.score === 'number'
+        ? meta.outputAnalysis.score
+        : 0;
+
+    // Support level: read from payload or derive (fallback for legacy data)
+    const supportLevel = meta?.supportLevel || deriveSupportLevelFromScore(score);
 
     const uniqueDomains = new Set(contextualSources.map((source) => source.domain)).size;
     const diversityScore = Math.min(100, Math.round((uniqueDomains / Math.max(1, 3)) * 100));
@@ -103,11 +105,12 @@ export default function ChatMessage({ message }: { message: Msg }) {
     return {
       answer: extractedAnswer,
       sources: contextualSources,
-      factScore: finalEffectiveScore || 0,
+      factScore: score,
       rawSourceScore: rawSourceMean,
       scoreBreakdown: dynamicBreakdown,
       outputScore: extractedOutputScore,
-      liveAnalysis: (message as any).metadata?.liveAnalysis || null
+      supportLevel,
+      liveAnalysis: meta?.liveAnalysis || null
     };
   }, [message.content, message.sources, (message as any).metadata, isUser]);
 

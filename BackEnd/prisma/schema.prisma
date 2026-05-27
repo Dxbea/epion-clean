@@ -33,6 +33,14 @@ enum ArticleStatus {
   ARCHIVED
 }
 
+enum FactCheckStatus {
+  PENDING
+  RUNNING
+  COMPLETED
+  FAILED
+  STALE
+}
+
 model User {
   id           String   @id @default(cuid())
   email        String   @unique
@@ -200,9 +208,14 @@ model Article {
   aiLockedFields    Json? // ex: ["title", "summary", "content"]
 
   // IA Results Persistence
-  aiSummary       String?   @db.Text
-  factCheckScore  Int?
-  factCheckData   Json?     // Stores full JSON analysis (sources, segments, breakdown)
+  aiSummary            String?          @db.Text
+  factCheckScore       Int?
+  factCheckData        Json?            // Stores full JSON analysis (v1: ArticleScorePayload)
+  factCheckStatus      FactCheckStatus? // Lifecycle: PENDING → RUNNING → COMPLETED | FAILED | STALE
+  factCheckContentHash String?          // SHA-256 of analysis input for invalidation detection
+  factCheckStartedAt   DateTime?
+  factCheckCompletedAt DateTime?
+  factCheckError       String?          // Error message if status=FAILED
 
   // 🔥 Add these two back-relations:
   comments  Comment[]         @relation("ArticleComments")

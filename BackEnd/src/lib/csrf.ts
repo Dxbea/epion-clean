@@ -71,11 +71,12 @@ export async function csrfRequired(req: Request, res: Response, next: NextFuncti
 
   // Chemins à exclure de la vérif CSRF
   const path = req.path || '';
+  const isNonProd = process.env.NODE_ENV !== 'production';
   if (
     safe ||
     path === '/csrf' ||               // endpoint de récupération du token
     path.startsWith('/auth/') ||      // login / register / forgot...
-    path.startsWith('/debug/')        // debug endpoints (disable in prod)
+    (isNonProd && path.startsWith('/debug/'))  // debug endpoints — dev/test only
   ) {
     return next();
   }

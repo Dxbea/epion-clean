@@ -14,8 +14,8 @@ import Modal from '@/components/ui/Modal';
 import SourceCard from '../components/chat/SourceCard';
 import MarkdownRenderer from '@/components/shared/MarkdownRenderer';
 import type { Article as CardArticle } from '@/types/article';
-import { computeSourceAnalysisScore, computeSourceFactScore } from '@/lib/source-score';
-import { parsePotentialSources, resolveSourceDomain } from '@/lib/source-ui';
+import { normalizeSourceForUi, parsePotentialSources } from '@/lib/source-ui';
+import { deriveSupportLevelFromScore } from '@/lib/score-labels';
 
 type LoadedArticle = {
   id: string;
@@ -75,106 +75,56 @@ export default function Article() {
   const topLevelTransparencyData = React.useMemo(() => {
     if (!article) return null;
 
-    // 1. STRATÉGIE DE RÉCUPÉRATION
+    // 1. Parse sources from backend payload
     const parsedData = parsePotentialSources(article.sources || article.factCheckData || []);
 
-    // 3. NORMALISATION
-    const normalized = parsedData.map((s: any) => {
-      const domainVal = resolveSourceDomain(s);
-      const trustScore = typeof s.trustScore === 'number'
-        ? s.trustScore
-        : typeof s.metadata?.dbScore === 'number'
-          ? s.metadata.dbScore
-          : typeof s.dbScore === 'number'
-            ? s.dbScore
-            : typeof s.score === 'number'
-              ? s.score
-              : null;
-      const scoreVal = trustScore;
+    // 2. Normalize for UI display (no score recalculation)
+    const normalized = parsedData.map((s: any) =>
+      normalizeSourceForUi(s, 'Source analysée par Epion.')
+    );
 
-      // Fallback: Generate explanation if missing (Legacy Data Support)
-      const hasExplanation = s.explanation || s.metadata?.explanation;
-      const finalExplanation = hasExplanation || {
-        formula: "70% Base de données + 30% Analyse Live",
-        sources: ["Audit Epion (Legacy)"],
-        livePenalties: [],
-        pillarWeights: { transparency: "20%", editorial: "30%", semantic: "30%", pluralism: "20%" }
-      };
-
-      // 3.1 CALCUL HYBRIDE (70% Réputation + 30% Analyse Live)
-      const metrics = s.metrics || s.metric;
-      const analysisScore = computeSourceAnalysisScore(metrics);
-
-      const sourceScore = computeSourceFactScore({
-        reputationScore: typeof s.metadata?.dbScore === 'number'
-          ? s.metadata.dbScore
-          : typeof s.dbScore === 'number'
-            ? s.dbScore
-            : scoreVal,
-        analysisScore,
-      });
-
-      // Si on a les deux, on applique la pondération
-
-      return {
-        ...s,
-        domain: domainVal,
-        score: sourceScore.finalScore,
-        url: s.url || s.link || "#",
-        description: s.description || "Source analysée par Epion.",
-        name: domainVal,
-        trustScore,
-        type: s.type || s.category || "GENERAL",
-        category: s.category || s.type || "GENERAL",
-        logo: s.logo || `https://www.google.com/s2/favicons?domain=${domainVal !== "Source inconnue" ? domainVal : 'example.com'}`,
-        flags: s.flags || { isAdsTxtValid: true, isClickbait: false, isPlatform: false },
-        dbScore: sourceScore.reputationScore || undefined,
-        reliability: s.metadata?.reliability || s.reliability || undefined, // FIX: Pass Reliability
-        biasScore: s.metadata?.biasScore || s.biasScore || undefined, // FIX: Pass Bias Score
-        country: s.metadata?.country || s.country || "FR",
-        politicalBias: s.metadata?.politicalBias || s.politicalBias || "UNKNOWN",
-        metric: metrics,
-        metrics,
-        explanation: finalExplanation,
-        reputationScore: sourceScore.reputationScore,
-        analysisScore: sourceScore.analysisScore
-      };
-    });
-
-    const scores = normalized
-      .map(s => (typeof s.trustScore === 'number' ? s.trustScore : typeof s.score === 'number' ? s.score : null))
-      .filter((score): score is number => typeof score === 'number');
-    const fallbackSourceMean = scores.length > 0 ? Math.round(scores.reduce((a, b) => a + b, 0) / scores.length) : 0;
+    // 3. Read scores from backend payload (backend is source of truth)
     const storedFactData = article.factCheckData && !Array.isArray(article.factCheckData) ? article.factCheckData : null;
+
+    // Score: v1 payload → legacy payload → DB field
+    const factScore = typeof storedFactData?.score === 'number'
+      ? storedFactData.score
+      : typeof storedFactData?.factScore === 'number'
+        ? storedFactData.factScore
+        : typeof article.factCheckScore === 'number'
+          ? article.factCheckScore
+          : null;
+
+    // Source mean: read from calculation, no recalculation
     const rawSourceScore = typeof storedFactData?.calculation?.sourcesMean === 'number'
       ? storedFactData.calculation.sourcesMean
       : typeof storedFactData?.sourcesMean === 'number'
         ? storedFactData.sourcesMean
-        : fallbackSourceMean;
-    const outputScore = typeof storedFactData?.calculation?.liveScore === 'number'
-      ? storedFactData.calculation.liveScore
-      : typeof storedFactData?.liveScore === 'number'
-        ? storedFactData.liveScore
-        : typeof storedFactData?.liveAnalysis?.judges?.auditor?.globalScore === 'number'
-          ? storedFactData.liveAnalysis.judges.auditor.globalScore
-          : typeof storedFactData?.liveAnalysis?.judges?.primary?.globalScore === 'number'
-            ? storedFactData.liveAnalysis.judges.primary.globalScore
-            : typeof article.factCheckScore === 'number'
-              ? article.factCheckScore
-              : 0;
-    const factScore = typeof storedFactData?.factScore === 'number'
-      ? storedFactData.factScore
-      : typeof article.factCheckScore === 'number'
-        ? article.factCheckScore
-        : rawSourceScore > 0
-          ? Math.round((rawSourceScore * 0.75) + (outputScore * 0.25))
-          : outputScore;
+        : 0;
+
+    // Content score (liveScore / contentScore)
+    const outputScore = typeof storedFactData?.calculation?.contentScore === 'number'
+      ? storedFactData.calculation.contentScore
+      : typeof storedFactData?.calculation?.liveScore === 'number'
+        ? storedFactData.calculation.liveScore
+        : typeof storedFactData?.liveScore === 'number'
+          ? storedFactData.liveScore
+          : 0;
+
+    // Support level: read from payload or derive from score (fallback)
+    const supportLevel = storedFactData?.supportLevel || deriveSupportLevelFromScore(factScore);
+
+    // Status: read from article field (DB is source of truth)
+    const factCheckStatus = (article as any).factCheckStatus || storedFactData?.status || null;
+
     return {
       factScore,
       rawSourceScore,
       outputScore,
+      supportLevel,
+      factCheckStatus,
       sources: normalized,
-      liveAnalysis: storedFactData?.liveAnalysis || null
+      liveAnalysis: storedFactData?.liveAnalysis || null,
     };
   }, [article]); // Safe dependency (article is state)
 

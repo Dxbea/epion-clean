@@ -1,4 +1,10 @@
-import { computeSourceAnalysisScore, computeSourceFactScore } from './source-score';
+/**
+ * source-ui.ts — Source normalization for UI display
+ *
+ * This module normalizes raw source objects (from backend) into a consistent
+ * shape for UI components. It does NOT recalculate scores — it reads
+ * the trustScore provided by the backend.
+ */
 
 type RawSourceLike = Record<string, any>;
 
@@ -28,48 +34,41 @@ export function resolveSourceDomain(source: RawSourceLike): string {
     return 'Source inconnue';
 }
 
+/**
+ * Resolve the trustScore from various possible field locations.
+ * Priority: trustScore → metadata.dbScore → dbScore → score
+ */
+function resolveTrustScore(source: RawSourceLike): number | null {
+    if (typeof source.trustScore === 'number') return source.trustScore;
+    if (typeof source.metadata?.dbScore === 'number') return source.metadata.dbScore;
+    if (typeof source.dbScore === 'number') return source.dbScore;
+    if (typeof source.score === 'number') return source.score;
+    return null;
+}
+
+/**
+ * Normalize a raw source object into a consistent shape for UI display.
+ *
+ * The score displayed is the backend-computed trustScore.
+ * No client-side recalculation is performed.
+ */
 export function normalizeSourceForUi(
     source: RawSourceLike,
     fallbackDescription: string,
 ) {
     const domain = resolveSourceDomain(source);
-    const trustScore = typeof source.trustScore === 'number'
-        ? source.trustScore
-        : typeof source.metadata?.dbScore === 'number'
-            ? source.metadata.dbScore
-            : typeof source.dbScore === 'number'
-                ? source.dbScore
-                : typeof source.score === 'number'
-                    ? source.score
-                    : null;
-
-    const metrics = source.metrics || source.metric
-        ? {
-            ...(source.metrics || source.metric),
-            logic: (source.metrics || source.metric).logic || (source.metrics || source.metric).pluralism || (source.metrics || source.metric).ux || 50,
-        }
-        : undefined;
-
-    const analysisScore = computeSourceAnalysisScore(metrics);
-    const scoreComponents = computeSourceFactScore({
-        reputationScore: typeof source.metadata?.dbScore === 'number'
-            ? source.metadata.dbScore
-            : typeof source.dbScore === 'number'
-                ? source.dbScore
-                : trustScore,
-        analysisScore,
-    });
+    const trustScore = resolveTrustScore(source);
+    const metrics = source.metrics || source.metric || undefined;
 
     return {
         ...source,
         domain,
         name: domain,
         url: source.url || source.link || '#',
-        score: scoreComponents.finalScore,
+        // Score = backend trustScore (no client-side recalculation)
+        score: trustScore,
         trustScore,
-        dbScore: scoreComponents.reputationScore || undefined,
-        analysisScore: scoreComponents.analysisScore,
-        reputationScore: scoreComponents.reputationScore,
+        dbScore: trustScore ?? undefined,
         country: source.metadata?.country || source.country || 'FR',
         politicalBias: source.metadata?.politicalBias || source.politicalBias || 'UNKNOWN',
         reliability: source.metadata?.reliability || source.reliability || undefined,

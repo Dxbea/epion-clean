@@ -12,6 +12,7 @@ import { ingestArticle } from '../lib/rag-service';
 import { sanitizeArticleHtml } from '../lib/sanitizeHtml';
 import { logger } from '../lib/logger';
 import { embeddingQueue } from '../lib/queue';
+import { hashAnalysisInput } from '../lib/score-helpers';
 
 
 import { env } from '../env';
@@ -72,7 +73,15 @@ router.put('/:id', async (req, res, next) => {
 
     const existing = await prisma.article.findUnique({
       where: { id },
-      select: { authorId: true, status: true, title: true, content: true },
+      select: {
+        authorId: true,
+        status: true,
+        title: true,
+        summary: true,
+        content: true,
+        factCheckContentHash: true,
+        factCheckStatus: true,
+      },
     });
     if (!existing) return res.status(404).json({ error: 'Not Found' });
 
@@ -164,6 +173,23 @@ router.put('/:id', async (req, res, next) => {
         (sanitizedTitle !== undefined && sanitizedTitle !== existing.title) ||
         (sanitizedContent !== undefined && sanitizedContent !== (existing.content ?? null))
       );
+
+    // --- Score invalidation: detect if analyzed content changed ---
+    const contentChanged =
+      (sanitizedTitle !== undefined && sanitizedTitle !== existing.title) ||
+      (typeof summary === 'string' && summary !== (existing.summary ?? '')) ||
+      (sanitizedContent !== undefined && sanitizedContent !== (existing.content ?? null));
+
+    if (contentChanged && existing.factCheckStatus === 'COMPLETED' && existing.factCheckContentHash) {
+      const newHash = hashAnalysisInput({
+        title: sanitizedTitle ?? existing.title,
+        summary: typeof summary === 'string' ? summary : existing.summary,
+        content: sanitizedContent !== undefined ? sanitizedContent : existing.content,
+      });
+      if (newHash !== existing.factCheckContentHash) {
+        (data as any).factCheckStatus = 'STALE';
+      }
+    }
 
     const updated = await prisma.article.update({
       where: { id },

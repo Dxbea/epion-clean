@@ -7,6 +7,8 @@ import { hasSufficientFunds, chargeUser, COSTS } from '../lib/billing-service';
 import { liveAnalysisQueue } from '../lib/queue';
 import type { Prisma } from '@prisma/client';
 import { z } from 'zod';
+import { logger } from '../lib/logger';
+import { normalizeArticleScorePayload } from '../lib/score-helpers';
 
 export const router = Router();
 
@@ -72,7 +74,7 @@ router.post('/summarize', async (req, res) => {
         res.json({ summary, cached: false });
 
     } catch (error) {
-        console.error('[AI] Summarize error:', error);
+        logger.error('[AI] Summarize error', { error: (error as any)?.message });
         res.status(500).json({ error: 'AI processing failed' });
     }
 });
@@ -129,8 +131,18 @@ router.post('/fact-check', async (req, res) => {
             removeOnComplete: false, // Keep result for polling
         });
 
-        // 6. Charge user
-        await chargeUser(sess.userId, 'FACT_CHECK_PREMIUM');
+        // 6. Mark article as RUNNING in DB (source of truth for lifecycle)
+        await prisma.article.update({
+            where: { id: articleId },
+            data: {
+                factCheckStatus: 'RUNNING',
+                factCheckStartedAt: new Date(),
+                factCheckError: null,
+            },
+        });
+
+        // 7. Charge is deferred to polling (GET /fact-check/:jobId) on completion.
+        // This avoids charging users for failed jobs.
 
         res.json({
             jobId: job.id,
@@ -139,7 +151,7 @@ router.post('/fact-check', async (req, res) => {
         });
 
     } catch (error) {
-        console.error('[AI] Fact-check error:', error);
+        logger.error('[AI] Fact-check error', { error: (error as any)?.message });
         res.status(500).json({ error: 'Fact-check failed' });
     }
 });
@@ -148,7 +160,7 @@ router.post('/fact-check', async (req, res) => {
 // GET /api/ai/fact-check/:jobId
 // Poll job status for the frontend
 // The full pipeline is: live-analysis → source-enrichment → DB write.
-// We check the DB as source of truth for completion.
+// We check the DB (factCheckStatus) as source of truth for completion.
 // ------------------------------------------------------------------
 router.get('/fact-check/:jobId', async (req, res) => {
     try {
@@ -161,38 +173,53 @@ router.get('/fact-check/:jobId', async (req, res) => {
         const job = await liveAnalysisQueue.getJob(jobId);
 
         if (!job) {
-            // Job not found — might have been cleaned up. Check DB directly.
             return res.status(404).json({ error: 'Job not found', jobId });
         }
 
         const articleId = job.data.articleId;
 
-        // Check if the full chain is complete (DB has factCheckData)
+        // Check article factCheckStatus (DB is source of truth)
         const article = await prisma.article.findUnique({
             where: { id: articleId },
-            select: { factCheckScore: true, factCheckData: true }
+            select: {
+                factCheckScore: true,
+                factCheckData: true,
+                factCheckStatus: true,
+            },
         });
 
-        if (article?.factCheckData) {
-            // Full pipeline complete (live-analysis + source-enrichment)
-            // Clean up the job
+        if (article?.factCheckStatus === 'COMPLETED' && article.factCheckData) {
+            // Full pipeline complete — clean up the BullMQ job
             try { await job.remove(); } catch { /* already removed */ }
+
+            // 🔐 Charge user NOW — only on confirmed success (Check→Service→Settlement)
+            try {
+                await chargeUser(sess.userId, 'FACT_CHECK_PREMIUM');
+            } catch (chargeErr: any) {
+                logger.warn('[AI] Fact-check charge failed (result still delivered)', {
+                    userId: sess.userId,
+                    error: chargeErr?.message,
+                });
+            }
+
+            // Normalize payload for consistent API response
+            const normalized = normalizeArticleScorePayload(
+                article.factCheckData,
+                article.factCheckScore,
+                article.factCheckStatus,
+            );
 
             return res.json({
                 status: 'completed',
-                result: article.factCheckData,
+                result: normalized ?? article.factCheckData,
                 score: article.factCheckScore,
             });
         }
 
-        // DB not yet populated. Check job state for error reporting.
-        const state = await job.getState();
-
-        if (state === 'failed') {
-            const failedReason = job.failedReason || 'Unknown error';
+        if (article?.factCheckStatus === 'FAILED') {
             return res.json({
                 status: 'failed',
-                error: failedReason,
+                error: (article as any).factCheckError || 'Unknown error',
             });
         }
 
@@ -202,7 +229,7 @@ router.get('/fact-check/:jobId', async (req, res) => {
         });
 
     } catch (error) {
-        console.error('[AI] Fact-check poll error:', error);
+        logger.error('[AI] Fact-check poll error', { error: (error as any)?.message });
         res.status(500).json({ error: 'Poll failed' });
     }
 });

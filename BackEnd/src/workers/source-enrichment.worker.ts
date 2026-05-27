@@ -2,6 +2,8 @@ import { Worker, Job } from 'bullmq';
 import { getRichTrustScore } from '../lib/trust-score';
 import { logger } from '../lib/logger';
 import { prisma } from '../lib/db';
+import { buildArticleScorePayload, hashAnalysisInput } from '../lib/score-helpers';
+import type { SourceScoreEntry } from '../lib/score-types';
 import IORedis from 'ioredis';
 
 const redisUrl = process.env.REDIS_URL || 'redis://localhost:6379';
@@ -13,7 +15,7 @@ const SOURCE_ENRICHMENT_WORKER_CONCURRENCY = 3;
 interface SourceEnrichmentJobData {
     articleId: string;
     sources: string[];
-    // NEW: Passed from live-analysis.worker via chainage
+    // Passed from live-analysis.worker via chainage
     scoreLiveBrut?: number;
     liveAnalysis?: any;
 }
@@ -23,9 +25,7 @@ async function mapWithConcurrencyLimit<T, U>(
     concurrency: number,
     mapper: (item: T, index: number) => Promise<U>,
 ): Promise<U[]> {
-    if (items.length === 0) {
-        return [];
-    }
+    if (items.length === 0) return [];
 
     const safeConcurrency = Math.max(1, Math.min(concurrency, items.length));
     const results = new Array<U>(items.length);
@@ -35,10 +35,7 @@ async function mapWithConcurrencyLimit<T, U>(
         Array.from({ length: safeConcurrency }, async () => {
             while (true) {
                 const currentIndex = nextIndex++;
-                if (currentIndex >= items.length) {
-                    return;
-                }
-
+                if (currentIndex >= items.length) return;
                 results[currentIndex] = await mapper(items[currentIndex], currentIndex);
             }
         }),
@@ -49,8 +46,11 @@ async function mapWithConcurrencyLimit<T, U>(
 
 /**
  * Worker: source-enrichment-queue
- * Processus dédié à l'analyse TrustScore des sources en arrière-plan.
- * Appelé après génération d'article pour ne pas bloquer la réponse utilisateur.
+ * Enriches article sources with TrustScore data and computes the final FactScore.
+ * Called after article generation / live-analysis to avoid blocking user response.
+ *
+ * Score computation is delegated to buildArticleScorePayload() from score-helpers.ts
+ * to ensure factCheckScore and factCheckData.score are always in sync.
  */
 export const sourceEnrichmentWorker = new Worker(
     'source-enrichment-queue',
@@ -59,15 +59,15 @@ export const sourceEnrichmentWorker = new Worker(
 
         logger.info(`[Worker] Starting source enrichment for article ${articleId}`, {
             jobId: job.id,
-            sourceCount: sources.length
+            sourceCount: sources.length,
         });
 
-        const enrichedSources: any[] = [];
+        const enrichedSources: SourceScoreEntry[] = [];
         let totalScore = 0;
         let validScores = 0;
         const trustScoreByDomain = new Map<string, Promise<any>>();
 
-        // Traitement parallèle des sources (limitée par la puissance du serveur, ici tout d'un coup car ~5-10 sources max)
+        // Parallel source enrichment with concurrency limit
         const results = await mapWithConcurrencyLimit(sources, SOURCE_ENRICHMENT_WORKER_CONCURRENCY, async (url) => {
             try {
                 let domain = '';
@@ -78,7 +78,6 @@ export const sourceEnrichmentWorker = new Worker(
                     return null;
                 }
 
-                // Appel du TrustScore Engine
                 logger.debug(`[Worker] Analyzing source: ${domain}`, { articleId });
                 let richScorePromise = trustScoreByDomain.get(domain);
                 if (!richScorePromise) {
@@ -88,38 +87,43 @@ export const sourceEnrichmentWorker = new Worker(
                 const richScore = await richScorePromise;
 
                 return {
-                    id: 0, // Sera indexé plus tard
+                    id: 0,
                     name: richScore.metadata.name,
-                    url: url,
-                    domain: domain,
+                    url,
+                    domain,
                     trustScore: richScore.globalScore,
-                    flags: richScore.flags,
                     type: richScore.metadata.type,
                     logo: `https://logo.clearbit.com/${domain}`,
                     description: richScore.metadata.description,
                     justification: richScore.metadata.justification,
-                    metrics: richScore.details,
-                    // NEW: Full metadata for frontend transparency display
+                    metrics: richScore.details
+                        ? {
+                            transparency: richScore.details.transparency,
+                            editorial: richScore.details.editorial,
+                            semantic: richScore.details.semantic,
+                            logic: richScore.details.pluralism,
+                        }
+                        : null,
+                    flags: richScore.flags ?? null,
                     metadata: {
                         reliability: richScore.metadata.reliability,
-                        dbScore: richScore.globalScore, // Pass the calculated score explicitly
+                        dbScore: richScore.globalScore,
                         politicalBias: richScore.metadata.politicalBias,
                         biasScore: richScore.metadata.biasScore,
                         country: richScore.metadata.country,
-                        explanation: richScore.metadata.explanation
-                    }
-                };
-
+                        explanation: richScore.metadata.explanation,
+                    },
+                } satisfies SourceScoreEntry;
             } catch (error: any) {
                 logger.error(`[Worker] Failed to enrich source ${url}`, {
                     articleId,
-                    error: error.message
+                    error: error.message,
                 });
                 return null;
             }
         });
 
-        // Filtrage et Indexation
+        // Filter nulls and assign sequential IDs
         results.forEach((res) => {
             if (res) {
                 res.id = enrichedSources.length + 1;
@@ -131,97 +135,91 @@ export const sourceEnrichmentWorker = new Worker(
             }
         });
 
-        // Calcul du factScore global (moyenne sources * 0.75 + ScoreLiveBrut * 0.25)
-        let finalFactScore = 50; // Défaut si aucune source valide
+        // Compute scores using centralized helper
         const scoreLiveBrut = job.data.scoreLiveBrut ?? 75;
         const sourcesMean = validScores > 0 ? Math.round(totalScore / validScores) : null;
 
-        if (validScores > 0) {
-            finalFactScore = Math.round((sourcesMean! * 0.75) + (scoreLiveBrut * 0.25));
-            finalFactScore = Math.min(100, Math.max(0, finalFactScore));
-        } else {
-            // No valid sources: use ScoreLiveBrut as sole signal
-            finalFactScore = scoreLiveBrut;
-        }
+        // Fetch article for content hash input
+        const article = await prisma.article.findUnique({
+            where: { id: articleId },
+            select: { title: true, summary: true, content: true },
+        });
 
-        // Mise à jour de l'article avec les sources enrichies + factScore
-        if (enrichedSources.length > 0) {
-            await prisma.article.update({
-                where: { id: articleId },
-                data: {
-                    factCheckScore: finalFactScore,
-                    factCheckData: {
-                        factScore: finalFactScore,
-                        liveScore: scoreLiveBrut,
-                        enrichedAt: new Date().toISOString(),
-                        calculation: {
-                            formula: 'weighted-source-live-v1',
-                            sourceWeight: 0.75,
-                            liveWeight: 0.25,
-                            sourcesMean,
-                            liveScore: scoreLiveBrut,
-                            finalScore: finalFactScore,
-                        },
-                        // Article-level analysis (from live-analysis pipeline)
-                        liveAnalysis: job.data.liveAnalysis || null,
-                        // Source-level data (from enrichment)
-                        sources: enrichedSources,
-                        sourcesMean,
-                    }
-                }
-            });
+        const contentHash = article
+            ? hashAnalysisInput({
+                title: article.title,
+                summary: article.summary,
+                content: article.content,
+                sourceDomains: enrichedSources.map((s) => s.domain),
+            })
+            : '';
 
-            logger.info(`[Worker] Source enrichment complete for article ${articleId}`, {
-                enrichedCount: enrichedSources.length,
-                finalScore: finalFactScore
-            });
-        } else {
-            // No sources enriched, but still save liveAnalysis data
-            await prisma.article.update({
-                where: { id: articleId },
-                data: {
-                    factCheckScore: finalFactScore,
-                    factCheckData: {
-                        factScore: finalFactScore,
-                        liveScore: scoreLiveBrut,
-                        enrichedAt: new Date().toISOString(),
-                        calculation: {
-                            formula: 'weighted-source-live-v1',
-                            sourceWeight: 0.75,
-                            liveWeight: 0.25,
-                            sourcesMean: null,
-                            liveScore: scoreLiveBrut,
-                            finalScore: finalFactScore,
-                        },
-                        liveAnalysis: job.data.liveAnalysis || null,
-                        sources: [],
-                        sourcesMean: null,
-                    }
-                }
-            });
-            logger.warn(`[Worker] No sources enriched for article ${articleId}, saved liveAnalysis only`);
-        }
+        // Build unified payload via helper (ensures factCheckScore === factCheckData.score)
+        const { factCheckScore, factCheckData } = buildArticleScorePayload({
+            sourcesMean,
+            contentScore: scoreLiveBrut,
+            contentHash,
+            sources: enrichedSources,
+            liveAnalysis: job.data.liveAnalysis || null,
+        });
+
+        // Write to DB — both score fields + lifecycle fields are written together
+        await prisma.article.update({
+            where: { id: articleId },
+            data: {
+                factCheckScore,
+                factCheckData: factCheckData as any,
+                factCheckStatus: 'COMPLETED',
+                factCheckContentHash: contentHash,
+                factCheckCompletedAt: new Date(),
+                factCheckError: null,
+            },
+        });
+
+        logger.info(`[Worker] Source enrichment complete for article ${articleId}`, {
+            enrichedCount: enrichedSources.length,
+            finalScore: factCheckScore,
+            supportLevel: factCheckData.supportLevel,
+        });
 
         return {
             enrichedCount: enrichedSources.length,
-            finalScore: finalFactScore
+            finalScore: factCheckScore,
         };
     },
     {
         connection: connection as any,
         concurrency: SOURCE_ENRICHMENT_WORKER_CONCURRENCY,
-    }
+    },
 );
 
 sourceEnrichmentWorker.on('completed', (job) => {
     logger.debug(`[Worker] Source enrichment job ${job.id} completed`);
 });
 
-sourceEnrichmentWorker.on('failed', (job, err) => {
+sourceEnrichmentWorker.on('failed', async (job, err) => {
     logger.error(`[Worker] Source enrichment job ${job?.id} failed`, {
         error: err.message,
-        articleId: job?.data?.articleId
+        articleId: job?.data?.articleId,
     });
+
+    // Persist failure state in DB so it's visible without querying BullMQ
+    if (job?.data?.articleId) {
+        try {
+            await prisma.article.update({
+                where: { id: job.data.articleId },
+                data: {
+                    factCheckStatus: 'FAILED',
+                    factCheckError: err.message?.slice(0, 500) || 'Unknown error',
+                },
+            });
+        } catch (dbErr: any) {
+            logger.error('[Worker] Failed to persist FAILED status to DB', {
+                articleId: job.data.articleId,
+                error: dbErr?.message,
+            });
+        }
+    }
 });
 
 logger.info('Source Enrichment Worker started', { module: 'Worker', concurrency: SOURCE_ENRICHMENT_WORKER_CONCURRENCY });

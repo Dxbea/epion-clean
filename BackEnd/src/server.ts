@@ -74,7 +74,6 @@ const allowedOrigin = [
   'https://epion-clean.vercel.app',
   'https://epion.app',
   'https://www.epion.app',
-  'https://api.epion.app'
 ];
 
 app.use(
@@ -148,9 +147,12 @@ app.use('/api/health', healthRouter);
 app.use('/api', authRouter);
 
 // ----------------------------
-//  🔧 Debug routes (BEFORE CSRF — no auth required for local testing)
+//  🔧 Debug routes (development/test only — disabled in production)
 // ----------------------------
-app.use('/api/debug', debugRouter);
+if (env.NODE_ENV !== 'production') {
+  app.use('/api/debug', debugRouter);
+  log.info('Debug routes mounted (/api/debug) — non-production mode');
+}
 
 // ----------------------------
 //  🔒 CSRF token + protection

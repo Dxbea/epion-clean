@@ -30,6 +30,7 @@ import {
   type WebChatMessage,
   type WebPromptMode,
 } from '../lib/web-chat';
+import { buildAnswerScorePayload } from '../lib/score-helpers';
 
 // OpenAI Client for RAG mode (fast)
 // Verify API Key availability
@@ -783,15 +784,16 @@ CONSIGNES DE RÉPONSE :
 
       // Mode RAG: citation-based sourcing score
       outputAnalysis = analyzeOutputQuality(rawAnswer);
-      outputScore = outputAnalysis.score;
-      logger.info('AI Output Sourcing Score', {
-        module: 'Chat',
+
+      const answerResult = buildAnswerScorePayload({
+        sourcesMean: 0,
+        outputScore: outputAnalysis.score,
         mode: 'fast',
-        sessionId,
-        userId,
-        citationScore: outputScore,
+        hasRagChunks: contextChunks.length > 0,
+        outputAnalysis,
       });
-      finalGlobalScore = contextChunks.length > 0 ? outputScore : Math.min(outputScore, 70);
+      outputScore = outputAnalysis.score;
+      finalGlobalScore = answerResult.score ?? 0;
 
       // Sources = Deduplicated internal sources used in context
       const uniqueSources = new Map();
@@ -1073,18 +1075,16 @@ ${formatWebSourcesForPrompt(promptSources)}`;
       }
 
       outputAnalysis = analyzeOutputQuality(rawAnswer);
-      outputScore = outputAnalysis.score;
-      logger.info('AI Output Sourcing Score', {
-        module: 'Chat',
+
+      const webAnswerPayload = buildAnswerScorePayload({
+        sourcesMean,
+        outputScore: outputAnalysis.score,
         mode: 'web',
-        sessionId,
-        userId,
-        citationScore: outputScore,
+        hasRagChunks: false,
+        outputAnalysis,
       });
-      finalGlobalScore = Math.max(
-        0,
-        Math.min(100, Math.round((sourcesMean * 0.75) + (outputScore * 0.25)))
-      );
+      outputScore = outputAnalysis.score;
+      finalGlobalScore = webAnswerPayload.score ?? 0;
     }
 
     // =========================================================================
@@ -1099,25 +1099,21 @@ ${formatWebSourcesForPrompt(promptSources)}`;
     }
 
     // Save to DB
+    const answerPayload = buildAnswerScorePayload({
+      sourcesMean,
+      outputScore,
+      mode: mode as 'fast' | 'web',
+      hasRagChunks: mode === 'fast' && sources.length > 0,
+      outputAnalysis,
+    });
+
     const aiMsg = await prisma.chatMessage.create({
       data: {
         sessionId,
         role: 'assistant',
         content: rawAnswer,
         sources: sources,
-        metadata: {
-          factScore: finalGlobalScore,
-          mode: mode,
-          calculation: {
-            sourcesMean,
-            outputScore,
-            sourceWeight: 0.75,
-            outputWeight: 0.25,
-            finalScore: finalGlobalScore,
-            formula: 'weighted-source-output-v1'
-          },
-          outputAnalysis: outputAnalysis
-        }
+        metadata: answerPayload,
       } as any,
       select: { id: true, content: true, sources: true, metadata: true, createdAt: true } as any,
     }) as any;
