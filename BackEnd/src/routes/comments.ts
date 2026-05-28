@@ -71,7 +71,7 @@ router.get('/articles/:id/comments', async (req, res, next) => {
         content: true,
         createdAt: true,
         updatedAt: true,
-        user: { select: { id: true, name: true, email: true } },
+        user: { select: { id: true, name: true } },
         _count: { select: { replies: true } },
       },
     });
@@ -84,7 +84,7 @@ router.get('/articles/:id/comments', async (req, res, next) => {
         createdAt: c.createdAt.toISOString(),
         updatedAt: c.updatedAt.toISOString(),
         author: c.user
-          ? { id: c.user.id, name: c.user.name, email: c.user.email }
+          ? { id: c.user.id, name: c.user.name }
           : null,
         repliesCount: c._count.replies,
       })),
@@ -140,7 +140,7 @@ router.get('/comments/:id/replies', async (req, res, next) => {
         content: true,
         createdAt: true,
         updatedAt: true,
-        user: { select: { id: true, name: true, email: true } },
+        user: { select: { id: true, name: true } },
       },
     });
 
@@ -152,7 +152,7 @@ router.get('/comments/:id/replies', async (req, res, next) => {
         createdAt: c.createdAt.toISOString(),
         updatedAt: c.updatedAt.toISOString(),
         author: c.user
-          ? { id: c.user.id, name: c.user.name, email: c.user.email }
+          ? { id: c.user.id, name: c.user.name }
           : null,
       })),
       nextCursor: hasMore ? rows[take - 1].id : null,
@@ -269,7 +269,7 @@ router.post('/articles/:id/comments', async (req, res, next) => {
         id: true,
         content: true,
         createdAt: true,
-        user: { select: { id: true, name: true, email: true } },
+        user: { select: { id: true, name: true } },
       },
     });
 
@@ -278,7 +278,7 @@ router.post('/articles/:id/comments', async (req, res, next) => {
       content: c.content,
       createdAt: c.createdAt.toISOString(),
       author: c.user
-        ? { id: c.user.id, name: c.user.name, email: c.user.email }
+        ? { id: c.user.id, name: c.user.name }
         : null,
     });
   } catch (e) {

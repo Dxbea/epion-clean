@@ -4,6 +4,7 @@ import OpenAI from 'openai';
 import os from 'os';
 import { logger } from '../lib/logger';
 import { probeSerper } from '../lib/serper';
+import { getCurrentUser } from '../lib/currentUser';
 
 export const router = Router();
 
@@ -20,7 +21,16 @@ router.get('/', (_req, res) => {
   res.json({ status: 'ok' });
 });
 
-router.get('/diagnostics', async (req, res) => {
+router.get('/diagnostics', async (req, res, next) => {
+  let user;
+  try {
+    user = await getCurrentUser(req, res);
+  } catch (error) {
+    return next(error);
+  }
+  if (!user) return res.status(401).json({ error: 'UNAUTHENTICATED' });
+  if (user.role !== 'ADMIN') return res.status(403).json({ error: 'FORBIDDEN' });
+
   const start = Date.now();
 
   // Timeout wrapper

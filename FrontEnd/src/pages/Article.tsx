@@ -13,9 +13,13 @@ import { useComments } from '@/hooks/useComments';
 import Modal from '@/components/ui/Modal';
 import SourceCard from '../components/chat/SourceCard';
 import MarkdownRenderer from '@/components/shared/MarkdownRenderer';
+import StructuredArticleRenderer from '@/components/articles/StructuredArticleRenderer';
 import type { Article as CardArticle } from '@/types/article';
+import type { StructuredArticleClaim, StructuredArticleContent } from '@/types/structuredArticle';
 import { normalizeSourceForUi, parsePotentialSources } from '@/lib/source-ui';
 import { deriveSupportLevelFromScore } from '@/lib/score-labels';
+import { claimsForSource, getSourceKey, isStructuredArticleContent } from '@/lib/structured-article';
+import { useI18n } from '@/i18n/I18nContext';
 
 type LoadedArticle = {
   id: string;
@@ -23,6 +27,7 @@ type LoadedArticle = {
   title: string;
   excerpt: string | null;
   content: string | null;
+  structuredContent: StructuredArticleContent | null;
   imageUrl: string | null;
   publishedAt: string;
   category: { id: string; slug: string; name: string } | null;
@@ -38,6 +43,7 @@ export default function Article() {
   const { slug = '' } = useParams();
   const navigate = useNavigate();
   const { me } = useMe();
+  const { t } = useI18n();
 
   const [article, setArticle] = React.useState<LoadedArticle | null>(null);
   const [related, setRelated] = React.useState<CardArticle[]>([]);
@@ -56,7 +62,8 @@ export default function Article() {
   const [showPrompt, setShowPrompt] = React.useState(false);
   const [isHighlighting, setIsHighlighting] = React.useState(false);
   const [activeModal, setActiveModal] = React.useState<'sources' | 'reliability' | null>(null);
-  const [focusedSourceId, setFocusedSourceId] = React.useState<number | null>(null);
+  const [focusedSourceKey, setFocusedSourceKey] = React.useState<string | null>(null);
+  const [selectedClaim, setSelectedClaim] = React.useState<StructuredArticleClaim | null>(null);
   const [factCheckResult, setFactCheckResult] = React.useState<any | null>(null);
   const [factCheckLoading, setFactCheckLoading] = React.useState(false);
   const [factCheckError, setFactCheckError] = React.useState<string | null>(null);
@@ -238,6 +245,7 @@ export default function Article() {
           title: data.title,
           excerpt: data.excerpt ?? null,
           content: data.content ?? null,
+          structuredContent: isStructuredArticleContent(data.structuredContent) ? data.structuredContent : null,
           imageUrl: data.imageUrl ?? null,
           publishedAt: data.publishedAt ?? new Date().toISOString(),
           category: data.category,
@@ -510,8 +518,18 @@ export default function Article() {
   };
 
   const handleSourceClick = (id: number) => {
-    setFocusedSourceId(id);
+    setFocusedSourceKey(String(id));
+    setSelectedClaim(null);
     setActiveModal('sources');
+  };
+
+  const handleStructuredSourceClick = (sourceKey: string) => {
+    setFocusedSourceKey(sourceKey);
+    setActiveModal('sources');
+  };
+
+  const handleClaimClick = (claim: StructuredArticleClaim) => {
+    setSelectedClaim(claim);
   };
 
   // ----------------------------------------
@@ -539,10 +557,17 @@ export default function Article() {
     );
   }
 
-  const { title, content, excerpt, publishedAt, imageUrl, category, author } = article;
+  const { title, content, structuredContent, excerpt, publishedAt, imageUrl, category, author } = article;
   const transparencyData = topLevelTransparencyData;
   const displayScore = transparencyData?.factScore || 0;
   const normalizedSources = transparencyData?.sources || [];
+  const focusedSourceIndex = normalizedSources.findIndex((source: any, index: number) => {
+    return getSourceKey(source, index) === focusedSourceKey || String(source.id) === focusedSourceKey;
+  });
+  const focusedSource = focusedSourceIndex >= 0 ? normalizedSources[focusedSourceIndex] : null;
+  const focusedSourceClaims = structuredContent && focusedSource
+    ? claimsForSource(structuredContent.claims, focusedSource, focusedSourceIndex)
+    : [];
 
   return (
     <>
@@ -742,7 +767,16 @@ export default function Article() {
         )}
 
         <article className="mt-8">
-          {content ? (
+          {structuredContent ? (
+            <StructuredArticleRenderer
+              article={structuredContent}
+              sources={normalizedSources}
+              selectedSourceKey={focusedSourceKey}
+              selectedClaimId={selectedClaim?.id || null}
+              onSourceClick={handleStructuredSourceClick}
+              onClaimClick={handleClaimClick}
+            />
+          ) : content ? (
             <MarkdownRenderer
               content={content}
               isHighlightActive={isHighlightActive}
@@ -804,18 +838,56 @@ export default function Article() {
         isOpen={activeModal === 'sources'}
         onClose={() => {
           setActiveModal(null);
-          setFocusedSourceId(null);
+          setFocusedSourceKey(null);
+          setSelectedClaim(null);
         }}
-        title="Sources utilisées"
+        title={t('article_sources_used')}
         size="large"
       >
         <div className="text-sm text-black/70 dark:text-white/70 h-full">
-          <div className="flex flex-col space-y-3 h-full overflow-y-auto pr-2 pb-4">
-            {normalizedSources.map((s: any, index: number) => (
-              <div key={s.id || index}>
-                <SourceCard source={s} isFocused={s.id === focusedSourceId} />
+          {selectedClaim && (
+            <div className="mb-4 rounded-xl border border-[#00dc82]/40 bg-[#00dc82]/10 p-3 text-black dark:text-white">
+              <div className="text-xs font-semibold uppercase tracking-wide opacity-70">{t('article_claim')}</div>
+              <p className="mt-1 leading-6">{selectedClaim.text}</p>
+            </div>
+          )}
+
+          {focusedSourceClaims.length > 0 && (
+            <div className="mb-4 rounded-xl border border-black/10 p-3 dark:border-white/10">
+              <div className="text-xs font-semibold uppercase tracking-wide opacity-70">
+                {t('article_supported_by')} {focusedSource?.domain || focusedSource?.name || t('article_this_source')}
               </div>
-            ))}
+              <ul className="mt-2 space-y-2">
+                {focusedSourceClaims.map((claim) => (
+                  <li key={claim.id} className="leading-6">
+                    {claim.text}
+                  </li>
+                ))}
+              </ul>
+            </div>
+          )}
+
+          <div className="flex flex-col space-y-3 h-full overflow-y-auto pr-2 pb-4">
+            {normalizedSources.map((s: any, index: number) => {
+              const key = getSourceKey(s, index);
+              return (
+                <div
+                  key={s.id || key || index}
+                  role="button"
+                  tabIndex={0}
+                  onClick={() => setFocusedSourceKey(key)}
+                  onKeyDown={(event) => {
+                    if (event.key === 'Enter' || event.key === ' ') {
+                      event.preventDefault();
+                      setFocusedSourceKey(key);
+                    }
+                  }}
+                  className="block w-full rounded-xl text-left focus:outline-none focus:ring-2 focus:ring-[#00dc82]"
+                >
+                  <SourceCard source={s} isFocused={key === focusedSourceKey || String(s.id) === focusedSourceKey} />
+                </div>
+              );
+            })}
           </div>
         </div>
       </Modal>

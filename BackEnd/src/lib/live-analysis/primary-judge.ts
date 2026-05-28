@@ -25,6 +25,11 @@ import {
     calculateWeightedScore,
     formatSourcesForPrompt,
 } from './types';
+import {
+    buildSourceRefs,
+    normalizeStructuredArticle,
+    structuredArticleToMarkdown,
+} from '../structured-article';
 
 const openai = new OpenAI({
     apiKey: process.env.OPENAI_API_KEY,
@@ -41,7 +46,12 @@ async function runGenerateAndAnalyze(
     factCheckContext: FactCheckContext,
     options: { language?: string; style?: string }
 ): Promise<JudgeVerdict> {
-    const sourcesBlock = formatSourcesForPrompt(factCheckContext.sources);
+    const sourceRefs = buildSourceRefs(factCheckContext.sources);
+    const sourcesWithIds = factCheckContext.sources.map((source, index) => ({
+        ...source,
+        sourceId: sourceRefs[index]?.id,
+    }));
+    const sourcesBlock = formatSourcesForPrompt(sourcesWithIds);
 
     let styleInstruction = '';
     switch (options.style) {
@@ -74,6 +84,9 @@ Tu as DEUX MISSIONS dans cette réponse unique :
 - ${styleInstruction}
 - Le contenu ("content") DOIT être en Markdown valide avec titres ##, ###, citations et liens
 - Cite tes sources inline : "Selon Reuters [1]..." avec le numéro de la source
+- Produis aussi "structuredContent" au format Epion compact.
+- N'utilise que ces 5 types de sections visibles : summary, facts, context, analysis, limits.
+- Relie les affirmations importantes aux sources via les IDs fournis dans le dossier (ex: "src_abc123"), pas seulement via l'ordre [1], [2].
 - Génère un titre percutant, un résumé accrocheur (2 phrases), et des tags pertinents
 - Génère un concept clé très court (1 à 3 mots, idéalement le nom propre, le lieu géographique ou l'entité principale) en ANGLAIS pour trouver l'article Wikipedia le plus représentatif du sujet (ex: 'Emmanuel Macron', 'Strait of Hormuz', 'Rafale'). Retourne ce concept dans la clé "wikipedia_search_query".
 
@@ -100,6 +113,41 @@ ${sourcesBlock}
     "title": "Titre percutant en ${langLabel}",
     "summary": "Résumé accrocheur en 2 phrases",
     "content": "Le corps de l'article en Markdown, avec ## titres, citations [1], et liens",
+    "structuredContent": {
+      "version": 1,
+      "format": "epion-article-v1",
+      "lead": {
+        "summary": "Résumé clair, court, sans exagération",
+        "keyTakeaways": ["3 à 5 points maximum"]
+      },
+      "sections": [
+        {
+          "id": "facts",
+          "type": "facts",
+          "title": "Ce qui est établi",
+          "body": "Texte court et lisible",
+          "items": [
+            {
+              "id": "fact_1",
+              "text": "Un fait précis",
+              "claimIds": ["claim_1"],
+              "sourceIds": ["${sourceRefs[0]?.id || 'src_example'}"]
+            }
+          ]
+        }
+      ],
+      "claims": [
+        {
+          "id": "claim_1",
+          "text": "Affirmation vérifiable, autonome et précise",
+          "sectionId": "facts",
+          "sourceIds": ["${sourceRefs[0]?.id || 'src_example'}"],
+          "sourceUrls": ["${sourceRefs[0]?.url || 'https://example.com'}"],
+          "support": "strong"
+        }
+      ],
+      "sources": ${JSON.stringify(sourceRefs.slice(0, 50))}
+    },
     "tags": ["tag1", "tag2", "tag3"],
     "imagePrompt": "Photorealistic DALL-E prompt in English describing the cover image, or null",
     "wikipedia_search_query": "Concept in English (1-3 words) to fetch a representative Wikipedia image, or null"
@@ -207,7 +255,7 @@ async function executeJudgeCall(
                 { role: 'user', content: userPrompt }
             ],
             temperature: 0.3,
-            max_tokens: isGenerateMode ? 4096 : 2048,
+            max_tokens: isGenerateMode ? 6144 : 2048,
             response_format: { type: 'json_object' },
         });
 
@@ -247,10 +295,18 @@ async function executeJudgeCall(
         // Extract generated content if in generate mode
         let generatedContent: GeneratedContent | undefined;
         if (isGenerateMode && parsed.article) {
+            const structuredContent = normalizeStructuredArticle(parsed.article.structuredContent);
+            const markdownContent = typeof parsed.article.content === 'string' && parsed.article.content.trim()
+                ? parsed.article.content
+                : structuredContent
+                    ? structuredArticleToMarkdown(structuredContent)
+                    : '';
+
             generatedContent = {
                 title: typeof parsed.article.title === 'string' ? parsed.article.title : label,
                 summary: typeof parsed.article.summary === 'string' ? parsed.article.summary : '',
-                content: typeof parsed.article.content === 'string' ? parsed.article.content : '',
+                content: markdownContent,
+                structuredContent,
                 tags: Array.isArray(parsed.article.tags) ? parsed.article.tags : [],
                 imagePrompt: typeof parsed.article.imagePrompt === 'string' ? parsed.article.imagePrompt : null,
                 wikipedia_search_query: typeof parsed.article.wikipedia_search_query === 'string' ? parsed.article.wikipedia_search_query : null,

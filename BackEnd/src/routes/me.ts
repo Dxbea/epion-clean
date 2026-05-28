@@ -162,7 +162,7 @@ router.post('/avatar', async (req, res, next) => {
     if (!sess) return res.status(401).json({ error: 'NO_SESSION' });
 
     const dataUrl = String(req.body?.dataUrl || '');
-    if (!dataUrl.startsWith('data:image/')) {
+    if (!/^data:image\/(png|jpe?g|webp);base64,/i.test(dataUrl)) {
       return res.status(400).json({ error: 'BAD_INPUT' });
     }
 
@@ -199,7 +199,7 @@ router.post('/banner', async (req, res, next) => {
     if (!sess) return res.status(401).json({ error: 'NO_SESSION' });
 
     const dataUrl = String(req.body?.dataUrl || '');
-    if (!dataUrl.startsWith('data:image/')) {
+    if (!/^data:image\/(png|jpe?g|webp);base64,/i.test(dataUrl)) {
       return res.status(400).json({ error: 'BAD_INPUT' });
     }
 
@@ -215,11 +215,12 @@ router.post('/banner', async (req, res, next) => {
     }
 
     // Extract extension and data
-    const matches = dataUrl.match(/^data:image\/([a-zA-Z]+);base64,(.+)$/);
+    const matches = dataUrl.match(/^data:image\/(png|jpe?g|webp);base64,(.+)$/i);
     if (!matches || matches.length !== 3) {
       return res.status(400).json({ error: 'INVALID_IMAGE_FORMAT' });
     }
-    const ext = matches[1] === 'jpeg' ? 'jpg' : matches[1];
+    const normalizedType = matches[1].toLowerCase();
+    const ext = normalizedType === 'jpeg' ? 'jpg' : normalizedType;
     const base64Data = matches[2];
 
     // Generate filename

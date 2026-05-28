@@ -6,7 +6,7 @@ const envSchema = z.object({
   PORT: z.coerce.number().default(5175),
   DATABASE_URL: z.string().url().min(1),
   FRONTEND_ORIGIN: z.string().url().default('http://localhost:5173'),
-  JWT_SECRET: z.string().min(1),
+  JWT_SECRET: z.string().min(32),
   COOKIE_NAME: z.string().default('epion_session'),
   BCRYPT_ROUNDS: z.coerce.number().default(12),
   OPENAI_API_KEY: z.string().optional(),

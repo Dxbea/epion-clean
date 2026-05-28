@@ -79,6 +79,7 @@ router.put('/:id', async (req, res, next) => {
         title: true,
         summary: true,
         content: true,
+        structuredContent: true,
         factCheckContentHash: true,
         factCheckStatus: true,
       },
@@ -189,6 +190,10 @@ router.put('/:id', async (req, res, next) => {
       if (newHash !== existing.factCheckContentHash) {
         (data as any).factCheckStatus = 'STALE';
       }
+    }
+
+    if (contentChanged && sanitizedContent !== undefined) {
+      (data as any).structuredContent = Prisma.JsonNull;
     }
 
     const updated = await prisma.article.update({
@@ -531,11 +536,12 @@ router.get('/', async (req, res, next) => {
         title: true,
         summary: true,
         content: true,
+        structuredContent: true,
         imageUrl: true,
         status: true,
         createdAt: true,
         category: { select: { id: true, slug: true, name: true } },
-        author: { select: { id: true, email: true, name: true, username: true, avatarUrl: true } },
+        author: { select: { id: true, name: true, username: true, avatarUrl: true } },
       },
     });
 
@@ -545,6 +551,7 @@ router.get('/', async (req, res, next) => {
       title: a.title,
       excerpt: a.summary ?? null,
       content: a.content ?? null,
+      structuredContent: a.structuredContent ?? null,
       imageUrl: a.imageUrl ?? null,
       status: a.status,
       publishedAt: a.createdAt.toISOString(),
@@ -681,13 +688,14 @@ router.get('/slug/:slug', async (req, res, next) => {
         title: true,
         summary: true,
         content: true,
+        structuredContent: true,
         imageUrl: true,
         status: true,
         createdAt: true,
         updatedAt: true,
         authorId: true,
         category: { select: { id: true, slug: true, name: true } },
-        author: { select: { id: true, email: true, name: true, username: true, avatarUrl: true } },
+        author: { select: { id: true, name: true, username: true, avatarUrl: true } },
         // AI Fields
         aiSummary: true,
         factCheckScore: true,
@@ -706,13 +714,14 @@ router.get('/slug/:slug', async (req, res, next) => {
           title: true,
           summary: true,
           content: true,
+          structuredContent: true,
           imageUrl: true,
           status: true,
           createdAt: true,
           updatedAt: true,
           authorId: true,
           category: { select: { id: true, slug: true, name: true } },
-          author: { select: { id: true, email: true, name: true, username: true, avatarUrl: true } },
+          author: { select: { id: true, name: true, username: true, avatarUrl: true } },
           // AI Fields
           aiSummary: true,
           factCheckScore: true,
@@ -745,13 +754,14 @@ router.get('/slug/:slug', async (req, res, next) => {
           title: true,
           summary: true,
           content: true,
+          structuredContent: true,
           imageUrl: true,
           status: true,
           createdAt: true,
           updatedAt: true,
           authorId: true,
           category: { select: { id: true, slug: true, name: true } },
-          author: { select: { id: true, email: true, name: true, username: true, avatarUrl: true } },
+          author: { select: { id: true, name: true, username: true, avatarUrl: true } },
           // AI Fields
           aiSummary: true,
           factCheckScore: true,
@@ -781,6 +791,7 @@ router.get('/slug/:slug', async (req, res, next) => {
       title: a.title,
       excerpt: a.summary ?? null,
       content: a.content ?? null,
+      structuredContent: a.structuredContent ?? null,
       imageUrl: a.imageUrl ?? null,
       status: a.status,
       publishedAt: a.createdAt.toISOString(),
@@ -888,6 +899,7 @@ router.get('/search', async (req, res, next) => {
         title: true,
         summary: true,
         content: true,
+        structuredContent: true,
         imageUrl: true,
         createdAt: true,
         category: {
@@ -902,6 +914,7 @@ router.get('/search', async (req, res, next) => {
       title: a.title,
       excerpt: a.summary ?? null,
       content: a.content ?? null,
+      structuredContent: a.structuredContent ?? null,
       imageUrl: a.imageUrl ?? null,
       publishedAt: a.createdAt.toISOString(),
       category: a.category
@@ -943,13 +956,14 @@ router.get('/:id', async (req, res, next) => {
         title: true,
         summary: true,
         content: true,
+        structuredContent: true,
         imageUrl: true,
         createdAt: true,
         updatedAt: true,
         status: true,
         authorId: true,
         category: { select: { id: true, slug: true, name: true } },
-        author: { select: { id: true, email: true, name: true, username: true, avatarUrl: true } },
+        author: { select: { id: true, name: true, username: true, avatarUrl: true } },
       },
     });
 

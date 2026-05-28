@@ -77,6 +77,7 @@ export const liveAnalysisWorker = new Worker(
                         title: gc.title,
                         summary: gc.summary,
                         content: gc.content,
+                        structuredContent: gc.structuredContent as any,
                         aiSummary: gc.summary,
                         factCheckScore: Math.round(result.globalScore),
                         imageUrl: coverImageUrl,

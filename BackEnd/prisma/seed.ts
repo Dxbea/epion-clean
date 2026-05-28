@@ -4,52 +4,94 @@ import bcrypt from 'bcryptjs';
 
 const prisma = new PrismaClient();
 
-async function main() {
-  console.log('🌱 Start seeding...');
+async function getSeedAuthor() {
+  const seedAdminEmail = process.env.SEED_ADMIN_EMAIL?.trim().toLowerCase();
+  const seedAdminPassword = process.env.SEED_ADMIN_PASSWORD;
 
-  // 1. Create Admin User
-  const email = 'admin@epion.fr';
-  const password = 'admin';
-  const hashedPassword = await bcrypt.hash(password, 10);
+  if (seedAdminEmail || seedAdminPassword) {
+    if (!seedAdminEmail || !seedAdminPassword) {
+      throw new Error('Set both SEED_ADMIN_EMAIL and SEED_ADMIN_PASSWORD to create a seed admin.');
+    }
 
-  const admin = await prisma.user.upsert({
-    where: { email },
+    if (seedAdminPassword.length < 12) {
+      throw new Error('SEED_ADMIN_PASSWORD must be at least 12 characters.');
+    }
+
+    const hashedPassword = await bcrypt.hash(seedAdminPassword, 12);
+    const admin = await prisma.user.upsert({
+      where: { email: seedAdminEmail },
+      update: {
+        passwordHash: hashedPassword,
+        role: Role.ADMIN,
+      },
+      create: {
+        email: seedAdminEmail,
+        name: 'Admin Epion',
+        role: Role.ADMIN,
+        passwordHash: hashedPassword,
+        username: 'admin',
+      },
+    });
+
+    await prisma.userUsage.upsert({
+      where: { userId: admin.id },
+      update: {
+        dailyCredits: 10000,
+        plan: 'PREMIUM',
+      },
+      create: {
+        userId: admin.id,
+        dailyCredits: 10000,
+        plan: 'PREMIUM',
+      },
+    });
+
+    console.log(`Admin user created/verified from SEED_ADMIN_EMAIL: ${admin.email}`);
+    return admin;
+  }
+
+  const seedAuthor = await prisma.user.upsert({
+    where: { email: 'seed@local.test' },
     update: {},
     create: {
-      email,
-      name: 'Admin Epion',
-      role: Role.ADMIN,
-      passwordHash: hashedPassword,
-      username: 'admin',
+      email: 'seed@local.test',
+      name: 'Seed User',
+      role: Role.USER,
+      passwordHash: null,
+      username: 'seed',
     },
   });
 
-  console.log(`👤 Admin user created/verified: ${admin.email}`);
-
-  // 1b. Create UserUsage for Admin (Epion Energy)
   await prisma.userUsage.upsert({
-    where: { userId: admin.id },
+    where: { userId: seedAuthor.id },
     update: {
-      dailyCredits: 10000,
-      plan: 'PREMIUM',
+      dailyCredits: 700,
+      plan: 'FREE',
     },
     create: {
-      userId: admin.id,
-      dailyCredits: 10000,
-      plan: 'PREMIUM',
+      userId: seedAuthor.id,
+      dailyCredits: 700,
+      plan: 'FREE',
     },
   });
-  console.log(`💰 UserUsage created (PREMIUM, 10000 credits)`);
 
-  // 2. Create Categories
+  console.log('No seed admin created. Set SEED_ADMIN_EMAIL and SEED_ADMIN_PASSWORD to create one.');
+  return seedAuthor;
+}
+
+async function main() {
+  console.log('Start seeding...');
+
+  const seedAuthor = await getSeedAuthor();
+
   const categoriesData = [
     { name: 'Monde', slug: 'monde' },
     { name: 'Politique', slug: 'politique' },
-    { name: 'Économie', slug: 'economie' },
-    { name: 'Société', slug: 'societe' },
+    { name: 'Economie', slug: 'economie' },
+    { name: 'Societe', slug: 'societe' },
     { name: 'Tech', slug: 'tech' },
     { name: 'Sciences', slug: 'sciences' },
-    { name: 'Santé', slug: 'sante' },
+    { name: 'Sante', slug: 'sante' },
     { name: 'Environnement', slug: 'environnement' },
     { name: 'Culture', slug: 'culture' },
     { name: 'Sport', slug: 'sport' },
@@ -69,77 +111,71 @@ async function main() {
       },
     });
     categories.push(category);
-    console.log(`📂 Category created/verified: ${category.name}`);
+    console.log(`Category created/verified: ${category.name}`);
   }
 
-  // Cleanup: Reassign articles from old categories to 'Monde' and delete old categories
   try {
-    const officialSlugs = categoriesData.map(c => c.slug);
-    const fallbackCategory = categories.find(c => c.slug === 'monde') || categories[0];
+    const officialSlugs = categoriesData.map((c) => c.slug);
+    const fallbackCategory = categories.find((c) => c.slug === 'monde') || categories[0];
 
-    // 1. Reassign articles
     const moved = await prisma.article.updateMany({
       where: {
         category: {
-          slug: { notIn: officialSlugs }
-        }
+          slug: { notIn: officialSlugs },
+        },
       },
       data: {
-        categoryId: fallbackCategory.id
-      }
+        categoryId: fallbackCategory.id,
+      },
     });
     if (moved.count > 0) {
-      console.log(`📦 Reassigned ${moved.count} articles from obsolete categories to '${fallbackCategory.name}'.`);
+      console.log(`Reassigned ${moved.count} articles from obsolete categories to '${fallbackCategory.name}'.`);
     }
 
-    // 2. Delete obsolete categories
     const deleted = await prisma.category.deleteMany({
       where: {
-        slug: { notIn: officialSlugs }
-      }
+        slug: { notIn: officialSlugs },
+      },
     });
 
     if (deleted.count > 0) {
-      console.log(`🧹 Deleted ${deleted.count} obsolete categories.`);
+      console.log(`Deleted ${deleted.count} obsolete categories.`);
     }
   } catch (err) {
-    console.warn("⚠️ Cleanup warning:", err);
+    console.warn('Cleanup warning:', err);
   }
 
-  // 3. Create 5 Dummy Articles
-  // Linked to Admin and the first category (or random)
-  const categoryId = categories[0].id; // Assign to first category for simplicity
-
+  const categoryId = categories[0].id;
   const articlesData = [
     {
-      title: 'L\'avenir de l\'IA générative',
+      title: "L'avenir de l'IA generative",
       slug: 'avenir-ia-generative',
-      summary: 'Une exploration des potentiels futurs de l\'intelligence artificielle.',
-      content: 'Contenu détaillé sur l\'IA générative et ses impacts sur la société...',
+      summary: "Une exploration des potentiels futurs de l'intelligence artificielle.",
+      content: "Contenu detaille sur l'IA generative et ses impacts sur la societe...",
     },
     {
-      title: 'Les avancées en médecine personnalisée',
+      title: 'Les avancees en medecine personnalisee',
       slug: 'medecine-personnalisee',
-      summary: 'Comment la génétique transforme les soins de santé.',
-      content: 'Analyse des nouvelles thérapies ciblées...',
+      summary: 'Comment la genetique transforme les soins de sante.',
+      content: 'Analyse des nouvelles therapies ciblees...',
     },
     {
-      title: 'Éthique et algorithmes',
+      title: 'Ethique et algorithmes',
       slug: 'ethique-algorithmes',
-      summary: 'Les biais algorithmiques expliqués.',
-      content: 'Discussion sur la justice et l\'équité dans les systèmes automatisés...',
+      summary: 'Les biais algorithmiques expliques.',
+      content: "Discussion sur la justice et l'equite dans les systemes automatises...",
     },
     {
-      title: 'La révolution quantique',
+      title: 'La revolution quantique',
       slug: 'revolution-quantique',
-      summary: 'Ordinateurs quantiques : bientôt une réalité ?',
-      content: 'Explication des principes de base de l\'informatique quantique...',
+      summary: 'Ordinateurs quantiques : bientot une realite ?',
+      content: "Explication des principes de base de l'informatique quantique...",
     },
     {
       title: 'Exploration spatiale : Mars 2030',
       slug: 'mars-2030',
-      summary: 'Les plans pour la première colonie humaine.',
-      content: 'Détails sur les missions prévues par la NASA et SpaceX...',
+      summary: 'Les plans pour la premiere colonie humaine.',
+      content: 'Details sur les missions prevues par la NASA et SpaceX...',
     },
   ];
 
@@ -153,15 +189,15 @@ async function main() {
         summary: art.summary,
         content: art.content,
         status: ArticleStatus.PUBLISHED,
-        authorId: admin.id,
-        categoryId: categoryId,
-        imageUrl: `https://placehold.co/600x400?text=${art.slug}`, // Dummy image
+        authorId: seedAuthor.id,
+        categoryId,
+        imageUrl: `https://placehold.co/600x400?text=${art.slug}`,
       },
     });
-    console.log(`📝 Article created/verified: ${article.title}`);
+    console.log(`Article created/verified: ${article.title}`);
   }
 
-  console.log('✅ Seeding finished.');
+  console.log('Seeding finished.');
 }
 
 main()
