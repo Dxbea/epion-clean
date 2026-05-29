@@ -39,7 +39,7 @@ ${content}
 
     try {
         const response = await callWebSearchLLM(messages, { useSearch: false });
-        let result = response.choices[0].message.content.trim();
+        let result = response.answer.trim();
 
         // Nettoyage basique si l'IA bavarde
         if (result.startsWith('"') && result.endsWith('"')) {

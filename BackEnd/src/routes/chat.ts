@@ -766,9 +766,14 @@ CONSIGNES DE RÉPONSE :
           messages: openaiMessages,
           temperature: 0.1,
           max_tokens: 2048,
+          user: 'epion-chat-route-user',
         });
 
-        rawAnswer = openaiResponse.choices[0].message.content || '';
+        if (openaiResponse.choices[0].message.refusal) {
+          throw new Error(`OpenAI completion refused: ${openaiResponse.choices[0].message.refusal}`);
+        } else {
+          rawAnswer = openaiResponse.choices[0].message.content || '';
+        }
 
         // CRITICAL FIX: Stream the blocked response to the client
         if (rawAnswer) {
@@ -1026,9 +1031,14 @@ ${formatWebSourcesForPrompt(promptSources)}`;
           temperature: 0.1,
           max_tokens: webProfile === 'deep' ? 2400 : 1600,
           stream: true,
+          user: 'epion-chat-route-user',
         });
 
         for await (const chunk of llmStream) {
+          const refusal = chunk.choices[0]?.delta?.refusal;
+          if (refusal) {
+            throw new Error(`OpenAI stream was refused: ${refusal}`);
+          }
           const delta = chunk.choices[0]?.delta?.content || '';
           if (!delta) continue;
 

@@ -105,6 +105,7 @@ Réponds UNIQUEMENT le JSON.`;
             ],
             temperature: 0.2,
             responseFormat: { type: 'json_object' },
+            safePrompt: true,
         });
 
         const rawMessage = response.choices?.[0]?.message?.content;

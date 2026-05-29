@@ -85,7 +85,8 @@ router.get('/diagnostics', async (req, res, next) => {
       await openai.embeddings.create({
         model: 'text-embedding-3-small',
         input: 'test',
-        dimensions: 2 // Minimal impact
+        dimensions: 2, // Minimal impact
+        user: 'epion-health-check'
       });
       return { status: 'up', latency: `${Date.now() - s}ms` };
     } catch (error: any) {

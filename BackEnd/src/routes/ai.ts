@@ -85,9 +85,8 @@ router.post('/summarize', async (req, res) => {
             }
         ];
 
-        // 4. Call AI
         const aiResponse = await callWebSearchLLM(messages, { useSearch: false });
-        const summary = aiResponse.choices[0]?.message?.content?.trim() || "No summary generated.";
+        const summary = aiResponse.answer?.trim() || "No summary generated.";
 
         // 5. Save Result
         await prisma.article.update({

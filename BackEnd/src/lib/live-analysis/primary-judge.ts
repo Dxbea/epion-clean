@@ -257,9 +257,15 @@ async function executeJudgeCall(
             temperature: 0.3,
             max_tokens: isGenerateMode ? 6144 : 2048,
             response_format: { type: 'json_object' },
+            user: 'epion-system-judge',
         });
 
-        const rawContent = response.choices[0].message.content || '{}';
+        let rawContent = '{}';
+        if (response.choices[0].message.refusal) {
+            throw new Error(`OpenAI completion was refused: ${response.choices[0].message.refusal}`);
+        } else {
+            rawContent = response.choices[0].message.content || '{}';
+        }
         const parsed = JSON.parse(rawContent);
 
         // Extract analysis (handle both flat and nested formats)

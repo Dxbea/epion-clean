@@ -53,12 +53,17 @@ ${formatWebSourcesForPrompt(sources)}
             max_tokens: 200,
             temperature: 0.2,
             stream: true,
+            user: 'epion-debug-user',
         });
 
         console.log('Stream created. Starting consumption...');
 
         let fullContent = '';
         for await (const chunk of stream) {
+            const refusal = chunk.choices[0]?.delta?.refusal;
+            if (refusal) {
+                throw new Error(`OpenAI stream was refused: ${refusal}`);
+            }
             const delta = chunk.choices[0]?.delta?.content || '';
             if (!delta) continue;
             process.stdout.write(delta);

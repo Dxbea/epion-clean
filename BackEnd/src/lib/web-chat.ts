@@ -551,14 +551,26 @@ ${formatWebSourcesForPrompt(sources)}`);
         ? [{ role: 'system' as const, content: systemParts.join('\n\n') }, ...conversationMessages]
         : conversationMessages;
 
-    const completion = await openai.chat.completions.create({
-        model: resolveWebLlmModel(profile),
-        messages: llmMessages,
-        temperature: options.temperature ?? (shouldSearch ? 0.1 : 0.4),
-        max_tokens: options.maxTokens ?? (profile === 'deep' ? 2200 : 1400),
-    });
+    let completion;
+    try {
+        completion = await openai.chat.completions.create({
+            model: resolveWebLlmModel(profile),
+            messages: llmMessages,
+            temperature: options.temperature ?? (shouldSearch ? 0.1 : 0.4),
+            max_tokens: options.maxTokens ?? (profile === 'deep' ? 2200 : 1400),
+            user: 'epion-web-chat-user',
+        });
+    } catch (err: any) {
+        logger.error('OpenAI call failed in callWebSearchLLM', { error: err.message });
+        throw err;
+    }
 
-    const answer = completion.choices[0]?.message?.content?.trim() || '';
+    let answer = '';
+    if (completion.choices[0]?.message?.refusal) {
+        throw new Error(`OpenAI completion refused: ${completion.choices[0].message.refusal}`);
+    } else {
+        answer = completion.choices[0]?.message?.content?.trim() || '';
+    }
 
     return {
         answer,

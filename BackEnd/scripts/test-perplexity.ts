@@ -57,9 +57,14 @@ ${formatWebSourcesForPrompt(sources)}
             max_tokens: 180,
             temperature: 0.2,
             stream: true,
+            user: 'epion-test-user',
         });
 
         for await (const chunk of stream) {
+            const refusal = chunk.choices[0]?.delta?.refusal;
+            if (refusal) {
+                throw new Error(`OpenAI stream was refused: ${refusal}`);
+            }
             const delta = chunk.choices[0]?.delta?.content || '';
             if (delta) {
                 process.stdout.write(delta);

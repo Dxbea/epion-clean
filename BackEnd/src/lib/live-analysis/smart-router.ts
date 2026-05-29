@@ -103,9 +103,15 @@ export async function classifyAndRoute(
             temperature: 0.1,
             max_tokens: 250,
             response_format: { type: 'json_object' },
+            user: 'epion-system-router',
         });
 
-        const rawContent = response.choices[0].message.content || '{}';
+        let rawContent = '{}';
+        if (response.choices[0].message.refusal) {
+            throw new Error(`OpenAI completion was refused: ${response.choices[0].message.refusal}`);
+        } else {
+            rawContent = response.choices[0].message.content || '{}';
+        }
         const parsed = JSON.parse(rawContent);
 
         const validRoutes = ['HOT_NEWS', 'COLD_INVESTIGATION', 'MIXED'];

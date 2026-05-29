@@ -208,6 +208,7 @@ async function generateEmbeddings(texts: string[]): Promise<number[][]> {
         const response = await openai.embeddings.create({
             model: EMBEDDING_MODEL,
             input: texts,
+            user: 'epion-rag-ingestion',
         });
 
         // Extract embeddings in order
@@ -383,6 +384,7 @@ export async function searchSimilarChunks(query: string, limit: number = 5): Pro
         const response = await openai.embeddings.create({
             model: EMBEDDING_MODEL,
             input: query,
+            user: 'epion-rag-search',
         });
 
         const queryEmbedding = response.data[0].embedding;
