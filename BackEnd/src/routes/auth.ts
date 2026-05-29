@@ -205,7 +205,20 @@ router.post('/auth/login', loginLimiter, async (req, res, next) => {
 // POST /api/auth/request-verify  { email }
 router.post('/auth/request-verify', async (req, res, next) => {
   try {
-    const email = String(req.body?.email || '').trim().toLowerCase();
+    let email = String(req.body?.email || '').trim().toLowerCase();
+    if (!email) {
+      const userId = await getCurrentUserId(req, res).catch(() => null);
+      if (userId) {
+        const user = await prisma.user.findUnique({
+          where: { id: userId },
+          select: { email: true },
+        });
+        if (user) {
+          email = user.email;
+        }
+      }
+    }
+
     if (!email) {
       return res.status(400).json({ error: 'invalid_email' });
     }
@@ -564,6 +577,119 @@ router.post('/auth/verify-email', async (req, res, next) => {
       prisma.user.update({
         where: { id: record.userId },
         data: { emailVerifiedAt: new Date() },
+      }),
+      prisma.emailVerificationToken.delete({
+        where: { id: record.id },
+      }),
+    ]);
+
+    return res.json({ ok: true });
+  } catch (e) {
+    next(e);
+  }
+});
+
+// POST /api/auth/change-email-request
+router.post('/auth/change-email-request', async (req, res, next) => {
+  try {
+    const userId = await getCurrentUserId(req, res);
+    const newEmail = String(req.body?.newEmail || '').trim().toLowerCase();
+
+    if (!newEmail || !z.string().email().safeParse(newEmail).success) {
+      return res.status(400).json({ error: 'INVALID_EMAIL' });
+    }
+
+    const user = await prisma.user.findUnique({
+      where: { id: userId },
+      select: { id: true, email: true },
+    });
+    if (!user) return res.status(401).json({ error: 'NO_SESSION' });
+
+    // Check if new email already exists
+    const exists = await prisma.user.findUnique({
+      where: { email: newEmail },
+    });
+    if (exists) {
+      return res.status(409).json({ error: 'EMAIL_EXISTS' });
+    }
+
+    // Clean old tokens for this user
+    await prisma.emailVerificationToken.deleteMany({
+      where: { userId: user.id },
+    });
+
+    // Encode the new email inside the token to avoid schema changes
+    const uuid = crypto.randomUUID();
+    const token = `${uuid}:${newEmail}`;
+    const expiresAt = new Date(Date.now() + 1000 * 60 * 60 * 24); // 24 hours
+
+    await prisma.emailVerificationToken.create({
+      data: {
+        userId: user.id,
+        token,
+        expiresAt,
+      },
+    });
+
+    const verifyUrl = `${APP_URL}/settings?changeEmailToken=${encodeURIComponent(token)}`;
+
+    await sendMail({
+      to: newEmail,
+      subject: 'Verify your new email for Epion',
+      text: `Click this link to confirm your new email address:\n\n${verifyUrl}`,
+      html: `<p>Click this link to confirm your new email address:</p>
+             <p><a href="${verifyUrl}">${verifyUrl}</a></p>
+             <p>This link is valid for 24 hours.</p>`,
+    });
+
+    return res.json({ verifyUrl });
+  } catch (e) {
+    next(e);
+  }
+});
+
+// POST /api/auth/confirm-email-change
+router.post('/auth/confirm-email-change', async (req, res, next) => {
+  try {
+    const token = String(req.body?.token || '').trim();
+    if (!token) {
+      return res.status(400).json({ error: 'INVALID_LINK' });
+    }
+
+    const record = await prisma.emailVerificationToken.findUnique({
+      where: { token },
+    });
+
+    if (!record) {
+      return res.status(400).json({ error: 'INVALID_LINK' });
+    }
+
+    if (record.expiresAt < new Date()) {
+      return res.status(400).json({ error: 'EXPIRED_LINK' });
+    }
+
+    // Extract the new email from token format: "uuid:newEmail"
+    const parts = record.token.split(':');
+    if (parts.length < 2) {
+      return res.status(400).json({ error: 'INVALID_LINK' });
+    }
+    const newEmail = parts.slice(1).join(':');
+
+    // Check one final time if it's already in use
+    const exists = await prisma.user.findUnique({
+      where: { email: newEmail },
+    });
+    if (exists) {
+      return res.status(409).json({ error: 'EMAIL_EXISTS' });
+    }
+
+    await prisma.$transaction([
+      prisma.user.update({
+        where: { id: record.userId },
+        data: {
+          email: newEmail,
+          emailVerifiedAt: new Date(),
+        },
       }),
       prisma.emailVerificationToken.delete({
         where: { id: record.id },

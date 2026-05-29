@@ -18,7 +18,7 @@ export async function checkAndIncrement(identifier: string) {
     const dbKey = identifier.replace('ip:', '');
     const max = MAX_GUEST_DAILY_MESSAGES;
 
-    return await prisma.$transaction(async (tx) => {
+    const executeTx = () => prisma.$transaction(async (tx) => {
       const currentUsage = await tx.ipUsage.upsert({
         where: { ipAddress: dbKey },
         update: {},
@@ -55,6 +55,17 @@ export async function checkAndIncrement(identifier: string) {
         remaining: max - newCount,
       };
     });
+
+    try {
+      return await executeTx();
+    } catch (error: any) {
+      if (error.code === 'P2002') {
+        // Unique constraint failed because a concurrent request created the record.
+        // We retry the transaction now that the record exists.
+        return await executeTx();
+      }
+      throw error;
+    }
   }
 
   // Users: No rate limit (controlled by Billing or removed)
