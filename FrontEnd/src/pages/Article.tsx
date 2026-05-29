@@ -3,6 +3,7 @@ import { Link, useParams, useNavigate } from 'react-router-dom';
 import SectionHeader from '@/components/SectionHeader';
 import ArticleCard from '@/components/articles/ArticleCard';
 import ArticleThumbnail from '@/components/articles/ArticleThumbnail';
+import ArticleInteractionSpace from '@/components/articles/ArticleInteractionSpace';
 import { API_BASE } from '@/config/api';
 import { useMe } from '@/contexts/MeContext';
 import CommentsDrawer from '@/components/articles/CommentsDrawer';
@@ -795,6 +796,8 @@ export default function Article() {
             <p className="opacity-50 italic">No content available.</p>
           )}
         </article>
+
+        <ArticleInteractionSpace />
 
         {/* Related */}
         {related.length > 0 && (
