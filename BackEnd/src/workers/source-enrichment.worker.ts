@@ -3,6 +3,7 @@ import { getRichTrustScore } from '../lib/trust-score';
 import { logger } from '../lib/logger';
 import { prisma } from '../lib/db';
 import { buildArticleScorePayload, hashAnalysisInput } from '../lib/score-helpers';
+import { stableSourceId } from '../lib/structured-article';
 import type { SourceScoreEntry } from '../lib/score-types';
 import IORedis from 'ioredis';
 
@@ -68,7 +69,7 @@ export const sourceEnrichmentWorker = new Worker(
         const trustScoreByDomain = new Map<string, Promise<any>>();
 
         // Parallel source enrichment with concurrency limit
-        const results = await mapWithConcurrencyLimit(sources, SOURCE_ENRICHMENT_WORKER_CONCURRENCY, async (url) => {
+        const results = await mapWithConcurrencyLimit(sources, SOURCE_ENRICHMENT_WORKER_CONCURRENCY, async (url, index) => {
             try {
                 let domain = '';
                 try {
@@ -88,6 +89,7 @@ export const sourceEnrichmentWorker = new Worker(
 
                 return {
                     id: 0,
+                    sourceId: stableSourceId(url, index),
                     name: richScore.metadata.name,
                     url,
                     domain,

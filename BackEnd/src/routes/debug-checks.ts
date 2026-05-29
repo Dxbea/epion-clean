@@ -4,6 +4,7 @@ import { analyzeOutputQuality } from '../lib/semantic-scanner';
 import { checkMediaReputation } from '../lib/google-fact-check';
 import { newsIngestionQueue } from '../lib/queue';
 import { logger } from '../lib/logger';
+import { getCurrentUser } from '../lib/currentUser';
 import {
     DEFAULT_DEBUG_SITEMAP_PRESET,
     DEFAULT_DEBUG_SITEMAP_URL,
@@ -12,6 +13,17 @@ import {
 } from '../lib/news-sitemaps';
 
 export const router = Router();
+
+router.use(async (req, res, next) => {
+    try {
+        const user = await getCurrentUser(req, res);
+        if (!user) return res.status(401).json({ error: 'UNAUTHENTICATED' });
+        if (user.role !== 'ADMIN') return res.status(403).json({ error: 'FORBIDDEN' });
+        return next();
+    } catch (error) {
+        return next(error);
+    }
+});
 
 // GET /api/debug/audit
 router.get('/audit', async (req, res) => {

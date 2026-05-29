@@ -29,6 +29,7 @@ export type FullArticle = {
   title: string
   excerpt: string | null
   content: string | null
+  structuredContent?: unknown | null
   imageUrl: string | null
   publishedAt: string // createdAt
   status?: string

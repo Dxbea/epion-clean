@@ -1,12 +1,14 @@
 import { type Request, type Response, type NextFunction } from 'express';
+import { Prisma } from '@prisma/client';
 import { prisma } from '../lib/db';
-import { checkArticleQuota } from '../lib/billing-service';
+import { checkArticleQuota, hasSufficientFunds, chargeUser, COSTS } from '../lib/billing-service';
 import { getCurrentUserId } from '../lib/currentUser';
 import { logger } from '../lib/logger';
 import { sourceEnrichmentQueue } from '../lib/queue';
 import { transformTextWithAI } from '../services/articleGenerator';
 import { runLiveAnalysisWithGeneration } from '../lib/live-analysis';
 import { getArticleImageProposals } from '../lib/images/proposals';
+import { stableSourceId } from '../lib/structured-article';
 
 export async function createAIArticle(req: Request, res: Response, next: NextFunction) {
     try {
@@ -84,8 +86,10 @@ export async function createAIArticle(req: Request, res: Response, next: NextFun
 
         // Initialize sources as PENDING for the frontend
         const sources = (result.sources || []).map((s, idx) => {
+            const sourceId = stableSourceId(s.url, idx);
             return {
                 id: idx + 1,
+                sourceId,
                 name: s.domain || 'Source inconnue',
                 url: s.url,
                 domain: s.domain,
@@ -132,6 +136,7 @@ export async function createAIArticle(req: Request, res: Response, next: NextFun
                 slug: uniqueSlug,
                 summary: generatedData.summary,
                 content: generatedData.content,
+                structuredContent: generatedData.structuredContent as any,
                 // Defaulting to draft allows review
                 status: 'DRAFT',
                 // Author connection (Fix)
@@ -230,6 +235,15 @@ export async function editAIArticle(req: Request, res: Response, next: NextFunct
             if (user?.role !== 'ADMIN') return res.status(403).json({ error: 'Forbidden' });
         }
 
+        const hasCredits = await hasSufficientFunds(userId, 'CHAT_FAST');
+        if (!hasCredits) {
+            return res.status(402).json({
+                error: "CrÃ©dits Ã©puisÃ©s pour aujourd'hui.",
+                code: "QUOTA_TOTAL",
+                cost: COSTS.CHAT_FAST,
+            });
+        }
+
         const result = await transformTextWithAI(instruction, currentContent || '', field);
 
         // 3. Sauvegarde (Mise à jour Prisma)
@@ -239,10 +253,13 @@ export async function editAIArticle(req: Request, res: Response, next: NextFunct
             await prisma.article.update({
                 where: { id },
                 data: {
-                    [field]: result
+                    [field]: result,
+                    ...(field === 'content' ? { structuredContent: Prisma.JsonNull } : {}),
                 }
             });
         }
+
+        await chargeUser(userId, 'CHAT_FAST');
 
         return res.json({ result });
 

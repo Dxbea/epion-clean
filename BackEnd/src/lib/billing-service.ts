@@ -116,16 +116,30 @@ export async function chargeUser(
         throw new Error('INSUFFICIENT_FUNDS_AT_CHARGE_TIME');
     }
 
-    // Debit
-    const updatedUsage = await prisma.userUsage.update({
-        where: { userId },
+    const debit = await prisma.userUsage.updateMany({
+        where: {
+            userId,
+            dailyCredits: { gte: cost },
+        },
         data: {
             dailyCredits: {
                 decrement: cost,
             },
         },
+    });
+
+    if (debit.count !== 1) {
+        throw new Error('INSUFFICIENT_FUNDS_AT_CHARGE_TIME');
+    }
+
+    const updatedUsage = await prisma.userUsage.findUnique({
+        where: { userId },
         include: { user: { select: { role: true } } },
     });
+
+    if (!updatedUsage) {
+        throw new Error('User usage not found after charge');
+    }
 
     return updatedUsage;
 }
@@ -196,15 +210,30 @@ export async function checkAndChargeUser(
     }
 
     // 4. Exécution (Débit)
-    const updatedUsage = await prisma.userUsage.update({
-        where: { userId },
+    const debit = await prisma.userUsage.updateMany({
+        where: {
+            userId,
+            dailyCredits: { gte: cost },
+        },
         data: {
             dailyCredits: {
                 decrement: cost,
             },
         },
+    });
+
+    if (debit.count !== 1) {
+        throw new Error(action.includes("WEB") ? "INSUFFICIENT_FUNDS_WEB" : "INSUFFICIENT_FUNDS_TOTAL");
+    }
+
+    const updatedUsage = await prisma.userUsage.findUnique({
+        where: { userId },
         include: { user: { select: { role: true } } },
     });
+
+    if (!updatedUsage) {
+        throw new Error('User usage not found after charge');
+    }
 
     return updatedUsage;
 }

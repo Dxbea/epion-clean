@@ -9,6 +9,10 @@ export const DICT = {
     menu_my_account: "My account",
     menu_settings: "Settings",
     close: "Close",
+    article_sources_used: "Sources used",
+    article_claim: "Claim",
+    article_supported_by: "Parts supported by",
+    article_this_source: "this source",
 
     // ───────────────── HOME
     home_title: "Your guide to clearer, smarter information.\nCheck. Learn. Talk.",
@@ -292,6 +296,10 @@ export const DICT = {
     menu_my_account: "Mon compte",
     menu_settings: "Paramètres",
     close: "Fermer",
+    article_sources_used: "Sources utilisées",
+    article_claim: "Affirmation",
+    article_supported_by: "Parties soutenues par",
+    article_this_source: "cette source",
 
     // ───────────────── HOME
     home_title: "Votre guide vers une information plus claire et plus intelligente.\nVérifie. Comprends. Discute.",

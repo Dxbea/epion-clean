@@ -101,6 +101,7 @@ export interface SourceScoreFlags {
 
 export interface SourceScoreEntry {
   id: number;
+  sourceId?: string;
   domain: string;
   name: string;
   url: string;

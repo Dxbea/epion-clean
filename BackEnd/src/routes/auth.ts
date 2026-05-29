@@ -11,7 +11,10 @@ import {
   requireSession,
   setSessionCookie,
   clearSessionCookie,
+  invalidateSessionCache,
+  invalidateUserSessionCaches,
 } from '../lib/session';
+import { env } from '../env';
 import { sendMail, APP_URL } from '../lib/mailer';
 import { getCurrentUserId } from '../lib/currentUser';
 import { logger } from '../lib/logger';
@@ -48,7 +51,7 @@ function serverStrongPassword(pw: string): boolean {
   );
 }
 
-const BETA_MODE = process.env.BETA_MODE === 'true';
+const BETA_MODE = process.env.NODE_ENV !== 'test' && process.env.BETA_MODE === 'true';
 
 /* ------------------------ VERIFY INVITE CODE ------------------------ */
 router.post('/auth/verify-invite', async (req, res, next) => {
@@ -106,7 +109,7 @@ router.post('/auth/signup', async (req, res, next) => {
     const exists = await prisma.user.findUnique({ where: { email } });
     if (exists) return res.status(409).json({ error: 'EMAIL_EXISTS' });
 
-    const passwordHash = await bcrypt.hash(input.password, 10);
+    const passwordHash = await bcrypt.hash(input.password, env.BCRYPT_ROUNDS);
     const user = await prisma.user.create({
       data: {
         email,
@@ -259,6 +262,7 @@ router.post('/auth/logout', async (req, res) => {
   const sess = await requireSession(req, res);
   if (sess) {
     await prisma.session.delete({ where: { id: sess.sessionId } }).catch(() => { });
+    await invalidateSessionCache(sess.sessionId);
   }
   clearSessionCookie(res);
   res.json({ ok: true });
@@ -348,10 +352,12 @@ router.post('/auth/reset-password', async (req, res, next) => {
       return res.status(400).json({ error: 'INVALID_OR_EXPIRED' });
     }
 
-    const newHash = await bcrypt.hash(newPassword, 10);
+    const newHash = await bcrypt.hash(newPassword, env.BCRYPT_ROUNDS);
+    await invalidateUserSessionCaches(pr.userId);
     await prisma.$transaction([
       prisma.user.update({ where: { id: pr.userId }, data: { passwordHash: newHash } }),
       prisma.passwordReset.update({ where: { token }, data: { usedAt: new Date() } }),
+      prisma.session.deleteMany({ where: { userId: pr.userId } }),
     ]);
 
     res.json({ ok: true });
@@ -374,8 +380,16 @@ router.post('/auth/change-password', async (req, res) => {
   const ok = await bcrypt.compare(parsed.data.currentPassword, user.passwordHash);
   if (!ok) return res.status(401).json({ error: 'WRONG_PASSWORD' });
 
-  const newHash = await bcrypt.hash(parsed.data.newPassword, 10);
-  await prisma.user.update({ where: { id: sess.userId }, data: { passwordHash: newHash } });
+  const newHash = await bcrypt.hash(parsed.data.newPassword, env.BCRYPT_ROUNDS);
+  const otherSessions = await prisma.session.findMany({
+    where: { userId: sess.userId, NOT: { id: sess.sessionId } },
+    select: { id: true },
+  });
+  await prisma.$transaction([
+    prisma.user.update({ where: { id: sess.userId }, data: { passwordHash: newHash } }),
+    prisma.session.deleteMany({ where: { userId: sess.userId, NOT: { id: sess.sessionId } } }),
+  ]);
+  await Promise.all(otherSessions.map((session) => invalidateSessionCache(session.id)));
   res.json({ ok: true });
 });
 
@@ -431,6 +445,7 @@ router.delete('/auth/sessions/:id', async (req, res) => {
   }
 
   await prisma.session.delete({ where: { id } });
+  await invalidateSessionCache(id);
 
   // si on supprime la session courante → on nettoie le cookie aussi
   if (id === sess.sessionId) {
@@ -448,12 +463,21 @@ router.delete('/auth/sessions/others', async (req, res) => {
   const sess = await requireSession(req, res);
   if (!sess) return res.status(401).json({ error: 'NO_SESSION' });
 
+  const otherSessions = await prisma.session.findMany({
+    where: {
+      userId: sess.userId,
+      NOT: { id: sess.sessionId },
+    },
+    select: { id: true },
+  });
+
   await prisma.session.deleteMany({
     where: {
       userId: sess.userId,
       NOT: { id: sess.sessionId },
     },
   });
+  await Promise.all(otherSessions.map((session) => invalidateSessionCache(session.id)));
 
   res.json({ ok: true });
 });

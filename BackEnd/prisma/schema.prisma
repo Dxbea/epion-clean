@@ -183,6 +183,7 @@ model Article {
   title     String
   summary   String?
   content   String?
+  structuredContent Json?
   status    ArticleStatus @default(DRAFT)
   imageUrl  String?
   createdAt DateTime      @default(now())

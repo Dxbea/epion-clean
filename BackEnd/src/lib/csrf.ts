@@ -1,4 +1,3 @@
-// BackEnd/src/lib/csrf.ts
 import type { Request, Response, NextFunction } from 'express';
 import crypto from 'crypto';
 import { env } from '../env';
@@ -8,8 +7,18 @@ const CSRF_SECRET = env.JWT_SECRET;
 
 type CsrfPayload = {
   sid: string;
-  exp: number; // timestamp ms
+  exp: number;
 };
+
+const csrfExemptAuthPaths = new Set([
+  '/auth/login',
+  '/auth/signup',
+  '/auth/forgot-password',
+  '/auth/reset-password',
+  '/auth/verify-email',
+  '/auth/request-verify',
+  '/auth/verify-invite',
+]);
 
 function safeEqual(a: string, b: string): boolean {
   const ba = Buffer.from(a);
@@ -21,7 +30,7 @@ function safeEqual(a: string, b: string): boolean {
 export function createCsrfToken(sessionId: string): string {
   const payload: CsrfPayload = {
     sid: sessionId,
-    exp: Date.now() + 2 * 60 * 60 * 1000, // 2h
+    exp: Date.now() + 2 * 60 * 60 * 1000,
   };
   const json = JSON.stringify(payload);
   const b64 = Buffer.from(json, 'utf8').toString('base64');
@@ -59,25 +68,12 @@ export function verifyCsrfToken(token: string, expectedSessionId: string): boole
   return true;
 }
 
-/**
- * Middleware global CSRF pour les routes /api
- * - ignore GET / HEAD / OPTIONS
- * - ignore /auth/* (login/register/forgot) pour ne pas casser l’existant
- * - exige X-CSRF-Token sur POST/PUT/PATCH/DELETE avec session valide
- */
 export async function csrfRequired(req: Request, res: Response, next: NextFunction) {
   const method = req.method.toUpperCase();
   const safe = method === 'GET' || method === 'HEAD' || method === 'OPTIONS';
-
-  // Chemins à exclure de la vérif CSRF
   const path = req.path || '';
-  const isNonProd = process.env.NODE_ENV !== 'production';
-  if (
-    safe ||
-    path === '/csrf' ||               // endpoint de récupération du token
-    path.startsWith('/auth/') ||      // login / register / forgot...
-    (isNonProd && path.startsWith('/debug/'))  // debug endpoints — dev/test only
-  ) {
+
+  if (safe || path === '/csrf' || csrfExemptAuthPaths.has(path)) {
     return next();
   }
 
@@ -94,7 +90,6 @@ export async function csrfRequired(req: Request, res: Response, next: NextFuncti
     return res.status(403).json({ error: 'BAD_CSRF_TOKEN' });
   }
 
-  // on passe la session plus loin si besoin
   (req as any).session = sess;
 
   return next();

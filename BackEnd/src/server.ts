@@ -140,17 +140,16 @@ app.get('/api/ping', (_req, res) => res.json({ pong: true, now: Date.now() }));
 app.get('/api/healthz', (_req, res) => res.json({ ok: true, service: 'epion-api' }));
 app.get('/api/version', (_req, res) => res.json({ name: 'epion-api', version: '0.1.0' }));
 app.use('/api/health', healthRouter);
+if (env.NODE_ENV !== 'production' && process.env.ENABLE_DEBUG_ROUTES === 'true') {
+  app.use('/api/debug', debugRouter);
 
 // ----------------------------
 //  🔑 Auth en premier
 // ----------------------------
-app.use('/api', authRouter);
 
 // ----------------------------
 //  🔧 Debug routes (development/test only — disabled in production)
 // ----------------------------
-if (env.NODE_ENV !== 'production') {
-  app.use('/api/debug', debugRouter);
   log.info('Debug routes mounted (/api/debug) — non-production mode');
 }
 
@@ -163,6 +162,7 @@ app.use('/api', csrfRouter);
 
 // protection CSRF pour toutes les requêtes mutantes sur /api
 app.use('/api', csrfRequired);
+app.use('/api', authRouter);
 
 // ----------------------------
 //  📚 Routes métiers

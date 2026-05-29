@@ -1,3 +1,5 @@
+import type { StructuredArticleContent } from '../../types/structured-article';
+
 /**
  * Live Analysis - Shared Types & Constants
  *
@@ -32,6 +34,7 @@ export const DISARM_TECHNIQUES = {
 export type DisarmCode = keyof typeof DISARM_TECHNIQUES;
 
 export interface FactCheckSource {
+    sourceId?: string;
     url: string;
     title: string;
     content: string;
@@ -66,6 +69,7 @@ export interface GeneratedContent {
     title: string;
     summary: string;
     content: string;
+    structuredContent?: StructuredArticleContent | null;
     tags: string[];
     imagePrompt: string | null;
     wikipedia_search_query: string | null;
@@ -124,6 +128,7 @@ export function formatSourcesForPrompt(sources: FactCheckSource[], maxCharsPerSo
             ? `${source.content.slice(0, maxCharsPerSource)}\n[... tronque ...]`
             : source.content;
         const date = source.publishedDate ? ` | ${source.publishedDate}` : '';
-        return `[Source ${index + 1}] ${source.title} (${source.domain}${date})\nURL: ${source.url}\n${content}`;
+        const id = source.sourceId || `source_${index + 1}`;
+        return `[Source ${index + 1} | id=${id}] ${source.title} (${source.domain}${date})\nURL: ${source.url}\n${content}`;
     }).join('\n\n---\n\n');
 }
