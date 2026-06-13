@@ -338,20 +338,24 @@ model ArticleOpinionPosition {
 }
 
 model ArticleContribution {
-  id        String                  @id @default(cuid())
-  articleId String
-  userId    String
-  type      ArticleContributionType
-  text      String
-  sourceUrl String?
-  createdAt DateTime                @default(now())
-  updatedAt DateTime                @updatedAt
+  id            String                  @id @default(cuid())
+  articleId     String
+  userId        String
+  type          ArticleContributionType
+  text          String
+  sourceUrl     String?
+  needsRecalc   Boolean                 @default(false)
+  bridgingScore Float                   @default(0)
+  createdAt     DateTime                @default(now())
+  updatedAt     DateTime                @updatedAt
 
   article     Article                         @relation(fields: [articleId], references: [id], onDelete: Cascade)
   user        User                            @relation("UserArticleContributions", fields: [userId], references: [id], onDelete: Cascade)
   validations ArticleContributionValidation[]
 
+  @@index([articleId, bridgingScore(sort: Desc), createdAt(sort: Desc)])
   @@index([articleId, createdAt])
+  @@index([needsRecalc])
   @@index([userId])
 }
 

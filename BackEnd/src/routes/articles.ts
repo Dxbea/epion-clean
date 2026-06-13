@@ -747,6 +747,11 @@ router.get('/:slug/interactions', async (req, res, next) => {
       userId = null;
     }
 
+    const sortMode = req.query.sort === 'recent' ? 'recent' : 'top';
+    const contributionOrderBy = sortMode === 'recent'
+      ? [{ createdAt: 'desc' as const }]
+      : [{ bridgingScore: 'desc' as const }, { createdAt: 'desc' as const }];
+
     const [opinionQuestion, currentUserOpinionPosition, contributions] = await Promise.all([
       prisma.articleOpinionQuestion.upsert({
         where: { articleId: article.id },
@@ -780,13 +785,14 @@ router.get('/:slug/interactions', async (req, res, next) => {
         : Promise.resolve(null),
       prisma.articleContribution.findMany({
         where: { articleId: article.id },
-        orderBy: { createdAt: 'desc' },
+        orderBy: contributionOrderBy,
         take: 50,
         select: {
           id: true,
           type: true,
           text: true,
           sourceUrl: true,
+          bridgingScore: true,
           createdAt: true,
           updatedAt: true,
           user: { select: { id: true, name: true, username: true, avatarUrl: true } },
@@ -803,6 +809,7 @@ router.get('/:slug/interactions', async (req, res, next) => {
     const hasInsufficientContext = currentUserOpinionPosition?.lacksContext === true;
 
     res.json({
+      sortMode,
       opinionQuestion: {
         ...opinionQuestion,
         createdAt: opinionQuestion.createdAt.toISOString(),
@@ -825,6 +832,7 @@ router.get('/:slug/interactions', async (req, res, next) => {
         type: contribution.type,
         text: contribution.text,
         sourceUrl: contribution.sourceUrl,
+        bridgingScore: contribution.bridgingScore,
         createdAt: contribution.createdAt.toISOString(),
         updatedAt: contribution.updatedAt.toISOString(),
         author: contribution.user
@@ -1025,6 +1033,7 @@ router.post('/contributions/:contributionId/validations', async (req, res, next)
       where: { id: contributionId },
       select: {
         id: true,
+        userId: true,
         articleId: true,
         article: { select: { status: true } },
       },
@@ -1033,22 +1042,24 @@ router.post('/contributions/:contributionId/validations', async (req, res, next)
       return res.status(404).json({ error: 'Contribution not found' });
     }
 
+    if (contribution.userId === userId) {
+      return res.status(403).json({ error: 'cannot_validate_own_contribution' });
+    }
+
     if (await getConfirmedLacksContext(contribution.articleId, userId)) {
       return res.status(409).json({ error: 'insufficient_context_confirmed' });
     }
 
-    try {
-      const created = await prisma.articleContributionValidation.create({
-        data: {
-          contributionId,
-          userId,
-          type,
-        },
-        select: {
-          id: true,
-          type: true,
-          createdAt: true,
-        },
+    const existing = await prisma.articleContributionValidation.findUnique({
+      where: { contributionId_userId_type: { contributionId, userId, type } },
+      select: { id: true },
+    });
+
+    if (existing) {
+      await prisma.articleContributionValidation.delete({ where: { id: existing.id } });
+      await prisma.articleContribution.update({
+        where: { id: contributionId },
+        data: { needsRecalc: true },
       });
 
       const validations = await prisma.articleContributionValidation.findMany({
@@ -1056,18 +1067,34 @@ router.post('/contributions/:contributionId/validations', async (req, res, next)
         select: { type: true },
       });
 
-      return res.status(201).json({
-        id: created.id,
-        type: created.type,
-        createdAt: created.createdAt.toISOString(),
+      return res.status(200).json({
+        action: 'REMOVED',
+        type,
         validationSummary: validationSummary(validations),
       });
-    } catch (error: any) {
-      if (error?.code === 'P2002') {
-        return res.status(409).json({ error: 'validation_already_exists' });
-      }
-      throw error;
     }
+
+    const created = await prisma.articleContributionValidation.create({
+      data: { contributionId, userId, type },
+      select: { id: true, type: true, createdAt: true },
+    });
+    await prisma.articleContribution.update({
+      where: { id: contributionId },
+      data: { needsRecalc: true },
+    });
+
+    const validations = await prisma.articleContributionValidation.findMany({
+      where: { contributionId },
+      select: { type: true },
+    });
+
+    return res.status(201).json({
+      action: 'ADDED',
+      id: created.id,
+      type: created.type,
+      createdAt: created.createdAt.toISOString(),
+      validationSummary: validationSummary(validations),
+    });
   } catch (e) {
     next(e);
   }

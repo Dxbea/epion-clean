@@ -6,11 +6,9 @@ import ArticleThumbnail from '@/components/articles/ArticleThumbnail';
 import ArticleInteractionSpace from '@/components/articles/ArticleInteractionSpace';
 import { API_BASE } from '@/config/api';
 import { useMe } from '@/contexts/MeContext';
-import CommentsDrawer from '@/components/articles/CommentsDrawer';
 import ArticleActionBar from '@/components/articles/ArticleActionBar';
 import TrustHeader from '@/components/shared/TrustHeader';
 import { GlobalTrustScoreModal } from '@/components/chat/trust-score-ui/GlobalTrustScoreModal';
-import { useComments } from '@/hooks/useComments';
 import Modal from '@/components/ui/Modal';
 import SourceCard from '../components/chat/SourceCard';
 import MarkdownRenderer from '@/components/shared/MarkdownRenderer';
@@ -367,10 +365,6 @@ export default function Article() {
   }, [article?.category?.name, article?.id]);
 
   // ----------------------------------------
-  // Hooks pour commentaires (lifted state)
-  // ----------------------------------------
-  const commentsApi = useComments(article?.id);
-  const [isCommentsOpen, setIsCommentsOpen] = React.useState(false);
 
   // ----------------------------------------
   // Déterminer si le user est l'auteur
@@ -797,7 +791,7 @@ export default function Article() {
           )}
         </article>
 
-        <ArticleInteractionSpace />
+        <ArticleInteractionSpace articleSlug={slug} />
 
         {/* Related */}
         {related.length > 0 && (
@@ -815,8 +809,6 @@ export default function Article() {
       {/* Action Bar & Drawer */}
       <ArticleActionBar
         articleId={article.id}
-        onOpenComments={() => setIsCommentsOpen(true)}
-        commentCount={commentsApi.items.length}
         onSummarize={handleSummarize}
         onChat={handleChat}
         onFactCheck={handleFactCheck}
@@ -828,13 +820,6 @@ export default function Article() {
         onHighlightClick={() => {
             setIsHighlightActive(!isHighlightActive);
         }}
-      />
-
-      <CommentsDrawer
-        articleId={article.id}
-        isOpen={isCommentsOpen}
-        onClose={() => setIsCommentsOpen(false)}
-        {...commentsApi}
       />
 
       <Modal

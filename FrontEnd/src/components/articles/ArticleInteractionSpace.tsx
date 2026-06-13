@@ -7,6 +7,7 @@ import {
   ExternalLink,
   FilePlus2,
   Lock,
+  Loader2,
   PlusCircle,
   Scale,
   ShieldQuestion,
@@ -14,20 +15,28 @@ import {
 } from 'lucide-react';
 import Button from '@/components/ui/Button';
 import { useI18n } from '@/i18n/I18nContext';
+import { useArticleInteractions, type ContributionType as ApiContributionType, type ValidationType, type SortMode, type Contribution as ApiContribution } from '@/hooks/useArticleInteractions';
 
-type ContributionType = 'source' | 'nuance' | 'contradiction' | 'question' | 'correction';
+type UIContributionType = 'source' | 'nuance' | 'contradiction' | 'question' | 'correction';
 type PositionValue = -1 | -0.6 | -0.2 | 0.2 | 0.6 | 1;
 
-type Contribution = {
-  id: string;
-  type: ContributionType;
-  text: string;
-  sourceUrl?: string;
-  author: string;
-  local?: boolean;
+const UI_TO_API_TYPE: Record<UIContributionType, ApiContributionType> = {
+  source: 'SOURCE',
+  nuance: 'NUANCE',
+  contradiction: 'CONTRADICTION',
+  question: 'QUESTION',
+  correction: 'CORRECTION',
 };
 
-const typeTone: Record<ContributionType, string> = {
+const API_TO_UI_TYPE: Record<ApiContributionType, UIContributionType> = {
+  SOURCE: 'source',
+  NUANCE: 'nuance',
+  CONTRADICTION: 'contradiction',
+  QUESTION: 'question',
+  CORRECTION: 'correction',
+};
+
+const typeTone: Record<UIContributionType, string> = {
   source: 'border-blue-200 bg-blue-50 text-blue-700 dark:border-blue-900/50 dark:bg-blue-950/20 dark:text-blue-300',
   nuance: 'border-amber-200 bg-amber-50 text-amber-800 dark:border-amber-900/50 dark:bg-amber-950/20 dark:text-amber-300',
   contradiction: 'border-red-200 bg-red-50 text-red-700 dark:border-red-900/50 dark:bg-red-950/20 dark:text-red-300',
@@ -45,7 +54,7 @@ const positionLabels: Record<PositionValue, string> = {
   [1]: 'article_interactions_position_strong_b',
 };
 
-const typeIcons: Record<ContributionType, React.ComponentType<{ className?: string }>> = {
+const typeIcons: Record<UIContributionType, React.ComponentType<{ className?: string }>> = {
   source: FilePlus2,
   nuance: Scale,
   contradiction: AlertTriangle,
@@ -53,20 +62,146 @@ const typeIcons: Record<ContributionType, React.ComponentType<{ className?: stri
   correction: CheckCircle2,
 };
 
-export default function ArticleInteractionSpace() {
+type Props = {
+  articleSlug: string;
+};
+
+function getAuthorInitials(author: ApiContribution['author']): string {
+  if (!author) return '??';
+  const name = author.name || author.username || '';
+  if (!name) return '??';
+  const parts = name.split(/\s+/);
+  if (parts.length >= 2) return (parts[0][0] + parts[1][0]).toUpperCase();
+  return name.slice(0, 2).toUpperCase();
+}
+
+type OpinionSliderProps = {
+  positions: PositionValue[];
+  selected: PositionValue | null;
+  disabled: boolean;
+  onSelect: (position: PositionValue) => void;
+};
+
+function OpinionSlider({ positions, selected, disabled, onSelect }: OpinionSliderProps) {
+  const trackRef = React.useRef<HTMLDivElement>(null);
+  const [isDragging, setIsDragging] = React.useState(false);
+
+  const getSnapIndex = React.useCallback((clientX: number) => {
+    const track = trackRef.current;
+    if (!track) return -1;
+    const rect = track.getBoundingClientRect();
+    const ratio = Math.max(0, Math.min(1, (clientX - rect.left) / rect.width));
+    return Math.round(ratio * (positions.length - 1));
+  }, [positions.length]);
+
+  const handleInteraction = React.useCallback((clientX: number) => {
+    if (disabled) return;
+    const index = getSnapIndex(clientX);
+    if (index >= 0 && index < positions.length) {
+      onSelect(positions[index]);
+    }
+  }, [disabled, getSnapIndex, onSelect, positions]);
+
+  const handlePointerDown = (e: React.PointerEvent) => {
+    if (disabled) return;
+    e.preventDefault();
+    (e.target as HTMLElement).setPointerCapture(e.pointerId);
+    setIsDragging(true);
+    handleInteraction(e.clientX);
+  };
+
+  const handlePointerMove = (e: React.PointerEvent) => {
+    if (!isDragging) return;
+    handleInteraction(e.clientX);
+  };
+
+  const handlePointerUp = (e: React.PointerEvent) => {
+    if (!isDragging) return;
+    (e.target as HTMLElement).releasePointerCapture(e.pointerId);
+    setIsDragging(false);
+  };
+
+  const selectedIndex = selected !== null ? positions.indexOf(selected) : -1;
+  const thumbPercent = selectedIndex >= 0 ? (selectedIndex / (positions.length - 1)) * 100 : -1;
+
+  return (
+    <div
+      ref={trackRef}
+      className={`relative select-none px-3 py-6 ${disabled ? 'cursor-default' : 'cursor-pointer'}`}
+      onPointerDown={handlePointerDown}
+      onPointerMove={handlePointerMove}
+      onPointerUp={handlePointerUp}
+      onPointerCancel={handlePointerUp}
+    >
+      <div className="relative h-[3px] rounded-full bg-gradient-to-r from-black/10 via-black/5 to-black/10 dark:from-white/10 dark:via-white/5 dark:to-white/10">
+        {positions.map((position, i) => {
+          const percent = (i / (positions.length - 1)) * 100;
+          const isActive = position === selected;
+          return (
+            <span
+              key={position}
+              className={`absolute top-1/2 -translate-x-1/2 -translate-y-1/2 rounded-full transition-all duration-150 ${
+                isActive
+                  ? 'h-2.5 w-2.5 bg-[#00dc82]/40'
+                  : 'h-[7px] w-[7px] bg-black/15 dark:bg-white/20'
+              }`}
+              style={{ left: `${percent}%` }}
+            />
+          );
+        })}
+
+        {thumbPercent >= 0 && (
+          <span
+            className={`absolute top-1/2 -translate-x-1/2 -translate-y-1/2 transition-[left] ${isDragging ? 'duration-0' : 'duration-200'}`}
+            style={{ left: `${thumbPercent}%` }}
+          >
+            <span className={`flex h-6 w-6 items-center justify-center rounded-full border-[2.5px] border-[#00dc82] bg-white shadow-lg ring-[6px] ring-[#00dc82]/10 transition-transform dark:bg-neutral-900 ${isDragging ? 'scale-110' : ''}`}>
+              <span className="h-2.5 w-2.5 rounded-full bg-[#00dc82]" />
+            </span>
+          </span>
+        )}
+      </div>
+    </div>
+  );
+}
+
+export default function ArticleInteractionSpace({ articleSlug }: Props) {
   const { t } = useI18n();
+  const {
+    isLoading,
+    isSubmittingPosition,
+    isSubmittingContribution,
+    error,
+    clearError,
+    currentPosition,
+    contributions,
+    canContribute,
+    canValidate,
+    sortMode,
+    changeSort,
+    submitPosition,
+    submitContribution,
+    toggleValidation,
+  } = useArticleInteractions(articleSlug);
+
   const [selectedPosition, setSelectedPosition] = React.useState<number | null>(null);
   const [lacksContext, setLacksContext] = React.useState(false);
-  const [isConfirmed, setIsConfirmed] = React.useState(false);
   const [isGatewayOpen, setIsGatewayOpen] = React.useState(false);
-  const [selectedType, setSelectedType] = React.useState<ContributionType | null>(null);
+  const [selectedType, setSelectedType] = React.useState<UIContributionType | null>(null);
   const [draftText, setDraftText] = React.useState('');
   const [draftSourceUrl, setDraftSourceUrl] = React.useState('');
-  const [submittedContributions, setSubmittedContributions] = React.useState<Contribution[]>([]);
   const [submitMessage, setSubmitMessage] = React.useState<string | null>(null);
 
+  const isConfirmed = currentPosition !== null;
+  const hasInsufficientContext = isConfirmed && (currentPosition?.lacksContext ?? false);
   const canConfirmPosition = selectedPosition !== null || lacksContext;
-  const hasInsufficientContext = isConfirmed && lacksContext;
+
+  React.useEffect(() => {
+    if (currentPosition) {
+      setSelectedPosition(currentPosition.selectedPosition);
+      setLacksContext(currentPosition.lacksContext);
+    }
+  }, [currentPosition]);
 
   const contributionTypes = React.useMemo(
     () => [
@@ -79,68 +214,44 @@ export default function ArticleInteractionSpace() {
     [t]
   );
 
-  const mockContributions = React.useMemo<Contribution[]>(
-    () => [
-      {
-        id: 'mock-source',
-        type: 'source',
-        text: t('article_interactions_mock_source_text'),
-        sourceUrl: 'https://example.com/source',
-        author: 'ML',
-      },
-      {
-        id: 'mock-nuance',
-        type: 'nuance',
-        text: t('article_interactions_mock_nuance_text'),
-        author: 'AR',
-      },
-      {
-        id: 'mock-question',
-        type: 'question',
-        text: t('article_interactions_mock_question_text'),
-        author: 'EP',
-      },
-    ],
-    [t]
-  );
-
-  const resetDraft = (clearMessage = true) => {
+  const resetDraft = () => {
     setDraftText('');
     setDraftSourceUrl('');
-    if (clearMessage) setSubmitMessage(null);
   };
 
   const handlePositionSelect = (position: PositionValue) => {
     if (isConfirmed) return;
     setSelectedPosition(position);
     setLacksContext(false);
+    clearError();
   };
 
   const handleLacksContext = () => {
     if (isConfirmed) return;
     setSelectedPosition(null);
     setLacksContext(true);
+    clearError();
   };
 
-  const handleConfirmPosition = () => {
-    if (!canConfirmPosition || isConfirmed) return;
-    setIsConfirmed(true);
-
-    if (lacksContext) {
+  const handleConfirmPosition = async () => {
+    if (!canConfirmPosition || isConfirmed || isSubmittingPosition) return;
+    const success = await submitPosition(selectedPosition, lacksContext);
+    if (success && lacksContext) {
       setIsGatewayOpen(false);
       setSelectedType(null);
       resetDraft();
     }
   };
 
-  const handleTypeSelect = (type: ContributionType) => {
+  const handleTypeSelect = (type: UIContributionType) => {
     setSelectedType(type);
     resetDraft();
+    setSubmitMessage(null);
   };
 
-  const handleSubmit = (event: React.FormEvent<HTMLFormElement>) => {
+  const handleSubmit = async (event: React.FormEvent<HTMLFormElement>) => {
     event.preventDefault();
-    if (!selectedType) return;
+    if (!selectedType || isSubmittingContribution) return;
 
     const text = draftText.trim();
     const sourceUrl = draftSourceUrl.trim();
@@ -148,27 +259,46 @@ export default function ArticleInteractionSpace() {
     if (selectedType === 'source' && !sourceUrl) return;
     if (selectedType !== 'source' && !text) return;
 
-    const fallbackText = selectedType === 'source'
-      ? t('article_interactions_source_added_text')
-      : text;
+    const apiType = UI_TO_API_TYPE[selectedType];
+    const success = await submitContribution(apiType, text || ' ', sourceUrl || undefined);
 
-    setSubmittedContributions((current) => [
-      {
-        id: `local-${Date.now()}`,
-        type: selectedType,
-        text: fallbackText,
-        sourceUrl: sourceUrl || undefined,
-        author: t('article_interactions_local_author'),
-        local: true,
-      },
-      ...current,
-    ]);
-    setSubmitMessage(t('article_interactions_saved_locally'));
-    setSelectedType(null);
-    resetDraft(false);
+    if (success) {
+      setSubmitMessage(t('article_interactions_contribution_submitted'));
+      setSelectedType(null);
+      resetDraft();
+    }
   };
 
-  const displayedContributions = [...submittedContributions, ...mockContributions];
+  if (isLoading) {
+    return (
+      <section className="space-y-5 pt-10" aria-labelledby="article-interactions-title">
+        <div className="space-y-2">
+          <div className="h-3 w-32 animate-pulse rounded bg-black/10 dark:bg-white/10" />
+          <div className="h-7 w-64 animate-pulse rounded bg-black/10 dark:bg-white/10" />
+          <div className="h-4 w-96 animate-pulse rounded bg-black/10 dark:bg-white/10" />
+        </div>
+        <div className="rounded-2xl border border-black/10 bg-white p-5 dark:border-white/10 dark:bg-neutral-900">
+          <div className="space-y-4">
+            <div className="h-5 w-48 animate-pulse rounded bg-black/10 dark:bg-white/10" />
+            <div className="h-4 w-72 animate-pulse rounded bg-black/10 dark:bg-white/10" />
+            <div className="mt-6 flex justify-between gap-2">
+              {Array.from({ length: 6 }).map((_, i) => (
+                <div key={i} className="flex flex-col items-center gap-2">
+                  <div className="h-6 w-6 animate-pulse rounded-full bg-black/10 dark:bg-white/10" />
+                  <div className="h-3 w-6 animate-pulse rounded bg-black/10 dark:bg-white/10" />
+                </div>
+              ))}
+            </div>
+            <div className="h-11 w-full animate-pulse rounded-xl bg-black/10 dark:bg-white/10" />
+          </div>
+        </div>
+        <div className="rounded-2xl border border-black/10 bg-white p-5 dark:border-white/10 dark:bg-neutral-900">
+          <div className="h-5 w-48 animate-pulse rounded bg-black/10 dark:bg-white/10" />
+          <div className="mt-2 h-4 w-72 animate-pulse rounded bg-black/10 dark:bg-white/10" />
+        </div>
+      </section>
+    );
+  }
 
   return (
     <section className="space-y-5 pt-10" aria-labelledby="article-interactions-title">
@@ -183,6 +313,16 @@ export default function ArticleInteractionSpace() {
           {t('article_interactions_lead')}
         </p>
       </div>
+
+      {error && (
+        <div className="rounded-xl border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-700 dark:border-red-900/50 dark:bg-red-950/20 dark:text-red-300">
+          {error === 'position_already_confirmed'
+            ? t('article_interactions_error_already_voted')
+            : error === 'insufficient_context_confirmed'
+              ? t('article_interactions_gateway_disabled_help')
+              : error}
+        </div>
+      )}
 
       <div className={`rounded-2xl border bg-white p-4 shadow-sm dark:bg-neutral-900 sm:p-5 ${
         isConfirmed
@@ -214,59 +354,52 @@ export default function ArticleInteractionSpace() {
             {t('article_interactions_position_question')}
           </p>
 
-          <div className="mt-6 space-y-4">
-            <div className="flex items-start justify-between gap-4 text-sm font-semibold text-neutral-800 dark:text-neutral-100">
-              <span className="max-w-[45%] text-left">{t('article_interactions_thesis_a')}</span>
-              <span className="max-w-[45%] text-right">{t('article_interactions_thesis_b')}</span>
+          <div className="mt-6 space-y-5">
+            <div className="flex items-start justify-between gap-4 text-xs font-medium text-black/50 dark:text-white/50">
+              <span className="max-w-[40%] text-left">{t('article_interactions_thesis_a')}</span>
+              <span className="max-w-[40%] text-right">{t('article_interactions_thesis_b')}</span>
             </div>
 
-            <div className="relative px-1 py-4">
-              <div className="absolute left-5 right-5 top-1/2 h-1 -translate-y-1/2 rounded-full bg-black/10 dark:bg-white/10" />
-              <div className="relative grid grid-cols-6 gap-1">
-                {positionValues.map((position) => {
-                  const isSelected = selectedPosition === position;
-                  return (
-                    <button
-                      key={position}
-                      type="button"
-                      disabled={isConfirmed}
-                      aria-pressed={isSelected}
-                      onClick={() => handlePositionSelect(position)}
-                      className={`group flex min-h-[54px] flex-col items-center justify-center gap-2 rounded-xl transition disabled:cursor-default ${
-                        isSelected
-                          ? 'text-neutral-950 dark:text-white'
-                          : 'text-black/45 hover:text-neutral-900 dark:text-white/45 dark:hover:text-white'
-                      }`}
-                    >
-                      <span className={`relative z-10 flex h-6 w-6 items-center justify-center rounded-full border-2 bg-white transition dark:bg-neutral-900 ${
-                        isSelected
-                          ? 'border-[#00dc82] shadow-sm ring-4 ring-[#00dc82]/15'
-                          : 'border-black/20 group-hover:border-black/40 dark:border-white/25 dark:group-hover:border-white/50'
-                      }`}>
-                        {isSelected && <span className="h-2.5 w-2.5 rounded-full bg-[#00dc82]" />}
-                      </span>
-                      <span className="text-[11px] font-semibold tabular-nums">{position}</span>
-                    </button>
-                  );
-                })}
-              </div>
-            </div>
+            <OpinionSlider
+              positions={positionValues}
+              selected={selectedPosition as PositionValue | null}
+              disabled={isConfirmed}
+              onSelect={handlePositionSelect}
+            />
 
-            <div className="min-h-[44px] rounded-xl border border-dashed border-black/10 bg-white px-3 py-2 text-sm leading-6 text-black/60 dark:border-white/10 dark:bg-neutral-950/40 dark:text-white/60">
-              {selectedPosition !== null ? (
-                <span className="font-medium text-neutral-900 dark:text-neutral-100">
-                  {t(positionLabels[selectedPosition as PositionValue])}
-                </span>
-              ) : lacksContext ? (
-                <span className="font-medium text-neutral-900 dark:text-neutral-100">
-                  {t('article_interactions_lacks_context_selected')}
-                </span>
-              ) : (
-                t('article_interactions_position_empty')
-              )}
-            </div>
+            <p className={`text-center text-sm leading-6 transition-colors ${
+              selectedPosition !== null || lacksContext
+                ? 'font-medium text-neutral-900 dark:text-neutral-100'
+                : 'text-black/40 dark:text-white/40'
+            }`}>
+              {selectedPosition !== null
+                ? t(positionLabels[selectedPosition as PositionValue])
+                : lacksContext
+                  ? t('article_interactions_lacks_context_selected')
+                  : t('article_interactions_position_empty')}
+            </p>
           </div>
         </div>
+
+        {isConfirmed && (
+          <div className="mt-4 rounded-2xl border border-black/5 bg-black/[0.015] p-4 dark:border-white/5 dark:bg-white/[0.02]">
+            <p className="text-xs font-semibold uppercase text-black/40 dark:text-white/40">
+              {t('article_interactions_community_map_label')}
+            </p>
+            <div className="mt-3 flex h-10 items-end gap-[3px]">
+              {positionValues.map((_, i) => (
+                <div
+                  key={i}
+                  className="flex-1 rounded-sm bg-[#00dc82]/20 dark:bg-[#00dc82]/15"
+                  style={{ height: `${20 + Math.random() * 60}%` }}
+                />
+              ))}
+            </div>
+            <p className="mt-2 text-center text-xs text-black/40 dark:text-white/40">
+              {t('article_interactions_community_map_hint')}
+            </p>
+          </div>
+        )}
 
         <div className="mt-4 flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
           <button
@@ -274,7 +407,7 @@ export default function ArticleInteractionSpace() {
             disabled={isConfirmed}
             aria-pressed={lacksContext}
             onClick={handleLacksContext}
-            className={`inline-flex min-h-11 items-center justify-center gap-2 rounded-xl border px-4 py-2 text-sm font-semibold transition disabled:cursor-default ${
+            className={`inline-flex h-11 items-center justify-center gap-2 rounded-xl border px-4 text-sm font-semibold transition disabled:cursor-default ${
               lacksContext
                 ? 'border-sky-200 bg-sky-50 text-sky-700 dark:border-sky-900/50 dark:bg-sky-950/20 dark:text-sky-300'
                 : 'border-black/10 bg-white text-neutral-800 hover:bg-black/5 dark:border-white/10 dark:bg-neutral-900 dark:text-neutral-100 dark:hover:bg-white/10'
@@ -287,10 +420,16 @@ export default function ArticleInteractionSpace() {
           <Button
             type="button"
             onClick={handleConfirmPosition}
-            disabled={isConfirmed || !canConfirmPosition}
-            className="gap-2"
+            disabled={isConfirmed || !canConfirmPosition || isSubmittingPosition}
+            className="h-11 gap-2"
           >
-            {isConfirmed ? <Lock className="h-4 w-4" /> : <CheckCircle2 className="h-4 w-4" />}
+            {isSubmittingPosition ? (
+              <Loader2 className="h-4 w-4 animate-spin" />
+            ) : isConfirmed ? (
+              <Lock className="h-4 w-4" />
+            ) : (
+              <CheckCircle2 className="h-4 w-4" />
+            )}
             {isConfirmed ? t('article_interactions_position_confirmed') : t('article_interactions_confirm_position')}
           </Button>
         </div>
@@ -309,9 +448,9 @@ export default function ArticleInteractionSpace() {
           <Button
             type="button"
             variant={isGatewayOpen ? 'secondary' : 'primary'}
-            disabled={hasInsufficientContext}
+            disabled={hasInsufficientContext || !canContribute}
             onClick={() => {
-              if (hasInsufficientContext) return;
+              if (hasInsufficientContext || !canContribute) return;
               setIsGatewayOpen((open) => !open);
               setSubmitMessage(null);
             }}
@@ -378,9 +517,6 @@ export default function ArticleInteractionSpace() {
                     {React.createElement(typeIcons[selectedType], { className: 'h-3.5 w-3.5' })}
                     {contributionTypes.find((type) => type.value === selectedType)?.label}
                   </span>
-                  <span className="text-xs text-black/50 dark:text-white/50">
-                    {t('article_interactions_form_local_hint')}
-                  </span>
                 </div>
 
                 <div className="mt-4 space-y-4">
@@ -397,7 +533,8 @@ export default function ArticleInteractionSpace() {
                         onChange={(event) => setDraftText(event.target.value)}
                         rows={4}
                         required
-                        className="mt-2 w-full resize-y rounded-xl border border-black/10 bg-white px-3 py-2 text-sm text-neutral-900 outline-none transition focus:border-[#4290D3] focus:ring-2 focus:ring-[#4290D3]/25 dark:border-white/10 dark:bg-neutral-950 dark:text-neutral-100"
+                        disabled={isSubmittingContribution}
+                        className="mt-2 w-full resize-y rounded-xl border border-black/10 bg-white px-3 py-2 text-sm text-neutral-900 outline-none transition focus:border-[#4290D3] focus:ring-2 focus:ring-[#4290D3]/25 disabled:opacity-50 dark:border-white/10 dark:bg-neutral-950 dark:text-neutral-100"
                         placeholder={t('article_interactions_text_placeholder')}
                       />
                     </label>
@@ -419,7 +556,8 @@ export default function ArticleInteractionSpace() {
                       value={draftSourceUrl}
                       onChange={(event) => setDraftSourceUrl(event.target.value)}
                       required={selectedType === 'source'}
-                      className="mt-2 w-full rounded-xl border border-black/10 bg-white px-3 py-2 text-sm text-neutral-900 outline-none transition focus:border-[#4290D3] focus:ring-2 focus:ring-[#4290D3]/25 dark:border-white/10 dark:bg-neutral-950 dark:text-neutral-100"
+                      disabled={isSubmittingContribution}
+                      className="mt-2 w-full rounded-xl border border-black/10 bg-white px-3 py-2 text-sm text-neutral-900 outline-none transition focus:border-[#4290D3] focus:ring-2 focus:ring-[#4290D3]/25 disabled:opacity-50 dark:border-white/10 dark:bg-neutral-950 dark:text-neutral-100"
                       placeholder="https://"
                     />
                   </label>
@@ -429,6 +567,7 @@ export default function ArticleInteractionSpace() {
                   <Button
                     type="button"
                     variant="ghost"
+                    disabled={isSubmittingContribution}
                     onClick={() => {
                       setSelectedType(null);
                       resetDraft();
@@ -436,9 +575,13 @@ export default function ArticleInteractionSpace() {
                   >
                     {t('cancel')}
                   </Button>
-                  <Button type="submit" className="gap-2">
-                    <PlusCircle className="h-4 w-4" />
-                    {t('article_interactions_submit_local')}
+                  <Button type="submit" disabled={isSubmittingContribution} className="gap-2">
+                    {isSubmittingContribution ? (
+                      <Loader2 className="h-4 w-4 animate-spin" />
+                    ) : (
+                      <PlusCircle className="h-4 w-4" />
+                    )}
+                    {t('article_interactions_submit_contribution')}
                   </Button>
                 </div>
               </form>
@@ -447,76 +590,106 @@ export default function ArticleInteractionSpace() {
         )}
       </div>
 
-      <div className="space-y-3">
-        <div className="flex items-center justify-between gap-3">
-          <h3 className="text-base font-semibold text-neutral-950 dark:text-neutral-50">
-            {t('article_interactions_contributions_title')}
-          </h3>
-          <span className="text-xs text-black/50 dark:text-white/50">
-            {submittedContributions.length > 0
-              ? t('article_interactions_local_list_hint')
-              : t('article_interactions_mock_list_hint')}
-          </span>
-        </div>
-
+      {contributions.length > 0 && (
         <div className="space-y-3">
-          {displayedContributions.map((contribution) => {
-            const Icon = typeIcons[contribution.type];
-            return (
-              <article
-                key={contribution.id}
-                className="rounded-2xl border border-black/10 bg-white p-4 shadow-sm dark:border-white/10 dark:bg-neutral-900"
+          <div className="flex items-center justify-between gap-3">
+            <h3 className="text-base font-semibold text-neutral-950 dark:text-neutral-50">
+              {t('article_interactions_contributions_title')}
+            </h3>
+            <div className="flex gap-1 rounded-lg border border-black/10 p-0.5 dark:border-white/10">
+              <button
+                type="button"
+                onClick={() => changeSort('top')}
+                className={`rounded-md px-2.5 py-1 text-xs font-semibold transition ${
+                  sortMode === 'top'
+                    ? 'bg-black/5 text-neutral-900 dark:bg-white/10 dark:text-white'
+                    : 'text-black/50 hover:text-neutral-900 dark:text-white/50 dark:hover:text-white'
+                }`}
               >
-                <div className="flex gap-3">
-                  <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full bg-black/5 text-xs font-semibold text-black/60 dark:bg-white/10 dark:text-white/70">
-                    {contribution.author}
-                  </div>
-                  <div className="min-w-0 flex-1">
-                    <div className="flex flex-wrap items-center gap-2">
-                      <span className={`inline-flex items-center gap-1.5 rounded-full border px-2.5 py-1 text-xs font-semibold ${typeTone[contribution.type]}`}>
-                        <Icon className="h-3.5 w-3.5" />
-                        {contributionTypes.find((type) => type.value === contribution.type)?.label}
-                      </span>
-                      {contribution.local && (
-                        <span className="rounded-full bg-black/5 px-2.5 py-1 text-xs font-medium text-black/55 dark:bg-white/10 dark:text-white/55">
-                          {t('article_interactions_local_badge')}
+                {t('article_interactions_sort_top')}
+              </button>
+              <button
+                type="button"
+                onClick={() => changeSort('recent')}
+                className={`rounded-md px-2.5 py-1 text-xs font-semibold transition ${
+                  sortMode === 'recent'
+                    ? 'bg-black/5 text-neutral-900 dark:bg-white/10 dark:text-white'
+                    : 'text-black/50 hover:text-neutral-900 dark:text-white/50 dark:hover:text-white'
+                }`}
+              >
+                {t('article_interactions_sort_recent')}
+              </button>
+            </div>
+          </div>
+
+          <div className="space-y-3">
+            {contributions.map((contribution) => {
+              const uiType = API_TO_UI_TYPE[contribution.type];
+              const Icon = typeIcons[uiType];
+              return (
+                <article
+                  key={contribution.id}
+                  className="rounded-2xl border border-black/10 bg-white p-4 shadow-sm dark:border-white/10 dark:bg-neutral-900"
+                >
+                  <div className="flex gap-3">
+                    <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full bg-black/5 text-xs font-semibold text-black/60 dark:bg-white/10 dark:text-white/70">
+                      {getAuthorInitials(contribution.author)}
+                    </div>
+                    <div className="min-w-0 flex-1">
+                      <div className="flex flex-wrap items-center gap-2">
+                        <span className={`inline-flex items-center gap-1.5 rounded-full border px-2.5 py-1 text-xs font-semibold ${typeTone[uiType]}`}>
+                          <Icon className="h-3.5 w-3.5" />
+                          {contributionTypes.find((type) => type.value === uiType)?.label}
                         </span>
+                      </div>
+                      <p className="mt-3 text-sm leading-6 text-neutral-800 dark:text-neutral-100">
+                        {contribution.text}
+                      </p>
+                      {contribution.sourceUrl && (
+                        <a
+                          href={contribution.sourceUrl}
+                          target="_blank"
+                          rel="noreferrer"
+                          className="mt-3 inline-flex max-w-full items-center gap-1.5 truncate rounded-full border border-black/10 px-3 py-1.5 text-xs font-medium text-blue-700 hover:bg-blue-50 dark:border-white/10 dark:text-blue-300 dark:hover:bg-blue-950/20"
+                        >
+                          <ExternalLink className="h-3.5 w-3.5 shrink-0" />
+                          <span className="truncate">{t('article_interactions_source_link')}</span>
+                          <ArrowUpRight className="h-3.5 w-3.5 shrink-0" />
+                        </a>
                       )}
                     </div>
-                    <p className="mt-3 text-sm leading-6 text-neutral-800 dark:text-neutral-100">
-                      {contribution.text}
-                    </p>
-                    {contribution.sourceUrl && (
-                      <a
-                        href={contribution.sourceUrl}
-                        target="_blank"
-                        rel="noreferrer"
-                        className="mt-3 inline-flex max-w-full items-center gap-1.5 truncate rounded-full border border-black/10 px-3 py-1.5 text-xs font-medium text-blue-700 hover:bg-blue-50 dark:border-white/10 dark:text-blue-300 dark:hover:bg-blue-950/20"
-                      >
-                        <ExternalLink className="h-3.5 w-3.5 shrink-0" />
-                        <span className="truncate">{t('article_interactions_source_link')}</span>
-                        <ArrowUpRight className="h-3.5 w-3.5 shrink-0" />
-                      </a>
-                    )}
                   </div>
-                </div>
-                <div className="mt-4 flex flex-wrap gap-2 border-t border-black/5 pt-3 dark:border-white/5">
-                  {[t('article_interactions_validate_sourced'), t('article_interactions_validate_nuance'), t('article_interactions_validate_check')].map((label) => (
-                    <button
-                      key={label}
-                      type="button"
-                      disabled={hasInsufficientContext}
-                      className="rounded-full border border-black/10 px-3 py-1.5 text-xs font-medium text-black/65 transition hover:bg-black/5 disabled:cursor-not-allowed disabled:opacity-45 disabled:hover:bg-transparent dark:border-white/10 dark:text-white/65 dark:hover:bg-white/10 dark:disabled:hover:bg-transparent"
-                    >
-                      {label}
-                    </button>
-                  ))}
-                </div>
-              </article>
-            );
-          })}
+                  <div className="mt-4 flex flex-wrap gap-2 border-t border-black/5 pt-3 dark:border-white/5">
+                    {([
+                      { type: 'WELL_SOURCED' as ValidationType, label: t('article_interactions_validate_sourced') },
+                      { type: 'ADDS_NUANCE' as ValidationType, label: t('article_interactions_validate_nuance') },
+                      { type: 'NEEDS_CHECK' as ValidationType, label: t('article_interactions_validate_check') },
+                    ]).map(({ type: vType, label }) => {
+                      const isActive = contribution.currentUserValidations.includes(vType);
+                      const count = contribution.validationSummary[vType];
+                      return (
+                        <button
+                          key={vType}
+                          type="button"
+                          disabled={!canValidate}
+                          onClick={() => toggleValidation(contribution.id, vType)}
+                          className={`rounded-full border px-3 py-1.5 text-xs font-medium transition disabled:cursor-not-allowed disabled:opacity-45 disabled:hover:bg-transparent ${
+                            isActive
+                              ? 'border-[#00dc82]/40 bg-[#00dc82]/10 text-emerald-700 dark:border-[#00dc82]/30 dark:bg-[#00dc82]/10 dark:text-emerald-300'
+                              : 'border-black/10 text-black/65 hover:bg-black/5 dark:border-white/10 dark:text-white/65 dark:hover:bg-white/10'
+                          }`}
+                        >
+                          {label}{count > 0 && <span className="ml-1.5 tabular-nums opacity-70">{count}</span>}
+                        </button>
+                      );
+                    })}
+                  </div>
+                </article>
+              );
+            })}
+          </div>
         </div>
-      </div>
+      )}
     </section>
   );
 }
