@@ -1,7 +1,7 @@
 import type { Request, Response, NextFunction } from 'express';
 import crypto from 'crypto';
-import { env } from '../env';
-import { requireSession } from './session';
+import { env } from '../env.js';
+import { requireSession } from './session.js';
 
 const CSRF_SECRET = env.JWT_SECRET;
 

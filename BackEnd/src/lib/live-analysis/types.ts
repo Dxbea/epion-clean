@@ -1,4 +1,4 @@
-import type { StructuredArticleContent } from '../../types/structured-article';
+import type { StructuredArticleContent } from '../../types/structured-article.js';
 
 /**
  * Live Analysis - Shared Types & Constants

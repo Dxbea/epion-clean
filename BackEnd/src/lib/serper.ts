@@ -1,6 +1,6 @@
 import axios from 'axios';
-import { env } from '../env';
-import { logger } from './logger';
+import { env } from '../env.js';
+import { logger } from './logger.js';
 
 const SERPER_ENDPOINT = 'https://google.serper.dev/search';
 const SERPER_TIMEOUT_MS = 8000;

@@ -1,4 +1,4 @@
-import { prisma } from '../lib/db';
+import { prisma } from '../lib/db.js';
 
 export async function recalculateBridgingScores(): Promise<number> {
   const dirty = await prisma.articleContribution.findMany({

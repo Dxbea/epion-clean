@@ -1,6 +1,6 @@
 import type { Express } from 'express';
 import { PDFParse } from 'pdf-parse';
-import { logger } from './logger';
+import { logger } from './logger.js';
 
 const MAX_PDF_TEXT_CHARS = 12_000;
 

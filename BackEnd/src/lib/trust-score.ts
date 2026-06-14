@@ -1,15 +1,15 @@
-import { prisma } from "./db";
-import { logger } from "./logger";
-import { analyzeAdsTxt } from "./ads-scanner";
-import { analyzePluralism } from "./scanners/pluralism-scanner";
-import { analyzeSemantics } from "./semantic-scanner";
-import { checkMediaReputation } from "./google-fact-check";
-import { resolveImmediateSourceDescription } from "../services/sourceProfiler";
-import { analyzeEditorial } from "./scanners/editorial-scanner";
-import { analyzeBias } from "./scanners/bias-scanner";
-import { evaluateUnknownSource, type InvestigationResult } from "./cold-profiler";
+import { prisma } from "./db.js";
+import { logger } from "./logger.js";
+import { analyzeAdsTxt } from "./ads-scanner.js";
+import { analyzePluralism } from "./scanners/pluralism-scanner.js";
+import { analyzeSemantics } from "./semantic-scanner.js";
+import { checkMediaReputation } from "./google-fact-check.js";
+import { resolveImmediateSourceDescription } from "../services/sourceProfiler.js";
+import { analyzeEditorial } from "./scanners/editorial-scanner.js";
+import { analyzeBias } from "./scanners/bias-scanner.js";
+import { evaluateUnknownSource, type InvestigationResult } from "./cold-profiler.js";
 import { PoliticalBias, Reliability, Source } from "@prisma/client";
-import { TRUST_SCORE_RANGES } from "../config/trust-constants";
+import { TRUST_SCORE_RANGES } from "../config/trust-constants.js";
 
 export interface RichTrustScore {
     globalScore: number;

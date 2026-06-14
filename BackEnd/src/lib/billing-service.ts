@@ -1,6 +1,6 @@
 import { PlanType, Role } from "@prisma/client";
-import { prisma } from "./db";
-import { logger } from "./logger";
+import { prisma } from "./db.js";
+import { logger } from "./logger.js";
 
 export const COSTS = {
     CHAT_FAST: 10,

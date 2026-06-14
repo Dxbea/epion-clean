@@ -12,12 +12,12 @@
  * - Then chains to source-enrichment-queue
  */
 import { Worker, Job } from 'bullmq';
-import IORedis from 'ioredis';
-import { logger } from '../lib/logger';
-import { runLiveAnalysis, runLiveAnalysisWithGeneration } from '../lib/live-analysis';
-import { sourceEnrichmentQueue } from '../lib/queue';
-import { prisma } from '../lib/db';
-import { getWikipediaImage } from '../lib/images/wikipedia-fetcher';
+import { Redis as IORedis } from 'ioredis';
+import { logger } from '../lib/logger.js';
+import { runLiveAnalysis, runLiveAnalysisWithGeneration } from '../lib/live-analysis/index.js';
+import { sourceEnrichmentQueue } from '../lib/queue.js';
+import { prisma } from '../lib/db.js';
+import { getWikipediaImage } from '../lib/images/wikipedia-fetcher.js';
 
 const redisUrl = process.env.REDIS_URL || 'redis://localhost:6379';
 const connection = new IORedis(redisUrl, {

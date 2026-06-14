@@ -1,10 +1,10 @@
 import { Router } from 'express';
-import { prisma } from '../lib/db';
+import { prisma } from '../lib/db.js';
 import OpenAI from 'openai';
 import os from 'os';
-import { logger } from '../lib/logger';
-import { probeSerper } from '../lib/serper';
-import { getCurrentUser } from '../lib/currentUser';
+import { logger } from '../lib/logger.js';
+import { probeSerper } from '../lib/serper.js';
+import { getCurrentUser } from '../lib/currentUser.js';
 
 export const router = Router();
 

@@ -22,7 +22,7 @@ import type {
   AnswerScorePayload,
   AnswerScoreCalculation,
   SourceScoreEntry,
-} from './score-types';
+} from './score-types.js';
 
 // ---------------------------------------------------------------------------
 //  Support Level derivation

@@ -1,16 +1,16 @@
-import { getSerperConfig } from '../lib/serper';
+import { getSerperConfig } from '../lib/serper.js';
 import { Router } from 'express';
-import { analyzeOutputQuality } from '../lib/semantic-scanner';
-import { checkMediaReputation } from '../lib/google-fact-check';
-import { newsIngestionQueue } from '../lib/queue';
-import { logger } from '../lib/logger';
-import { getCurrentUser } from '../lib/currentUser';
+import { analyzeOutputQuality } from '../lib/semantic-scanner.js';
+import { checkMediaReputation } from '../lib/google-fact-check.js';
+import { newsIngestionQueue } from '../lib/queue.js';
+import { logger } from '../lib/logger.js';
+import { getCurrentUser } from '../lib/currentUser.js';
 import {
     DEFAULT_DEBUG_SITEMAP_PRESET,
     DEFAULT_DEBUG_SITEMAP_URL,
     NEWS_SITEMAPS,
     type NewsSitemapPreset,
-} from '../lib/news-sitemaps';
+} from '../lib/news-sitemaps.js';
 
 export const router = Router();
 

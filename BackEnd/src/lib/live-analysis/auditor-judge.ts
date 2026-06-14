@@ -11,7 +11,7 @@
  * v2.0 — Sprint 1: Recentered from full re-scoring to citation auditing.
  */
 import { Mistral } from '@mistralai/mistralai';
-import { logger } from '../logger';
+import { logger } from '../logger.js';
 import {
     FactCheckContext,
     JudgeVerdict,
@@ -20,7 +20,7 @@ import {
     VALID_INTENTS,
     calculateWeightedScore,
     formatSourcesForPrompt,
-} from './types';
+} from './types.js';
 
 const mistral = new Mistral({
     apiKey: process.env.MISTRAL_API_KEY || '',

@@ -1,5 +1,5 @@
 
-import { logger } from "./logger";
+import { logger } from "./logger.js";
 
 export interface FactCheckResult {
     failureCount: number;

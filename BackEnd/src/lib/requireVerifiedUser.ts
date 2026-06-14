@@ -1,7 +1,7 @@
 // BackEnd/src/lib/requireVerifiedUser.ts
 import type { Request, Response } from 'express';
-import { prisma } from './db';
-import { requireSession } from './session';
+import { prisma } from './db.js';
+import { requireSession } from './session.js';
 
 type RequireVerifiedResult =
   | { session: { userId: string; sessionId: string }; user: { id: string; emailVerifiedAt: Date | null } }

@@ -1,8 +1,8 @@
 import { Worker, Job } from 'bullmq';
-import { ingestArticle } from '../lib/rag-service';
-import { logger } from '../lib/logger';
-import { env } from '../env';
-import IORedis from 'ioredis';
+import { ingestArticle } from '../lib/rag-service.js';
+import { logger } from '../lib/logger.js';
+import { env } from '../env.js';
+import { Redis as IORedis } from 'ioredis';
 
 const redisUrl = process.env.REDIS_URL || 'redis://localhost:6379';
 

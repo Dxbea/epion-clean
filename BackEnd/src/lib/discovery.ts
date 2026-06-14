@@ -1,7 +1,7 @@
 import { XMLParser } from 'fast-xml-parser';
-import logger from './logger';
-import axiosInstance from './http-client';
-import { redis } from './redis';
+import logger from './logger.js';
+import axiosInstance from './http-client.js';
+import { redis } from './redis.js';
 const log = logger.child({ module: 'Discovery' });
 
 function buildDiscoveryMeta(

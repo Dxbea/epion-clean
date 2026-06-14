@@ -4,9 +4,9 @@
  */
 
 import OpenAI from 'openai';
-import { prisma } from './db';
+import { prisma } from './db.js';
 import { Prisma } from '@prisma/client';
-import { logger } from './logger';
+import { logger } from './logger.js';
 
 // -----------------------------------------------------------------------------
 // Configuration

@@ -1,14 +1,14 @@
 import { type Request, type Response, type NextFunction } from 'express';
 import { Prisma } from '@prisma/client';
-import { prisma } from '../lib/db';
-import { checkArticleQuota, hasSufficientFunds, chargeUser, COSTS } from '../lib/billing-service';
-import { getCurrentUserId } from '../lib/currentUser';
-import { logger } from '../lib/logger';
-import { sourceEnrichmentQueue } from '../lib/queue';
-import { transformTextWithAI } from '../services/articleGenerator';
-import { runLiveAnalysisWithGeneration } from '../lib/live-analysis';
-import { getArticleImageProposals } from '../lib/images/proposals';
-import { stableSourceId } from '../lib/structured-article';
+import { prisma } from '../lib/db.js';
+import { checkArticleQuota, hasSufficientFunds, chargeUser, COSTS } from '../lib/billing-service.js';
+import { getCurrentUserId } from '../lib/currentUser.js';
+import { logger } from '../lib/logger.js';
+import { sourceEnrichmentQueue } from '../lib/queue.js';
+import { transformTextWithAI } from '../services/articleGenerator.js';
+import { runLiveAnalysisWithGeneration } from '../lib/live-analysis/index.js';
+import { getArticleImageProposals } from '../lib/images/proposals.js';
+import { stableSourceId } from '../lib/structured-article.js';
 
 export async function createAIArticle(req: Request, res: Response, next: NextFunction) {
     try {

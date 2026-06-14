@@ -12,7 +12,7 @@
  * v3.0 — Merged article generation + DISARM analysis into single call.
  */
 import OpenAI from 'openai';
-import { logger } from '../logger';
+import { logger } from '../logger.js';
 import {
     FactCheckContext,
     JudgeVerdict,
@@ -24,12 +24,12 @@ import {
     DISARM_TECHNIQUES,
     calculateWeightedScore,
     formatSourcesForPrompt,
-} from './types';
+} from './types.js';
 import {
     buildSourceRefs,
     normalizeStructuredArticle,
     structuredArticleToMarkdown,
-} from '../structured-article';
+} from '../structured-article.js';
 
 const openai = new OpenAI({
     apiKey: process.env.OPENAI_API_KEY,

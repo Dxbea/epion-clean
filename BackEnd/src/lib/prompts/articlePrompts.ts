@@ -1,4 +1,4 @@
-import { GenerateArticleRequest } from "../../types/article";
+import { GenerateArticleRequest } from "../../types/article.js";
 
 export function buildArticlePrompt(request: GenerateArticleRequest): string {
   const { topic, language, style, generateImage } = request;

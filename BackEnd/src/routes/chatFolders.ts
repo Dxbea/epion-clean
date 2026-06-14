@@ -1,7 +1,7 @@
 // BackEnd/src/routes/chatFolders.ts
 import { Router } from 'express';
-import { prisma } from '../lib/db';
-import { getCurrentUserId } from '../lib/currentUser';
+import { prisma } from '../lib/db.js';
+import { getCurrentUserId } from '../lib/currentUser.js';
 
 export const router = Router();
 

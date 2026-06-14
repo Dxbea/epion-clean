@@ -1,1 +1,1 @@
-export { classifyAndRoute } from './smart-router';
+export { classifyAndRoute } from './smart-router.js';

@@ -1,24 +1,24 @@
 // DEBUT BLOC (remplace tout)
 import { Router, type Request } from 'express';
-import { prisma } from '../lib/db';
-import { getCurrentUserId } from '../lib/currentUser';
+import { prisma } from '../lib/db.js';
+import { getCurrentUserId } from '../lib/currentUser.js';
 import {
   CHAT_LIMITS,
   DEFAULT_PLAN,
   type PlanId,
   type ChatLimits,
-} from '../config/chatLimits';
-import { hasSufficientFunds, chargeUser, COSTS } from '../lib/billing-service';
+} from '../config/chatLimits.js';
+import { hasSufficientFunds, chargeUser, COSTS } from '../lib/billing-service.js';
 import { PlanType } from '@prisma/client';
-import { analyzeOutputQuality } from '../lib/semantic-scanner';
-import { ChatOptions } from '../types/chat';
+import { analyzeOutputQuality } from '../lib/semantic-scanner.js';
+import { ChatOptions } from '../types/chat.js';
 import OpenAI from 'openai';
-import { searchSimilarChunks } from '../lib/rag-service';
-import { logger } from '../lib/logger';
-import { redis } from '../lib/redis';
-import { prepareChatAttachment, type PreparedChatAttachment } from '../lib/chat-attachments';
-import { chatAttachmentUpload } from '../middleware/chat-upload';
-import { enrichChatSources } from '../lib/chat-source-enrichment';
+import { searchSimilarChunks } from '../lib/rag-service.js';
+import { logger } from '../lib/logger.js';
+import { redis } from '../lib/redis.js';
+import { prepareChatAttachment, type PreparedChatAttachment } from '../lib/chat-attachments.js';
+import { chatAttachmentUpload } from '../middleware/chat-upload.js';
+import { enrichChatSources } from '../lib/chat-source-enrichment.js';
 import {
   formatWebSourcesForPrompt,
   generateWebSystemPrompt,
@@ -29,8 +29,8 @@ import {
   isConversationalQuery,
   type WebChatMessage,
   type WebPromptMode,
-} from '../lib/web-chat';
-import { buildAnswerScorePayload } from '../lib/score-helpers';
+} from '../lib/web-chat.js';
+import { buildAnswerScorePayload } from '../lib/score-helpers.js';
 
 // OpenAI Client for RAG mode (fast)
 // Verify API Key availability

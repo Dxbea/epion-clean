@@ -1,10 +1,10 @@
 // BackEnd/src/lib/session.ts
 import { Request, Response } from 'express';
 import jwt from 'jsonwebtoken';
-import { prisma } from './db';
-import { env } from '../env';
-import { logger } from './logger';
-import { redis } from './redis';
+import { prisma } from './db.js';
+import { env } from '../env.js';
+import { logger } from './logger.js';
+import { redis } from './redis.js';
 
 const COOKIE_NAME = env.COOKIE_NAME || 'epion_session';
 

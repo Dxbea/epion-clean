@@ -1,6 +1,6 @@
 import axios, { type AxiosError, type InternalAxiosRequestConfig } from 'axios';
 import axiosRetry from 'axios-retry';
-import { logger } from './logger';
+import { logger } from './logger.js';
 
 const RATE_LIMIT_RETRY_DELAY_MS = 15_000;
 const MAX_429_RETRIES = 3;

@@ -1,4 +1,4 @@
-import { prisma } from './db';
+import { prisma } from './db.js';
 
 // Limite par défaut : 10 messages / jour pour les users gratuits
 const MAX_DAILY_MESSAGES = 10;

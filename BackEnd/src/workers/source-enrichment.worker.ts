@@ -1,11 +1,11 @@
 import { Worker, Job } from 'bullmq';
-import { getRichTrustScore } from '../lib/trust-score';
-import { logger } from '../lib/logger';
-import { prisma } from '../lib/db';
-import { buildArticleScorePayload, hashAnalysisInput } from '../lib/score-helpers';
-import { stableSourceId } from '../lib/structured-article';
-import type { SourceScoreEntry } from '../lib/score-types';
-import IORedis from 'ioredis';
+import { getRichTrustScore } from '../lib/trust-score.js';
+import { logger } from '../lib/logger.js';
+import { prisma } from '../lib/db.js';
+import { buildArticleScorePayload, hashAnalysisInput } from '../lib/score-helpers.js';
+import { stableSourceId } from '../lib/structured-article.js';
+import type { SourceScoreEntry } from '../lib/score-types.js';
+import { Redis as IORedis } from 'ioredis';
 
 const redisUrl = process.env.REDIS_URL || 'redis://localhost:6379';
 const connection = new IORedis(redisUrl, {

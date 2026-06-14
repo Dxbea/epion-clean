@@ -1,9 +1,9 @@
 // BackEnd/src/routes/me.ts
 import { Router } from 'express';
-import { prisma } from '../lib/db';
-import { requireSession } from '../lib/session';
-import { checkAndIncrement } from '../lib/rateLimiter';
-import { logger } from '../lib/logger';
+import { prisma } from '../lib/db.js';
+import { requireSession } from '../lib/session.js';
+import { checkAndIncrement } from '../lib/rateLimiter.js';
+import { logger } from '../lib/logger.js';
 
 export const router = Router();
 

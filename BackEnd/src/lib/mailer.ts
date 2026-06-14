@@ -1,5 +1,5 @@
 // BackEnd/src/lib/mailer.ts
-import { logger } from './logger';
+import { logger } from './logger.js';
 import axios from 'axios';
 
 const {

@@ -1,11 +1,11 @@
-import { logger } from '../logger';
-import { extractArticle } from '../extractor';
-import { searchInternalSources } from '../rag-service';
-import { searchSerper, type SerperSearchResult } from '../serper';
-import { classifyAndRoute } from './smart-router';
-import { FactCheckContext, FactCheckSource, RoutingDecision } from './types';
-import { extractRelevantPassages } from '../chunking';
-import { getRootDomain } from '../utils/domain';
+import { logger } from '../logger.js';
+import { extractArticle } from '../extractor.js';
+import { searchInternalSources } from '../rag-service.js';
+import { searchSerper, type SerperSearchResult } from '../serper.js';
+import { classifyAndRoute } from './smart-router.js';
+import { FactCheckContext, FactCheckSource, RoutingDecision } from './types.js';
+import { extractRelevantPassages } from '../chunking.js';
+import { getRootDomain } from '../utils/domain.js';
 
 const MAX_SOURCES = 50;
 const EXTRACTION_CONCURRENCY = 6;

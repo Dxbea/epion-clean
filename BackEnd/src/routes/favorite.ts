@@ -1,9 +1,9 @@
 // BackEnd/src/routes/favorites.ts
 import { Router } from 'express';
-import { prisma } from '../lib/db';
-import { getCurrentUserId } from '../lib/currentUser';
-import { checkAndIncrement } from '../lib/rateLimiter';
-import { logger } from '../lib/logger';
+import { prisma } from '../lib/db.js';
+import { getCurrentUserId } from '../lib/currentUser.js';
+import { checkAndIncrement } from '../lib/rateLimiter.js';
+import { logger } from '../lib/logger.js';
 
 export const router = Router();
 

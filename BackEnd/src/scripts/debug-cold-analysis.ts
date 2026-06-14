@@ -1,6 +1,6 @@
 
-import { evaluateUnknownSource } from "../lib/cold-profiler";
-import { logger } from "../lib/logger";
+import { evaluateUnknownSource } from "../lib/cold-profiler.js";
+import { logger } from "../lib/logger.js";
 
 // Force console logging
 logger.transports.forEach((t) => (t.level = "debug"));

@@ -1,11 +1,11 @@
 // BackEnd/src/routes/comments.ts
 import { Router } from 'express';
-import { prisma } from '../lib/db';
-import { getCurrentUserId } from '../lib/currentUser';
+import { prisma } from '../lib/db.js';
+import { getCurrentUserId } from '../lib/currentUser.js';
 import { ReactionType } from '@prisma/client';
-import { checkAndIncrement } from '../lib/rateLimiter';
-import { sanitizeCommentHtml } from '../lib/sanitizeHtml';
-import { moderationService } from '../services/moderationService';
+import { checkAndIncrement } from '../lib/rateLimiter.js';
+import { sanitizeCommentHtml } from '../lib/sanitizeHtml.js';
+import { moderationService } from '../services/moderationService.js';
 
 
 export const router = Router();

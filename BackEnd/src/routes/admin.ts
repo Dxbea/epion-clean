@@ -1,7 +1,7 @@
 import { Router } from 'express';
-import { prisma } from '../lib/db';
-import { getCurrentUser } from '../lib/currentUser';
-import { recalculateBridgingScores } from '../services/bridgingService';
+import { prisma } from '../lib/db.js';
+import { getCurrentUser } from '../lib/currentUser.js';
+import { recalculateBridgingScores } from '../services/bridgingService.js';
 
 export const router = Router();
 

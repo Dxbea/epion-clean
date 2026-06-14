@@ -1,8 +1,8 @@
 
 import { Router } from 'express';
-import { prisma } from '../lib/db';
-import { getCurrentUserId } from '../lib/currentUser';
-import { checkAndIncrement } from '../lib/rateLimiter';
+import { prisma } from '../lib/db.js';
+import { getCurrentUserId } from '../lib/currentUser.js';
+import { checkAndIncrement } from '../lib/rateLimiter.js';
 
 export const router = Router();
 

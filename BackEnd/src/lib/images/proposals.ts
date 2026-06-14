@@ -1,7 +1,7 @@
 import axios from 'axios';
 import * as cheerio from 'cheerio';
 import { URL } from 'url';
-import { logger } from '../logger';
+import { logger } from '../logger.js';
 
 export interface ImageProposal {
     url: string;

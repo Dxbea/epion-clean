@@ -1,27 +1,27 @@
 // DEBUT BLOC (remplace tout ce qui est entre ce commentaire et "FIN BLOC")
 import { Router } from 'express';
-import { prisma } from '../lib/db';
+import { prisma } from '../lib/db.js';
 import {
   ArticleContributionType,
   ArticleContributionValidationType,
   ArticleStatus,
   Prisma,
 } from '@prisma/client';
-// import { pickDefaultImage } from '../lib/defaultImages';
-import { getCurrentUserId, getCurrentUser } from '../lib/currentUser';
-import { getViewerHash } from '../lib/viewer';
-import { ARTICLE_LIMITS } from '../config/articleLimits';
-import { checkAndIncrement } from '../lib/rateLimiter';
-import { checkArticleQuota } from '../lib/billing-service';
-import { ingestArticle } from '../lib/rag-service';
-import { sanitizeArticleHtml } from '../lib/sanitizeHtml';
-import { logger } from '../lib/logger';
-import { embeddingQueue } from '../lib/queue';
-import { hashAnalysisInput } from '../lib/score-helpers';
+// import { pickDefaultImage } from '../lib/defaultImages.js';
+import { getCurrentUserId, getCurrentUser } from '../lib/currentUser.js';
+import { getViewerHash } from '../lib/viewer.js';
+import { ARTICLE_LIMITS } from '../config/articleLimits.js';
+import { checkAndIncrement } from '../lib/rateLimiter.js';
+import { checkArticleQuota } from '../lib/billing-service.js';
+import { ingestArticle } from '../lib/rag-service.js';
+import { sanitizeArticleHtml } from '../lib/sanitizeHtml.js';
+import { logger } from '../lib/logger.js';
+import { embeddingQueue } from '../lib/queue.js';
+import { hashAnalysisInput } from '../lib/score-helpers.js';
 
 
-import { env } from '../env';
-import { getArticleImageProposals } from '../lib/images/proposals';
+import { env } from '../env.js';
+import { getArticleImageProposals } from '../lib/images/proposals.js';
 
 export const router = Router();
 const COOKIE_NAME = env.COOKIE_NAME || 'epion_session';
@@ -1445,7 +1445,7 @@ router.get('/:id', async (req, res, next) => {
 
 
 /** POST /api/articles  */
-import { createAIArticle, editAIArticle } from '../controllers/articleController';
+import { createAIArticle, editAIArticle } from '../controllers/articleController.js';
 
 // --- POST /api/articles/generate -----------------------------------------
 router.post('/generate', createAIArticle);

@@ -1,8 +1,8 @@
 // DEBUT BLOC (remplace tout ce qui est entre ce commentaire et "FIN BLOC")
 import { Router } from 'express';
-import { prisma } from '../lib/db';
+import { prisma } from '../lib/db.js';
 
-import { env } from '../env';
+import { env } from '../env.js';
 
 export const router = Router();
 const COOKIE_NAME = env.COOKIE_NAME || 'epion_session';

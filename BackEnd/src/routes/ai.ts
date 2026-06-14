@@ -1,14 +1,14 @@
 import { Router } from 'express';
-import { prisma } from '../lib/db';
-import { requireSession } from '../lib/session';
-import { callWebSearchLLM, type WebChatMessage } from '../lib/web-chat';
-import { hasSufficientFunds, chargeUser, COSTS } from '../lib/billing-service';
-import { liveAnalysisQueue } from '../lib/queue';
+import { prisma } from '../lib/db.js';
+import { requireSession } from '../lib/session.js';
+import { callWebSearchLLM, type WebChatMessage } from '../lib/web-chat.js';
+import { hasSufficientFunds, chargeUser, COSTS } from '../lib/billing-service.js';
+import { liveAnalysisQueue } from '../lib/queue.js';
 import type { Prisma } from '@prisma/client';
 import { z } from 'zod';
-import { logger } from '../lib/logger';
-import { normalizeArticleScorePayload } from '../lib/score-helpers';
-import { redis } from '../lib/redis';
+import { logger } from '../lib/logger.js';
+import { normalizeArticleScorePayload } from '../lib/score-helpers.js';
+import { redis } from '../lib/redis.js';
 
 export const router = Router();
 

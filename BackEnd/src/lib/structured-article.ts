@@ -6,7 +6,7 @@ import {
   type StructuredArticleItem,
   type StructuredArticleSection,
   type StructuredArticleSourceRef,
-} from '../types/structured-article';
+} from '../types/structured-article.js';
 
 const SECTION_TYPE_SET = new Set<string>(ARTICLE_SECTION_TYPES);
 

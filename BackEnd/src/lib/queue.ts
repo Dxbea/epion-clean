@@ -1,13 +1,13 @@
 import { Queue } from 'bullmq';
-import { env } from '../env';
-import { logger } from './logger';
+import { env } from '../env.js';
+import { logger } from './logger.js';
 
 const redisUrl = process.env.REDIS_URL || 'redis://localhost:6379';
 
 // Parse redis URL to fit BullMQ connection options if needed, 
 // strictly speaking BullMQ accepts a connection object or URL, but ioredis instance is preferred for reuse
 // Here we will use the connection object approach for simplicity and robustness
-import IORedis from 'ioredis';
+import { Redis as IORedis } from 'ioredis';
 
 const connection = new IORedis(redisUrl, {
     maxRetriesPerRequest: null, // Required by BullMQ

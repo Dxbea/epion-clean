@@ -4,8 +4,8 @@ import { Router } from 'express';
 import { z } from 'zod';
 import bcrypt from 'bcrypt';
 import crypto from 'crypto';
-import { prisma } from '../lib/db';
-import { loginLimiter, forgotLimiter } from '../middleware/limits';
+import { prisma } from '../lib/db.js';
+import { loginLimiter, forgotLimiter } from '../middleware/limits.js';
 import {
   createJwtForSession,
   requireSession,
@@ -13,11 +13,11 @@ import {
   clearSessionCookie,
   invalidateSessionCache,
   invalidateUserSessionCaches,
-} from '../lib/session';
-import { env } from '../env';
-import { sendMail, APP_URL } from '../lib/mailer';
-import { getCurrentUserId } from '../lib/currentUser';
-import { logger } from '../lib/logger';
+} from '../lib/session.js';
+import { env } from '../env.js';
+import { sendMail, APP_URL } from '../lib/mailer.js';
+import { getCurrentUserId } from '../lib/currentUser.js';
+import { logger } from '../lib/logger.js';
 
 
 

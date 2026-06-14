@@ -1,5 +1,5 @@
 import axios from 'axios';
-import { logger } from '../logger';
+import { logger } from '../logger.js';
 
 /**
  * Fetches the main image for a given Wikipedia topic.
