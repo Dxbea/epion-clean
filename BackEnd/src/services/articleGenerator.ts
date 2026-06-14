@@ -1,9 +1,9 @@
-import { callWebSearchLLM, type WebChatMessage } from '../lib/web-chat';
-import { getRichTrustScore } from '../lib/trust-score';
-import { buildArticlePrompt } from '../lib/prompts/articlePrompts';
-import { GenerateArticleRequest } from '../types/article';
-import { analyzeOutputQuality } from '../lib/semantic-scanner';
-import { MODEL_DETAILS, AI_MODELS } from '../config/ai-models';
+import { callWebSearchLLM, type WebChatMessage } from '../lib/web-chat.js';
+import { getRichTrustScore } from '../lib/trust-score.js';
+import { buildArticlePrompt } from '../lib/prompts/articlePrompts.js';
+import { GenerateArticleRequest } from '../types/article.js';
+import { analyzeOutputQuality } from '../lib/semantic-scanner.js';
+import { MODEL_DETAILS, AI_MODELS } from '../config/ai-models.js';
 
 // Legacy single-generation function removed.
 // We now rely entirely on LiveAnalysis for article generation.

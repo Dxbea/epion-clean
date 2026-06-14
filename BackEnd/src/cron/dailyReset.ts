@@ -1,5 +1,5 @@
 import cron from 'node-cron';
-import { prisma } from '../lib/db';
+import { prisma } from '../lib/db.js';
 
 export const initializeCron = () => {
     // Schedule task to run at midnight every day

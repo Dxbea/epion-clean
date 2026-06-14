@@ -1,6 +1,6 @@
 // BackEnd/src/lib/currentUser.ts
-import { prisma } from './db';
-import { requireSession } from './session';
+import { prisma } from './db.js';
+import { requireSession } from './session.js';
 
 export type CurrentUser = {
   id: string;

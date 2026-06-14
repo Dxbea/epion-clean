@@ -1,6 +1,7 @@
 import { Router } from 'express';
-import { prisma } from '../lib/db';
-import { getCurrentUser } from '../lib/currentUser';
+import { prisma } from '../lib/db.js';
+import { getCurrentUser } from '../lib/currentUser.js';
+import { recalculateBridgingScores } from '../services/bridgingService.js';
 
 export const router = Router();
 
@@ -28,6 +29,19 @@ router.post('/admin/fix-authors', async (req, res, next) => {
     });
 
     res.json({ ok: true });
+  } catch (e) {
+    next(e);
+  }
+});
+
+router.post('/admin/recalc-bridging', async (req, res, next) => {
+  try {
+    const user = await getCurrentUser(req, res);
+    if (!user) return res.status(401).json({ error: 'UNAUTHENTICATED' });
+    if (user.role !== 'ADMIN') return res.status(403).json({ error: 'FORBIDDEN' });
+
+    const processed = await recalculateBridgingScores();
+    res.json({ processed });
   } catch (e) {
     next(e);
   }

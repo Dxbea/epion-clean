@@ -1,6 +1,6 @@
 
-import { getRichTrustScore } from "../lib/trust-score";
-import { logger } from "../lib/logger";
+import { getRichTrustScore } from "../lib/trust-score.js";
+import { logger } from "../lib/logger.js";
 import * as fs from 'fs';
 
 // Force console logging

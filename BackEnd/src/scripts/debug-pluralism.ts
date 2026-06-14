@@ -1,5 +1,5 @@
 
-import { analyzePluralism } from "../lib/scanners/pluralism-scanner";
+import { analyzePluralism } from "../lib/scanners/pluralism-scanner.js";
 import fs from 'fs';
 import dotenv from 'dotenv';
 

@@ -1,6 +1,6 @@
 // BackEnd/src/routes/categories.ts
 import { Router } from 'express';
-import { prisma } from '../lib/db';
+import { prisma } from '../lib/db.js';
 
 export const router = Router();
 

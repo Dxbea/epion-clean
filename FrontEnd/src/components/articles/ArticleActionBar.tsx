@@ -1,12 +1,10 @@
 import React, { useState } from 'react';
-import { Sparkles, MessageSquare, MessageCircle, Share2, Info, X, Copy, Check, Highlighter } from 'lucide-react';
+import { Sparkles, MessageSquare, Share2, Info, X, Copy, Check, Highlighter } from 'lucide-react';
 import ReactionButtons from '@/components/ui/ReactionButtons';
 import SaveButton from '@/components/ui/SaveButton';
 
 type Props = {
     articleId: string;
-    onOpenComments: () => void;
-    commentCount?: number;
     onSummarize: () => void;
     onChat: () => void;
     onFactCheck: () => void;
@@ -22,8 +20,6 @@ type Section = 'interactions' | 'summarize' | 'info' | null;
 
 export default function ArticleActionBar({
     articleId,
-    onOpenComments,
-    commentCount = 0,
     onSummarize,
     onChat,
     onFactCheck,
@@ -215,18 +211,6 @@ export default function ArticleActionBar({
                             )}
                         </button>
 
-                        <button
-                            className="group relative flex h-10 w-10 items-center justify-center rounded-full hover:bg-black/5 dark:hover:bg-white/10"
-                            onClick={onOpenComments}
-                            title="Comments"
-                        >
-                            <MessageCircle className="h-5 w-5 text-neutral-400 transition-transform group-hover:scale-110 hover:text-black dark:text-neutral-500 dark:hover:text-white" />
-                            {commentCount > 0 && (
-                                <span className="absolute -right-0 -top-0 flex h-4 w-4 items-center justify-center rounded-full bg-red-500 text-[10px] font-bold text-white shadow-sm">
-                                    {commentCount > 9 ? '9+' : commentCount}
-                                </span>
-                            )}
-                        </button>
                     </div>
 
                     <div className="h-4 w-px bg-neutral-200 dark:bg-neutral-800 mx-1 flex-shrink-0" />

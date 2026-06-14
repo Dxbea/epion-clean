@@ -1,8 +1,8 @@
 import { PoliticalBias, Reliability } from "@prisma/client";
-import { callWebSearchLLM, type WebChatMessage } from "./web-chat";
-import type { FactCheckResult } from "./google-fact-check";
-import { logger } from "./logger";
-import { searchSerper } from "./serper";
+import { callWebSearchLLM, type WebChatMessage } from "./web-chat.js";
+import type { FactCheckResult } from "./google-fact-check.js";
+import { logger } from "./logger.js";
+import { searchSerper } from "./serper.js";
 
 const VALID_SOURCE_TYPES = ["AGENCY", "MEDIA", "ACADEMIC", "GOVERNMENT", "BLOG", "SOCIAL", "COMMERCIAL", "GENERAL"] as const;
 export type SourceType = typeof VALID_SOURCE_TYPES[number];

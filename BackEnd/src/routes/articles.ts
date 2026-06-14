@@ -1,24 +1,100 @@
 // DEBUT BLOC (remplace tout ce qui est entre ce commentaire et "FIN BLOC")
 import { Router } from 'express';
-import { prisma } from '../lib/db';
-import { ArticleStatus, Prisma } from '@prisma/client';
-// import { pickDefaultImage } from '../lib/defaultImages';
-import { getCurrentUserId, getCurrentUser } from '../lib/currentUser';
-import { getViewerHash } from '../lib/viewer';
-import { ARTICLE_LIMITS } from '../config/articleLimits';
-import { checkAndIncrement } from '../lib/rateLimiter';
-import { checkArticleQuota } from '../lib/billing-service';
-import { ingestArticle } from '../lib/rag-service';
-import { sanitizeArticleHtml } from '../lib/sanitizeHtml';
-import { logger } from '../lib/logger';
-import { embeddingQueue } from '../lib/queue';
+import { prisma } from '../lib/db.js';
+import {
+  ArticleContributionType,
+  ArticleContributionValidationType,
+  ArticleStatus,
+  Prisma,
+} from '@prisma/client';
+// import { pickDefaultImage } from '../lib/defaultImages.js';
+import { getCurrentUserId, getCurrentUser } from '../lib/currentUser.js';
+import { getViewerHash } from '../lib/viewer.js';
+import { ARTICLE_LIMITS } from '../config/articleLimits.js';
+import { checkAndIncrement } from '../lib/rateLimiter.js';
+import { checkArticleQuota } from '../lib/billing-service.js';
+import { ingestArticle } from '../lib/rag-service.js';
+import { sanitizeArticleHtml } from '../lib/sanitizeHtml.js';
+import { logger } from '../lib/logger.js';
+import { embeddingQueue } from '../lib/queue.js';
+import { hashAnalysisInput } from '../lib/score-helpers.js';
 
 
-import { env } from '../env';
-import { getArticleImageProposals } from '../lib/images/proposals';
+import { env } from '../env.js';
+import { getArticleImageProposals } from '../lib/images/proposals.js';
 
 export const router = Router();
 const COOKIE_NAME = env.COOKIE_NAME || 'epion_session';
+
+const ALLOWED_OPINION_POSITIONS = [-1, -0.6, -0.2, 0.2, 0.6, 1] as const;
+const DEFAULT_OPINION_QUESTION = {
+  question: 'Les faits présentés relèvent-ils plutôt d’un problème ponctuel ou d’un problème structurel ?',
+  thesisA: 'Plutôt ponctuel',
+  thesisB: 'Plutôt structurel',
+};
+const SOURCE_ONLY_TEXT = 'A source has been proposed for readers to examine.';
+
+function isAllowedOpinionPosition(value: unknown): value is number {
+  return typeof value === 'number' && ALLOWED_OPINION_POSITIONS.some((position) => position === value);
+}
+
+function isContributionType(value: unknown): value is ArticleContributionType {
+  return typeof value === 'string' && Object.values(ArticleContributionType).includes(value as ArticleContributionType);
+}
+
+function isValidationType(value: unknown): value is ArticleContributionValidationType {
+  return typeof value === 'string' && Object.values(ArticleContributionValidationType).includes(value as ArticleContributionValidationType);
+}
+
+function normalizeOptionalUrl(value: unknown): string | null {
+  if (value === undefined || value === null || value === '') return null;
+  if (typeof value !== 'string') return null;
+  const trimmed = value.trim();
+  if (!trimmed) return null;
+  try {
+    return new URL(trimmed).toString();
+  } catch {
+    return null;
+  }
+}
+
+async function findPublishedArticleBySlugOrId(slugOrId: string) {
+  const exact = await prisma.article.findFirst({
+    where: {
+      status: 'PUBLISHED',
+      OR: [
+        { slug: slugOrId },
+        { id: slugOrId },
+      ],
+    },
+    select: { id: true, slug: true },
+  });
+  if (exact) return exact;
+
+  return prisma.article.findFirst({
+    where: {
+      status: 'PUBLISHED',
+      slug: { equals: slugOrId, mode: 'insensitive' },
+    },
+    select: { id: true, slug: true },
+  });
+}
+
+async function getConfirmedLacksContext(articleId: string, userId: string): Promise<boolean> {
+  const opinion = await prisma.articleOpinionPosition.findUnique({
+    where: { articleId_userId: { articleId, userId } },
+    select: { lacksContext: true },
+  });
+  return opinion?.lacksContext === true;
+}
+
+function validationSummary(validations: Array<{ type: ArticleContributionValidationType }>) {
+  return {
+    WELL_SOURCED: validations.filter((validation) => validation.type === 'WELL_SOURCED').length,
+    ADDS_NUANCE: validations.filter((validation) => validation.type === 'ADDS_NUANCE').length,
+    NEEDS_CHECK: validations.filter((validation) => validation.type === 'NEEDS_CHECK').length,
+  };
+}
 
 // --- GET /api/articles/:id/image-proposals ---------------------------
 router.get('/:id/image-proposals', async (req, res, next) => {
@@ -72,7 +148,16 @@ router.put('/:id', async (req, res, next) => {
 
     const existing = await prisma.article.findUnique({
       where: { id },
-      select: { authorId: true, status: true, title: true, content: true },
+      select: {
+        authorId: true,
+        status: true,
+        title: true,
+        summary: true,
+        content: true,
+        structuredContent: true,
+        factCheckContentHash: true,
+        factCheckStatus: true,
+      },
     });
     if (!existing) return res.status(404).json({ error: 'Not Found' });
 
@@ -164,6 +249,27 @@ router.put('/:id', async (req, res, next) => {
         (sanitizedTitle !== undefined && sanitizedTitle !== existing.title) ||
         (sanitizedContent !== undefined && sanitizedContent !== (existing.content ?? null))
       );
+
+    // --- Score invalidation: detect if analyzed content changed ---
+    const contentChanged =
+      (sanitizedTitle !== undefined && sanitizedTitle !== existing.title) ||
+      (typeof summary === 'string' && summary !== (existing.summary ?? '')) ||
+      (sanitizedContent !== undefined && sanitizedContent !== (existing.content ?? null));
+
+    if (contentChanged && existing.factCheckStatus === 'COMPLETED' && existing.factCheckContentHash) {
+      const newHash = hashAnalysisInput({
+        title: sanitizedTitle ?? existing.title,
+        summary: typeof summary === 'string' ? summary : existing.summary,
+        content: sanitizedContent !== undefined ? sanitizedContent : existing.content,
+      });
+      if (newHash !== existing.factCheckContentHash) {
+        (data as any).factCheckStatus = 'STALE';
+      }
+    }
+
+    if (contentChanged && sanitizedContent !== undefined) {
+      (data as any).structuredContent = Prisma.JsonNull;
+    }
 
     const updated = await prisma.article.update({
       where: { id },
@@ -505,11 +611,12 @@ router.get('/', async (req, res, next) => {
         title: true,
         summary: true,
         content: true,
+        structuredContent: true,
         imageUrl: true,
         status: true,
         createdAt: true,
         category: { select: { id: true, slug: true, name: true } },
-        author: { select: { id: true, email: true, name: true, username: true, avatarUrl: true } },
+        author: { select: { id: true, name: true, username: true, avatarUrl: true } },
       },
     });
 
@@ -519,6 +626,7 @@ router.get('/', async (req, res, next) => {
       title: a.title,
       excerpt: a.summary ?? null,
       content: a.content ?? null,
+      structuredContent: a.structuredContent ?? null,
       imageUrl: a.imageUrl ?? null,
       status: a.status,
       publishedAt: a.createdAt.toISOString(),
@@ -627,6 +735,371 @@ router.get('/slug-preview', async (req, res, next) => {
   }
 });
 
+router.get('/:slug/interactions', async (req, res, next) => {
+  try {
+    const article = await findPublishedArticleBySlugOrId(String(req.params.slug));
+    if (!article) return res.status(404).json({ error: 'Article not found' });
+
+    let userId: string | null = null;
+    try {
+      userId = await getCurrentUserId(req, res);
+    } catch {
+      userId = null;
+    }
+
+    const sortMode = req.query.sort === 'recent' ? 'recent' : 'top';
+    const contributionOrderBy = sortMode === 'recent'
+      ? [{ createdAt: 'desc' as const }]
+      : [{ bridgingScore: 'desc' as const }, { createdAt: 'desc' as const }];
+
+    const [opinionQuestion, currentUserOpinionPosition, contributions] = await Promise.all([
+      prisma.articleOpinionQuestion.upsert({
+        where: { articleId: article.id },
+        create: {
+          articleId: article.id,
+          ...DEFAULT_OPINION_QUESTION,
+        },
+        update: {},
+        select: {
+          id: true,
+          articleId: true,
+          question: true,
+          thesisA: true,
+          thesisB: true,
+          createdAt: true,
+          updatedAt: true,
+        },
+      }),
+      userId
+        ? prisma.articleOpinionPosition.findUnique({
+          where: { articleId_userId: { articleId: article.id, userId } },
+          select: {
+            id: true,
+            selectedPosition: true,
+            lacksContext: true,
+            confirmedAt: true,
+            createdAt: true,
+            updatedAt: true,
+          },
+        })
+        : Promise.resolve(null),
+      prisma.articleContribution.findMany({
+        where: { articleId: article.id },
+        orderBy: contributionOrderBy,
+        take: 50,
+        select: {
+          id: true,
+          type: true,
+          text: true,
+          sourceUrl: true,
+          bridgingScore: true,
+          createdAt: true,
+          updatedAt: true,
+          user: { select: { id: true, name: true, username: true, avatarUrl: true } },
+          validations: {
+            select: {
+              type: true,
+              userId: true,
+            },
+          },
+        },
+      }),
+    ]);
+
+    const hasInsufficientContext = currentUserOpinionPosition?.lacksContext === true;
+
+    res.json({
+      sortMode,
+      opinionQuestion: {
+        ...opinionQuestion,
+        createdAt: opinionQuestion.createdAt.toISOString(),
+        updatedAt: opinionQuestion.updatedAt.toISOString(),
+      },
+      allowedPositions: ALLOWED_OPINION_POSITIONS,
+      currentUserOpinionPosition: currentUserOpinionPosition
+        ? {
+          ...currentUserOpinionPosition,
+          confirmedAt: currentUserOpinionPosition.confirmedAt.toISOString(),
+          createdAt: currentUserOpinionPosition.createdAt.toISOString(),
+          updatedAt: currentUserOpinionPosition.updatedAt.toISOString(),
+        }
+        : null,
+      hasInsufficientContext,
+      canContribute: !!userId && !hasInsufficientContext,
+      canValidateContributions: !!userId && !hasInsufficientContext,
+      contributions: contributions.map((contribution) => ({
+        id: contribution.id,
+        type: contribution.type,
+        text: contribution.text,
+        sourceUrl: contribution.sourceUrl,
+        bridgingScore: contribution.bridgingScore,
+        createdAt: contribution.createdAt.toISOString(),
+        updatedAt: contribution.updatedAt.toISOString(),
+        author: contribution.user
+          ? {
+            id: contribution.user.id,
+            name: contribution.user.name,
+            username: contribution.user.username,
+            avatarUrl: contribution.user.avatarUrl,
+          }
+          : null,
+        validationSummary: validationSummary(contribution.validations),
+        currentUserValidations: userId
+          ? contribution.validations
+            .filter((validation) => validation.userId === userId)
+            .map((validation) => validation.type)
+          : [],
+      })),
+    });
+  } catch (e) {
+    next(e);
+  }
+});
+
+router.post('/:slug/opinion-position', async (req, res, next) => {
+  try {
+    let userId: string;
+    try {
+      userId = await getCurrentUserId(req, res);
+    } catch {
+      return res.status(401).json({ error: 'NO_SESSION' });
+    }
+
+    const article = await findPublishedArticleBySlugOrId(String(req.params.slug));
+    if (!article) return res.status(404).json({ error: 'Article not found' });
+
+    const selectedPosition = req.body?.selectedPosition;
+    const lacksContext = req.body?.lacksContext;
+
+    if (typeof lacksContext !== 'boolean') {
+      return res.status(400).json({ error: 'invalid_lacks_context' });
+    }
+
+    const hasSelectedPosition = selectedPosition !== undefined && selectedPosition !== null;
+    if (hasSelectedPosition && lacksContext) {
+      return res.status(400).json({ error: 'opinion_position_mutually_exclusive' });
+    }
+    if (!hasSelectedPosition && !lacksContext) {
+      return res.status(400).json({ error: 'opinion_position_required' });
+    }
+    if (hasSelectedPosition && !isAllowedOpinionPosition(selectedPosition)) {
+      return res.status(400).json({ error: 'invalid_opinion_position' });
+    }
+
+    const existing = await prisma.articleOpinionPosition.findUnique({
+      where: { articleId_userId: { articleId: article.id, userId } },
+      select: { id: true },
+    });
+    if (existing) {
+      return res.status(409).json({ error: 'opinion_position_already_confirmed' });
+    }
+
+    const created = await prisma.articleOpinionPosition.create({
+      data: {
+        articleId: article.id,
+        userId,
+        selectedPosition: hasSelectedPosition ? selectedPosition : null,
+        lacksContext,
+        confirmedAt: new Date(),
+      },
+      select: {
+        id: true,
+        selectedPosition: true,
+        lacksContext: true,
+        confirmedAt: true,
+        createdAt: true,
+        updatedAt: true,
+      },
+    });
+
+    res.status(201).json({
+      ...created,
+      confirmedAt: created.confirmedAt.toISOString(),
+      createdAt: created.createdAt.toISOString(),
+      updatedAt: created.updatedAt.toISOString(),
+      hasInsufficientContext: created.lacksContext,
+      canContribute: !created.lacksContext,
+      canValidateContributions: !created.lacksContext,
+    });
+  } catch (e) {
+    next(e);
+  }
+});
+
+router.post('/:slug/contributions', async (req, res, next) => {
+  try {
+    let userId: string;
+    try {
+      userId = await getCurrentUserId(req, res);
+    } catch {
+      return res.status(401).json({ error: 'NO_SESSION' });
+    }
+
+    const article = await findPublishedArticleBySlugOrId(String(req.params.slug));
+    if (!article) return res.status(404).json({ error: 'Article not found' });
+
+    if (await getConfirmedLacksContext(article.id, userId)) {
+      return res.status(409).json({ error: 'insufficient_context_confirmed' });
+    }
+
+    const { type } = req.body ?? {};
+    if (!isContributionType(type)) {
+      return res.status(400).json({ error: 'invalid_contribution_type' });
+    }
+
+    const rawText = typeof req.body?.text === 'string' ? req.body.text.trim() : '';
+    const sourceUrl = normalizeOptionalUrl(req.body?.sourceUrl);
+
+    if (req.body?.sourceUrl && !sourceUrl) {
+      return res.status(400).json({ error: 'invalid_source_url' });
+    }
+    if (type === ArticleContributionType.SOURCE && !sourceUrl) {
+      return res.status(400).json({ error: 'source_url_required' });
+    }
+    if (type !== ArticleContributionType.SOURCE && !rawText) {
+      return res.status(400).json({ error: 'contribution_text_required' });
+    }
+
+    const text = sanitizeArticleHtml(rawText || SOURCE_ONLY_TEXT).trim();
+    if (!text) {
+      return res.status(400).json({ error: 'contribution_text_required' });
+    }
+    if (text.length > 5000) {
+      return res.status(400).json({ error: 'contribution_text_too_long' });
+    }
+
+    const created = await prisma.articleContribution.create({
+      data: {
+        articleId: article.id,
+        userId,
+        type,
+        text,
+        sourceUrl,
+      },
+      select: {
+        id: true,
+        type: true,
+        text: true,
+        sourceUrl: true,
+        createdAt: true,
+        updatedAt: true,
+        user: { select: { id: true, name: true, username: true, avatarUrl: true } },
+      },
+    });
+
+    res.status(201).json({
+      id: created.id,
+      type: created.type,
+      text: created.text,
+      sourceUrl: created.sourceUrl,
+      createdAt: created.createdAt.toISOString(),
+      updatedAt: created.updatedAt.toISOString(),
+      author: created.user
+        ? {
+          id: created.user.id,
+          name: created.user.name,
+          username: created.user.username,
+          avatarUrl: created.user.avatarUrl,
+        }
+        : null,
+      validationSummary: {
+        WELL_SOURCED: 0,
+        ADDS_NUANCE: 0,
+        NEEDS_CHECK: 0,
+      },
+      currentUserValidations: [],
+    });
+  } catch (e) {
+    next(e);
+  }
+});
+
+router.post('/contributions/:contributionId/validations', async (req, res, next) => {
+  try {
+    let userId: string;
+    try {
+      userId = await getCurrentUserId(req, res);
+    } catch {
+      return res.status(401).json({ error: 'NO_SESSION' });
+    }
+
+    const contributionId = String(req.params.contributionId);
+    const { type } = req.body ?? {};
+    if (!isValidationType(type)) {
+      return res.status(400).json({ error: 'invalid_validation_type' });
+    }
+
+    const contribution = await prisma.articleContribution.findUnique({
+      where: { id: contributionId },
+      select: {
+        id: true,
+        userId: true,
+        articleId: true,
+        article: { select: { status: true } },
+      },
+    });
+    if (!contribution || contribution.article.status !== 'PUBLISHED') {
+      return res.status(404).json({ error: 'Contribution not found' });
+    }
+
+    if (contribution.userId === userId) {
+      return res.status(403).json({ error: 'cannot_validate_own_contribution' });
+    }
+
+    if (await getConfirmedLacksContext(contribution.articleId, userId)) {
+      return res.status(409).json({ error: 'insufficient_context_confirmed' });
+    }
+
+    const existing = await prisma.articleContributionValidation.findUnique({
+      where: { contributionId_userId_type: { contributionId, userId, type } },
+      select: { id: true },
+    });
+
+    if (existing) {
+      await prisma.articleContributionValidation.delete({ where: { id: existing.id } });
+      await prisma.articleContribution.update({
+        where: { id: contributionId },
+        data: { needsRecalc: true },
+      });
+
+      const validations = await prisma.articleContributionValidation.findMany({
+        where: { contributionId },
+        select: { type: true },
+      });
+
+      return res.status(200).json({
+        action: 'REMOVED',
+        type,
+        validationSummary: validationSummary(validations),
+      });
+    }
+
+    const created = await prisma.articleContributionValidation.create({
+      data: { contributionId, userId, type },
+      select: { id: true, type: true, createdAt: true },
+    });
+    await prisma.articleContribution.update({
+      where: { id: contributionId },
+      data: { needsRecalc: true },
+    });
+
+    const validations = await prisma.articleContributionValidation.findMany({
+      where: { contributionId },
+      select: { type: true },
+    });
+
+    return res.status(201).json({
+      action: 'ADDED',
+      id: created.id,
+      type: created.type,
+      createdAt: created.createdAt.toISOString(),
+      validationSummary: validationSummary(validations),
+    });
+  } catch (e) {
+    next(e);
+  }
+});
+
 
 
 
@@ -655,13 +1128,14 @@ router.get('/slug/:slug', async (req, res, next) => {
         title: true,
         summary: true,
         content: true,
+        structuredContent: true,
         imageUrl: true,
         status: true,
         createdAt: true,
         updatedAt: true,
         authorId: true,
         category: { select: { id: true, slug: true, name: true } },
-        author: { select: { id: true, email: true, name: true, username: true, avatarUrl: true } },
+        author: { select: { id: true, name: true, username: true, avatarUrl: true } },
         // AI Fields
         aiSummary: true,
         factCheckScore: true,
@@ -680,13 +1154,14 @@ router.get('/slug/:slug', async (req, res, next) => {
           title: true,
           summary: true,
           content: true,
+          structuredContent: true,
           imageUrl: true,
           status: true,
           createdAt: true,
           updatedAt: true,
           authorId: true,
           category: { select: { id: true, slug: true, name: true } },
-          author: { select: { id: true, email: true, name: true, username: true, avatarUrl: true } },
+          author: { select: { id: true, name: true, username: true, avatarUrl: true } },
           // AI Fields
           aiSummary: true,
           factCheckScore: true,
@@ -719,13 +1194,14 @@ router.get('/slug/:slug', async (req, res, next) => {
           title: true,
           summary: true,
           content: true,
+          structuredContent: true,
           imageUrl: true,
           status: true,
           createdAt: true,
           updatedAt: true,
           authorId: true,
           category: { select: { id: true, slug: true, name: true } },
-          author: { select: { id: true, email: true, name: true, username: true, avatarUrl: true } },
+          author: { select: { id: true, name: true, username: true, avatarUrl: true } },
           // AI Fields
           aiSummary: true,
           factCheckScore: true,
@@ -755,6 +1231,7 @@ router.get('/slug/:slug', async (req, res, next) => {
       title: a.title,
       excerpt: a.summary ?? null,
       content: a.content ?? null,
+      structuredContent: a.structuredContent ?? null,
       imageUrl: a.imageUrl ?? null,
       status: a.status,
       publishedAt: a.createdAt.toISOString(),
@@ -862,6 +1339,7 @@ router.get('/search', async (req, res, next) => {
         title: true,
         summary: true,
         content: true,
+        structuredContent: true,
         imageUrl: true,
         createdAt: true,
         category: {
@@ -876,6 +1354,7 @@ router.get('/search', async (req, res, next) => {
       title: a.title,
       excerpt: a.summary ?? null,
       content: a.content ?? null,
+      structuredContent: a.structuredContent ?? null,
       imageUrl: a.imageUrl ?? null,
       publishedAt: a.createdAt.toISOString(),
       category: a.category
@@ -917,13 +1396,14 @@ router.get('/:id', async (req, res, next) => {
         title: true,
         summary: true,
         content: true,
+        structuredContent: true,
         imageUrl: true,
         createdAt: true,
         updatedAt: true,
         status: true,
         authorId: true,
         category: { select: { id: true, slug: true, name: true } },
-        author: { select: { id: true, email: true, name: true, username: true, avatarUrl: true } },
+        author: { select: { id: true, name: true, username: true, avatarUrl: true } },
       },
     });
 
@@ -965,7 +1445,7 @@ router.get('/:id', async (req, res, next) => {
 
 
 /** POST /api/articles  */
-import { createAIArticle, editAIArticle } from '../controllers/articleController';
+import { createAIArticle, editAIArticle } from '../controllers/articleController.js';
 
 // --- POST /api/articles/generate -----------------------------------------
 router.post('/generate', createAIArticle);

@@ -1,4 +1,4 @@
-import { env } from '../env';
+import { env } from '../env.js';
 
 /**
  * Service de modération via OpenAI
@@ -14,7 +14,7 @@ export const moderationService = {
         // Si pas de clé API configurée, on laisse passer (ou on bloque, selon politique. Ici on log et laisse passer en dev)
         if (!env.OPENAI_API_KEY) {
             console.warn('[Moderation] OPENAI_API_KEY missing. Skipping moderation.');
-            return true;
+            return env.NODE_ENV !== 'production';
         }
 
         try {
@@ -31,7 +31,7 @@ export const moderationService = {
                 console.error(`[Moderation] API Error: ${response.status} ${response.statusText}`);
                 // En cas d'erreur technique, on laisse passer (fail open) ou on bloque (fail closed).
                 // Ici on fail open pour ne pas bloquer les users si l'API OpenAI est down.
-                return true;
+                return env.NODE_ENV !== 'production';
             }
 
             const data = await response.json();
@@ -45,7 +45,7 @@ export const moderationService = {
             return true; // Contenu OK
         } catch (error) {
             console.error('[Moderation] Exception:', error);
-            return true; // Fail open
+            return env.NODE_ENV !== 'production';
         }
     },
 };

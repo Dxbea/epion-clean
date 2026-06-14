@@ -1,7 +1,7 @@
 // BackEnd/src/routes/csrf.ts
 import { Router } from 'express';
-import { requireSession } from '../lib/session';
-import { createCsrfToken } from '../lib/csrf';
+import { requireSession } from '../lib/session.js';
+import { createCsrfToken } from '../lib/csrf.js';
 
 export const router = Router();
 

@@ -1,7 +1,7 @@
 import axios, { type AxiosResponse, type RawAxiosResponseHeaders } from 'axios';
 import { JSDOM } from 'jsdom';
-import { redis } from './redis';
-import logger from './logger';
+import { redis } from './redis.js';
+import logger from './logger.js';
 const log = logger.child({ module: 'Extractor' });
 
 export interface ExtractedDocument {

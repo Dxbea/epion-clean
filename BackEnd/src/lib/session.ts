@@ -1,10 +1,10 @@
 // BackEnd/src/lib/session.ts
 import { Request, Response } from 'express';
 import jwt from 'jsonwebtoken';
-import { prisma } from './db';
-import { env } from '../env';
-import { logger } from './logger';
-import { redis } from './redis';
+import { prisma } from './db.js';
+import { env } from '../env.js';
+import { logger } from './logger.js';
+import { redis } from './redis.js';
 
 const COOKIE_NAME = env.COOKIE_NAME || 'epion_session';
 
@@ -20,6 +20,11 @@ if (
 
 const JWT_SECRET = env.JWT_SECRET || 'dev-secret-change-me';
 const COOKIE_MAX_AGE = 1000 * 60 * 60 * 24 * 7; // 7 jours
+const SESSION_CACHE_TTL_SECONDS = 600;
+
+function getSessionCacheKey(sessionId: string) {
+  return `session:${sessionId}`;
+}
 
 export function createJwtForSession(userId: string, sessionId: string) {
   return jwt.sign({ sub: userId, sid: sessionId }, JWT_SECRET, {
@@ -42,6 +47,28 @@ export function clearSessionCookie(res: Response) {
   res.clearCookie(COOKIE_NAME, { path: '/' });
 }
 
+export async function invalidateSessionCache(sessionId: string): Promise<void> {
+  try {
+    await redis.del(getSessionCacheKey(sessionId));
+  } catch (err) {
+    logger.warn('Redis session invalidation failed', { module: 'Session', sessionId, error: err });
+  }
+}
+
+export async function invalidateUserSessionCaches(userId: string): Promise<void> {
+  try {
+    const sessions = await prisma.session.findMany({
+      where: { userId },
+      select: { id: true },
+    });
+    if (sessions.length === 0) return;
+
+    await redis.del(...sessions.map((session) => getSessionCacheKey(session.id)));
+  } catch (err) {
+    logger.warn('Redis user session invalidation failed', { module: 'Session', userId, error: err });
+  }
+}
+
 export async function requireSession(
   req: Request,
   res: Response,
@@ -60,7 +87,7 @@ export async function requireSession(
       sid: string;
     };
 
-    const cacheKey = `session:${decoded.sid}`;
+    const cacheKey = getSessionCacheKey(decoded.sid);
 
     // 1. Try Redis
     try {
@@ -76,7 +103,7 @@ export async function requireSession(
 
     const sess = await prisma.session.findUnique({
       where: { id: decoded.sid },
-      select: { id: true, userId: true, expiresAt: true },
+      select: { id: true, userId: true, expiresAt: true, revokedAt: true },
     });
 
     if (!sess) {
@@ -97,7 +124,7 @@ export async function requireSession(
 
     // 3. Cache result
     try {
-      await redis.set(cacheKey, JSON.stringify({ id: sess.id, userId: sess.userId }), 'EX', 600); // 10 mins
+      await redis.set(cacheKey, JSON.stringify({ id: sess.id, userId: sess.userId }), 'EX', SESSION_CACHE_TTL_SECONDS);
     } catch (err) {
       logger.warn('Redis set failed', { module: 'Session', error: err });
     }

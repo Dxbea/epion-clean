@@ -33,6 +33,14 @@ enum ArticleStatus {
   ARCHIVED
 }
 
+enum FactCheckStatus {
+  PENDING
+  RUNNING
+  COMPLETED
+  FAILED
+  STALE
+}
+
 model User {
   id           String   @id @default(cuid())
   email        String   @unique
@@ -53,6 +61,9 @@ model User {
   Session     Session[]
   comments    Comment[]         @relation("UserComments")
   reactions   ArticleReaction[] @relation("UserReactions")
+  opinionPositions ArticleOpinionPosition[] @relation("UserArticleOpinionPositions")
+  contributions    ArticleContribution[]    @relation("UserArticleContributions")
+  contributionValidations ArticleContributionValidation[] @relation("UserArticleContributionValidations")
   ArticleView ArticleView[]
   ChatFolder  ChatFolder[]
 
@@ -175,6 +186,7 @@ model Article {
   title     String
   summary   String?
   content   String?
+  structuredContent Json?
   status    ArticleStatus @default(DRAFT)
   imageUrl  String?
   createdAt DateTime      @default(now())
@@ -200,14 +212,22 @@ model Article {
   aiLockedFields    Json? // ex: ["title", "summary", "content"]
 
   // IA Results Persistence
-  aiSummary       String?   @db.Text
-  factCheckScore  Int?
-  factCheckData   Json?     // Stores full JSON analysis (sources, segments, breakdown)
+  aiSummary            String?          @db.Text
+  factCheckScore       Int?
+  factCheckData        Json?            // Stores full JSON analysis (v1: ArticleScorePayload)
+  factCheckStatus      FactCheckStatus? // Lifecycle: PENDING → RUNNING → COMPLETED | FAILED | STALE
+  factCheckContentHash String?          // SHA-256 of analysis input for invalidation detection
+  factCheckStartedAt   DateTime?
+  factCheckCompletedAt DateTime?
+  factCheckError       String?          // Error message if status=FAILED
 
   // 🔥 Add these two back-relations:
   comments  Comment[]         @relation("ArticleComments")
   reactions ArticleReaction[] @relation("ArticleReactions")
   reposts   Repost[]
+  opinionQuestion  ArticleOpinionQuestion?
+  opinionPositions ArticleOpinionPosition[]
+  contributions    ArticleContribution[]
 
   // RAG / Indexing
   isIndexed       Boolean         @default(false)
@@ -272,6 +292,85 @@ enum ReactionType {
   HEART
   FIRE
   THINK
+}
+
+enum ArticleContributionType {
+  SOURCE
+  NUANCE
+  CONTRADICTION
+  QUESTION
+  CORRECTION
+}
+
+enum ArticleContributionValidationType {
+  WELL_SOURCED
+  ADDS_NUANCE
+  NEEDS_CHECK
+}
+
+model ArticleOpinionQuestion {
+  id        String   @id @default(cuid())
+  articleId String   @unique
+  question  String
+  thesisA   String
+  thesisB   String
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  article Article @relation(fields: [articleId], references: [id], onDelete: Cascade)
+}
+
+model ArticleOpinionPosition {
+  id               String    @id @default(cuid())
+  articleId        String
+  userId           String
+  selectedPosition Float?
+  lacksContext     Boolean   @default(false)
+  confirmedAt      DateTime
+  createdAt        DateTime  @default(now())
+  updatedAt        DateTime  @updatedAt
+
+  article Article @relation(fields: [articleId], references: [id], onDelete: Cascade)
+  user    User    @relation("UserArticleOpinionPositions", fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([articleId, userId])
+  @@index([userId])
+}
+
+model ArticleContribution {
+  id            String                  @id @default(cuid())
+  articleId     String
+  userId        String
+  type          ArticleContributionType
+  text          String
+  sourceUrl     String?
+  needsRecalc   Boolean                 @default(false)
+  bridgingScore Float                   @default(0)
+  createdAt     DateTime                @default(now())
+  updatedAt     DateTime                @updatedAt
+
+  article     Article                         @relation(fields: [articleId], references: [id], onDelete: Cascade)
+  user        User                            @relation("UserArticleContributions", fields: [userId], references: [id], onDelete: Cascade)
+  validations ArticleContributionValidation[]
+
+  @@index([articleId, bridgingScore(sort: Desc), createdAt(sort: Desc)])
+  @@index([articleId, createdAt])
+  @@index([needsRecalc])
+  @@index([userId])
+}
+
+model ArticleContributionValidation {
+  id             String                            @id @default(cuid())
+  contributionId String
+  userId         String
+  type           ArticleContributionValidationType
+  createdAt      DateTime                          @default(now())
+
+  contribution ArticleContribution @relation(fields: [contributionId], references: [id], onDelete: Cascade)
+  user         User                @relation("UserArticleContributionValidations", fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([contributionId, userId, type])
+  @@index([userId])
 }
 
 model Comment {

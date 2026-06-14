@@ -1,5 +1,5 @@
-import { prisma } from '../lib/db';
-import { getArticleImageProposals } from '../lib/images/proposals';
+import { prisma } from '../lib/db.js';
+import { getArticleImageProposals } from '../lib/images/proposals.js';
 
 async function main() {
   const article = await prisma.article.findFirst({

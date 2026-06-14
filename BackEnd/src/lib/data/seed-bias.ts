@@ -1,5 +1,5 @@
-import { prisma } from '../db';
-import { KNOWN_MEDIA } from './known-media';
+import { prisma } from '../db.js';
+import { KNOWN_MEDIA } from './known-media.js';
 import { PoliticalBias, Reliability } from '@prisma/client';
 
 async function main() {

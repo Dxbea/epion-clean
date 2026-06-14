@@ -1,7 +1,7 @@
 import { Router } from 'express';
-import { prisma } from '../lib/db';
-import { getCurrentUserId } from '../lib/currentUser';
-import * as userController from '../controllers/userController';
+import { prisma } from '../lib/db.js';
+import { getCurrentUserId } from '../lib/currentUser.js';
+import * as userController from '../controllers/userController.js';
 
 export const router = Router();
 

@@ -1,24 +1,24 @@
 // DEBUT BLOC (remplace tout)
 import { Router, type Request } from 'express';
-import { prisma } from '../lib/db';
-import { getCurrentUserId } from '../lib/currentUser';
+import { prisma } from '../lib/db.js';
+import { getCurrentUserId } from '../lib/currentUser.js';
 import {
   CHAT_LIMITS,
   DEFAULT_PLAN,
   type PlanId,
   type ChatLimits,
-} from '../config/chatLimits';
-import { hasSufficientFunds, chargeUser, COSTS } from '../lib/billing-service';
+} from '../config/chatLimits.js';
+import { hasSufficientFunds, chargeUser, COSTS } from '../lib/billing-service.js';
 import { PlanType } from '@prisma/client';
-import { analyzeOutputQuality } from '../lib/semantic-scanner';
-import { ChatOptions } from '../types/chat';
+import { analyzeOutputQuality } from '../lib/semantic-scanner.js';
+import { ChatOptions } from '../types/chat.js';
 import OpenAI from 'openai';
-import { searchSimilarChunks } from '../lib/rag-service';
-import { logger } from '../lib/logger';
-import { redis } from '../lib/redis';
-import { prepareChatAttachment, type PreparedChatAttachment } from '../lib/chat-attachments';
-import { chatAttachmentUpload } from '../middleware/chat-upload';
-import { enrichChatSources } from '../lib/chat-source-enrichment';
+import { searchSimilarChunks } from '../lib/rag-service.js';
+import { logger } from '../lib/logger.js';
+import { redis } from '../lib/redis.js';
+import { prepareChatAttachment, type PreparedChatAttachment } from '../lib/chat-attachments.js';
+import { chatAttachmentUpload } from '../middleware/chat-upload.js';
+import { enrichChatSources } from '../lib/chat-source-enrichment.js';
 import {
   formatWebSourcesForPrompt,
   generateWebSystemPrompt,
@@ -29,7 +29,8 @@ import {
   isConversationalQuery,
   type WebChatMessage,
   type WebPromptMode,
-} from '../lib/web-chat';
+} from '../lib/web-chat.js';
+import { buildAnswerScorePayload } from '../lib/score-helpers.js';
 
 // OpenAI Client for RAG mode (fast)
 // Verify API Key availability
@@ -783,15 +784,16 @@ CONSIGNES DE RÉPONSE :
 
       // Mode RAG: citation-based sourcing score
       outputAnalysis = analyzeOutputQuality(rawAnswer);
-      outputScore = outputAnalysis.score;
-      logger.info('AI Output Sourcing Score', {
-        module: 'Chat',
+
+      const answerResult = buildAnswerScorePayload({
+        sourcesMean: 0,
+        outputScore: outputAnalysis.score,
         mode: 'fast',
-        sessionId,
-        userId,
-        citationScore: outputScore,
+        hasRagChunks: contextChunks.length > 0,
+        outputAnalysis,
       });
-      finalGlobalScore = contextChunks.length > 0 ? outputScore : Math.min(outputScore, 70);
+      outputScore = outputAnalysis.score;
+      finalGlobalScore = answerResult.score ?? 0;
 
       // Sources = Deduplicated internal sources used in context
       const uniqueSources = new Map();
@@ -1073,18 +1075,16 @@ ${formatWebSourcesForPrompt(promptSources)}`;
       }
 
       outputAnalysis = analyzeOutputQuality(rawAnswer);
-      outputScore = outputAnalysis.score;
-      logger.info('AI Output Sourcing Score', {
-        module: 'Chat',
+
+      const webAnswerPayload = buildAnswerScorePayload({
+        sourcesMean,
+        outputScore: outputAnalysis.score,
         mode: 'web',
-        sessionId,
-        userId,
-        citationScore: outputScore,
+        hasRagChunks: false,
+        outputAnalysis,
       });
-      finalGlobalScore = Math.max(
-        0,
-        Math.min(100, Math.round((sourcesMean * 0.75) + (outputScore * 0.25)))
-      );
+      outputScore = outputAnalysis.score;
+      finalGlobalScore = webAnswerPayload.score ?? 0;
     }
 
     // =========================================================================
@@ -1099,25 +1099,21 @@ ${formatWebSourcesForPrompt(promptSources)}`;
     }
 
     // Save to DB
+    const answerPayload = buildAnswerScorePayload({
+      sourcesMean,
+      outputScore,
+      mode: mode as 'fast' | 'web',
+      hasRagChunks: mode === 'fast' && sources.length > 0,
+      outputAnalysis,
+    });
+
     const aiMsg = await prisma.chatMessage.create({
       data: {
         sessionId,
         role: 'assistant',
         content: rawAnswer,
         sources: sources,
-        metadata: {
-          factScore: finalGlobalScore,
-          mode: mode,
-          calculation: {
-            sourcesMean,
-            outputScore,
-            sourceWeight: 0.75,
-            outputWeight: 0.25,
-            finalScore: finalGlobalScore,
-            formula: 'weighted-source-output-v1'
-          },
-          outputAnalysis: outputAnalysis
-        }
+        metadata: answerPayload,
       } as any,
       select: { id: true, content: true, sources: true, metadata: true, createdAt: true } as any,
     }) as any;

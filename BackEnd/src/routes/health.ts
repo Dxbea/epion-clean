@@ -1,9 +1,10 @@
 import { Router } from 'express';
-import { prisma } from '../lib/db';
+import { prisma } from '../lib/db.js';
 import OpenAI from 'openai';
 import os from 'os';
-import { logger } from '../lib/logger';
-import { probeSerper } from '../lib/serper';
+import { logger } from '../lib/logger.js';
+import { probeSerper } from '../lib/serper.js';
+import { getCurrentUser } from '../lib/currentUser.js';
 
 export const router = Router();
 
@@ -20,7 +21,16 @@ router.get('/', (_req, res) => {
   res.json({ status: 'ok' });
 });
 
-router.get('/diagnostics', async (req, res) => {
+router.get('/diagnostics', async (req, res, next) => {
+  let user;
+  try {
+    user = await getCurrentUser(req, res);
+  } catch (error) {
+    return next(error);
+  }
+  if (!user) return res.status(401).json({ error: 'UNAUTHENTICATED' });
+  if (user.role !== 'ADMIN') return res.status(403).json({ error: 'FORBIDDEN' });
+
   const start = Date.now();
 
   // Timeout wrapper

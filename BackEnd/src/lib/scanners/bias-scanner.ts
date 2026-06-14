@@ -1,11 +1,11 @@
 import { PoliticalBias, Reliability, PrismaClient } from "@prisma/client";
-import { KNOWN_MEDIA } from "../data/known-media";
+import { KNOWN_MEDIA } from "../data/known-media.js";
 
 // Use a local prisma instance or import from db.ts if available (avoiding circular deps if db.ts imports this)
 // Ideally pass prisma client or use singleton. 
 // Let's assume we can instantiate for now or import from ../db if no cycle.
 // Checking file list... db.ts exists.
-import { prisma } from "../db";
+import { prisma } from "../db.js";
 
 export async function analyzeBias(domain: string): Promise<{
     bias: PoliticalBias,

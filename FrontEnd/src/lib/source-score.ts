@@ -1,3 +1,16 @@
+/**
+ * @deprecated — This file is DEPRECATED as of the Scoring Consolidation project.
+ *
+ * Score computation is now handled exclusively by the backend (score-helpers.ts).
+ * The frontend reads backend-provided trustScore values via source-ui.ts.
+ *
+ * These functions are preserved temporarily for backward compatibility with
+ * any code paths that haven't been migrated yet. They should NOT be used
+ * in new code.
+ *
+ * To remove: Verify that no imports remain, then delete this file.
+ */
+
 export type SourceMetricsLike = {
     transparency?: number;
     editorial?: number;
@@ -17,6 +30,7 @@ function normalizeScore(score: unknown): number | null {
     return typeof score === 'number' && Number.isFinite(score) ? Math.round(score) : null;
 }
 
+/** @deprecated Use backend trustScore directly instead. */
 export function computeSourceAnalysisScore(metrics: SourceMetricsLike): number | null {
     if (!metrics) {
         return null;
@@ -39,6 +53,7 @@ export function computeSourceAnalysisScore(metrics: SourceMetricsLike): number |
     return Math.round((transparency + editorial + semantic + logic) / 4);
 }
 
+/** @deprecated Use backend trustScore directly instead. */
 export function computeSourceFactScore(input: {
     reputationScore?: number | null;
     analysisScore?: number | null;

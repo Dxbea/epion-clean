@@ -1,4 +1,4 @@
-﻿import { callWebSearchLLM } from './lib/web-chat';
+import { callWebSearchLLM } from './lib/web-chat.js';
 console.log('--- TEST START ---');
 callWebSearchLLM([{ role: 'user', content: 'Hello' }], { useSearch: false })
     .then((res) => {

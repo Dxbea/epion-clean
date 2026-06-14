@@ -7,11 +7,11 @@
  * 
  * v3.0 — Article generation merged into the Primary Judge call.
  */
-import { logger } from '../logger';
-import { investigateArticle } from './fact-investigator';
-import { runPrimaryJudge, runPrimaryJudgeWithGeneration } from './primary-judge';
-import { runAuditorJudge } from './auditor-judge';
-import { LiveAnalysisResult, PillarScore, ContentIntent, calculateWeightedScore } from './types';
+import { logger } from '../logger.js';
+import { investigateArticle } from './fact-investigator.js';
+import { runPrimaryJudge, runPrimaryJudgeWithGeneration } from './primary-judge.js';
+import { runAuditorJudge } from './auditor-judge.js';
+import { LiveAnalysisResult, PillarScore, ContentIntent, calculateWeightedScore } from './types.js';
 
 /**
  * Run the full live analysis pipeline on an EXISTING article.

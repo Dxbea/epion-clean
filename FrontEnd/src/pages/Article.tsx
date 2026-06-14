@@ -3,19 +3,22 @@ import { Link, useParams, useNavigate } from 'react-router-dom';
 import SectionHeader from '@/components/SectionHeader';
 import ArticleCard from '@/components/articles/ArticleCard';
 import ArticleThumbnail from '@/components/articles/ArticleThumbnail';
+import ArticleInteractionSpace from '@/components/articles/ArticleInteractionSpace';
 import { API_BASE } from '@/config/api';
 import { useMe } from '@/contexts/MeContext';
-import CommentsDrawer from '@/components/articles/CommentsDrawer';
 import ArticleActionBar from '@/components/articles/ArticleActionBar';
 import TrustHeader from '@/components/shared/TrustHeader';
 import { GlobalTrustScoreModal } from '@/components/chat/trust-score-ui/GlobalTrustScoreModal';
-import { useComments } from '@/hooks/useComments';
 import Modal from '@/components/ui/Modal';
 import SourceCard from '../components/chat/SourceCard';
 import MarkdownRenderer from '@/components/shared/MarkdownRenderer';
+import StructuredArticleRenderer from '@/components/articles/StructuredArticleRenderer';
 import type { Article as CardArticle } from '@/types/article';
-import { computeSourceAnalysisScore, computeSourceFactScore } from '@/lib/source-score';
-import { parsePotentialSources, resolveSourceDomain } from '@/lib/source-ui';
+import type { StructuredArticleClaim, StructuredArticleContent } from '@/types/structuredArticle';
+import { normalizeSourceForUi, parsePotentialSources } from '@/lib/source-ui';
+import { deriveSupportLevelFromScore } from '@/lib/score-labels';
+import { claimsForSource, getSourceKey, isStructuredArticleContent } from '@/lib/structured-article';
+import { useI18n } from '@/i18n/I18nContext';
 
 type LoadedArticle = {
   id: string;
@@ -23,6 +26,7 @@ type LoadedArticle = {
   title: string;
   excerpt: string | null;
   content: string | null;
+  structuredContent: StructuredArticleContent | null;
   imageUrl: string | null;
   publishedAt: string;
   category: { id: string; slug: string; name: string } | null;
@@ -38,6 +42,7 @@ export default function Article() {
   const { slug = '' } = useParams();
   const navigate = useNavigate();
   const { me } = useMe();
+  const { t } = useI18n();
 
   const [article, setArticle] = React.useState<LoadedArticle | null>(null);
   const [related, setRelated] = React.useState<CardArticle[]>([]);
@@ -56,7 +61,8 @@ export default function Article() {
   const [showPrompt, setShowPrompt] = React.useState(false);
   const [isHighlighting, setIsHighlighting] = React.useState(false);
   const [activeModal, setActiveModal] = React.useState<'sources' | 'reliability' | null>(null);
-  const [focusedSourceId, setFocusedSourceId] = React.useState<number | null>(null);
+  const [focusedSourceKey, setFocusedSourceKey] = React.useState<string | null>(null);
+  const [selectedClaim, setSelectedClaim] = React.useState<StructuredArticleClaim | null>(null);
   const [factCheckResult, setFactCheckResult] = React.useState<any | null>(null);
   const [factCheckLoading, setFactCheckLoading] = React.useState(false);
   const [factCheckError, setFactCheckError] = React.useState<string | null>(null);
@@ -75,106 +81,56 @@ export default function Article() {
   const topLevelTransparencyData = React.useMemo(() => {
     if (!article) return null;
 
-    // 1. STRATÉGIE DE RÉCUPÉRATION
+    // 1. Parse sources from backend payload
     const parsedData = parsePotentialSources(article.sources || article.factCheckData || []);
 
-    // 3. NORMALISATION
-    const normalized = parsedData.map((s: any) => {
-      const domainVal = resolveSourceDomain(s);
-      const trustScore = typeof s.trustScore === 'number'
-        ? s.trustScore
-        : typeof s.metadata?.dbScore === 'number'
-          ? s.metadata.dbScore
-          : typeof s.dbScore === 'number'
-            ? s.dbScore
-            : typeof s.score === 'number'
-              ? s.score
-              : null;
-      const scoreVal = trustScore;
+    // 2. Normalize for UI display (no score recalculation)
+    const normalized = parsedData.map((s: any) =>
+      normalizeSourceForUi(s, 'Source analysée par Epion.')
+    );
 
-      // Fallback: Generate explanation if missing (Legacy Data Support)
-      const hasExplanation = s.explanation || s.metadata?.explanation;
-      const finalExplanation = hasExplanation || {
-        formula: "70% Base de données + 30% Analyse Live",
-        sources: ["Audit Epion (Legacy)"],
-        livePenalties: [],
-        pillarWeights: { transparency: "20%", editorial: "30%", semantic: "30%", pluralism: "20%" }
-      };
-
-      // 3.1 CALCUL HYBRIDE (70% Réputation + 30% Analyse Live)
-      const metrics = s.metrics || s.metric;
-      const analysisScore = computeSourceAnalysisScore(metrics);
-
-      const sourceScore = computeSourceFactScore({
-        reputationScore: typeof s.metadata?.dbScore === 'number'
-          ? s.metadata.dbScore
-          : typeof s.dbScore === 'number'
-            ? s.dbScore
-            : scoreVal,
-        analysisScore,
-      });
-
-      // Si on a les deux, on applique la pondération
-
-      return {
-        ...s,
-        domain: domainVal,
-        score: sourceScore.finalScore,
-        url: s.url || s.link || "#",
-        description: s.description || "Source analysée par Epion.",
-        name: domainVal,
-        trustScore,
-        type: s.type || s.category || "GENERAL",
-        category: s.category || s.type || "GENERAL",
-        logo: s.logo || `https://www.google.com/s2/favicons?domain=${domainVal !== "Source inconnue" ? domainVal : 'example.com'}`,
-        flags: s.flags || { isAdsTxtValid: true, isClickbait: false, isPlatform: false },
-        dbScore: sourceScore.reputationScore || undefined,
-        reliability: s.metadata?.reliability || s.reliability || undefined, // FIX: Pass Reliability
-        biasScore: s.metadata?.biasScore || s.biasScore || undefined, // FIX: Pass Bias Score
-        country: s.metadata?.country || s.country || "FR",
-        politicalBias: s.metadata?.politicalBias || s.politicalBias || "UNKNOWN",
-        metric: metrics,
-        metrics,
-        explanation: finalExplanation,
-        reputationScore: sourceScore.reputationScore,
-        analysisScore: sourceScore.analysisScore
-      };
-    });
-
-    const scores = normalized
-      .map(s => (typeof s.trustScore === 'number' ? s.trustScore : typeof s.score === 'number' ? s.score : null))
-      .filter((score): score is number => typeof score === 'number');
-    const fallbackSourceMean = scores.length > 0 ? Math.round(scores.reduce((a, b) => a + b, 0) / scores.length) : 0;
+    // 3. Read scores from backend payload (backend is source of truth)
     const storedFactData = article.factCheckData && !Array.isArray(article.factCheckData) ? article.factCheckData : null;
+
+    // Score: v1 payload → legacy payload → DB field
+    const factScore = typeof storedFactData?.score === 'number'
+      ? storedFactData.score
+      : typeof storedFactData?.factScore === 'number'
+        ? storedFactData.factScore
+        : typeof article.factCheckScore === 'number'
+          ? article.factCheckScore
+          : null;
+
+    // Source mean: read from calculation, no recalculation
     const rawSourceScore = typeof storedFactData?.calculation?.sourcesMean === 'number'
       ? storedFactData.calculation.sourcesMean
       : typeof storedFactData?.sourcesMean === 'number'
         ? storedFactData.sourcesMean
-        : fallbackSourceMean;
-    const outputScore = typeof storedFactData?.calculation?.liveScore === 'number'
-      ? storedFactData.calculation.liveScore
-      : typeof storedFactData?.liveScore === 'number'
-        ? storedFactData.liveScore
-        : typeof storedFactData?.liveAnalysis?.judges?.auditor?.globalScore === 'number'
-          ? storedFactData.liveAnalysis.judges.auditor.globalScore
-          : typeof storedFactData?.liveAnalysis?.judges?.primary?.globalScore === 'number'
-            ? storedFactData.liveAnalysis.judges.primary.globalScore
-            : typeof article.factCheckScore === 'number'
-              ? article.factCheckScore
-              : 0;
-    const factScore = typeof storedFactData?.factScore === 'number'
-      ? storedFactData.factScore
-      : typeof article.factCheckScore === 'number'
-        ? article.factCheckScore
-        : rawSourceScore > 0
-          ? Math.round((rawSourceScore * 0.75) + (outputScore * 0.25))
-          : outputScore;
+        : 0;
+
+    // Content score (liveScore / contentScore)
+    const outputScore = typeof storedFactData?.calculation?.contentScore === 'number'
+      ? storedFactData.calculation.contentScore
+      : typeof storedFactData?.calculation?.liveScore === 'number'
+        ? storedFactData.calculation.liveScore
+        : typeof storedFactData?.liveScore === 'number'
+          ? storedFactData.liveScore
+          : 0;
+
+    // Support level: read from payload or derive from score (fallback)
+    const supportLevel = storedFactData?.supportLevel || deriveSupportLevelFromScore(factScore);
+
+    // Status: read from article field (DB is source of truth)
+    const factCheckStatus = (article as any).factCheckStatus || storedFactData?.status || null;
+
     return {
       factScore,
       rawSourceScore,
       outputScore,
+      supportLevel,
+      factCheckStatus,
       sources: normalized,
-      liveAnalysis: storedFactData?.liveAnalysis || null
+      liveAnalysis: storedFactData?.liveAnalysis || null,
     };
   }, [article]); // Safe dependency (article is state)
 
@@ -288,6 +244,7 @@ export default function Article() {
           title: data.title,
           excerpt: data.excerpt ?? null,
           content: data.content ?? null,
+          structuredContent: isStructuredArticleContent(data.structuredContent) ? data.structuredContent : null,
           imageUrl: data.imageUrl ?? null,
           publishedAt: data.publishedAt ?? new Date().toISOString(),
           category: data.category,
@@ -408,10 +365,6 @@ export default function Article() {
   }, [article?.category?.name, article?.id]);
 
   // ----------------------------------------
-  // Hooks pour commentaires (lifted state)
-  // ----------------------------------------
-  const commentsApi = useComments(article?.id);
-  const [isCommentsOpen, setIsCommentsOpen] = React.useState(false);
 
   // ----------------------------------------
   // Déterminer si le user est l'auteur
@@ -560,8 +513,18 @@ export default function Article() {
   };
 
   const handleSourceClick = (id: number) => {
-    setFocusedSourceId(id);
+    setFocusedSourceKey(String(id));
+    setSelectedClaim(null);
     setActiveModal('sources');
+  };
+
+  const handleStructuredSourceClick = (sourceKey: string) => {
+    setFocusedSourceKey(sourceKey);
+    setActiveModal('sources');
+  };
+
+  const handleClaimClick = (claim: StructuredArticleClaim) => {
+    setSelectedClaim(claim);
   };
 
   // ----------------------------------------
@@ -589,10 +552,17 @@ export default function Article() {
     );
   }
 
-  const { title, content, excerpt, publishedAt, imageUrl, category, author } = article;
+  const { title, content, structuredContent, excerpt, publishedAt, imageUrl, category, author } = article;
   const transparencyData = topLevelTransparencyData;
   const displayScore = transparencyData?.factScore || 0;
   const normalizedSources = transparencyData?.sources || [];
+  const focusedSourceIndex = normalizedSources.findIndex((source: any, index: number) => {
+    return getSourceKey(source, index) === focusedSourceKey || String(source.id) === focusedSourceKey;
+  });
+  const focusedSource = focusedSourceIndex >= 0 ? normalizedSources[focusedSourceIndex] : null;
+  const focusedSourceClaims = structuredContent && focusedSource
+    ? claimsForSource(structuredContent.claims, focusedSource, focusedSourceIndex)
+    : [];
 
   return (
     <>
@@ -792,7 +762,16 @@ export default function Article() {
         )}
 
         <article className="mt-8">
-          {content ? (
+          {structuredContent ? (
+            <StructuredArticleRenderer
+              article={structuredContent}
+              sources={normalizedSources}
+              selectedSourceKey={focusedSourceKey}
+              selectedClaimId={selectedClaim?.id || null}
+              onSourceClick={handleStructuredSourceClick}
+              onClaimClick={handleClaimClick}
+            />
+          ) : content ? (
             <MarkdownRenderer
               content={content}
               isHighlightActive={isHighlightActive}
@@ -812,6 +791,8 @@ export default function Article() {
           )}
         </article>
 
+        <ArticleInteractionSpace articleSlug={slug} />
+
         {/* Related */}
         {related.length > 0 && (
           <section className="space-y-4 pt-10 border-t border-black/5 dark:border-white/5">
@@ -828,8 +809,6 @@ export default function Article() {
       {/* Action Bar & Drawer */}
       <ArticleActionBar
         articleId={article.id}
-        onOpenComments={() => setIsCommentsOpen(true)}
-        commentCount={commentsApi.items.length}
         onSummarize={handleSummarize}
         onChat={handleChat}
         onFactCheck={handleFactCheck}
@@ -843,29 +822,60 @@ export default function Article() {
         }}
       />
 
-      <CommentsDrawer
-        articleId={article.id}
-        isOpen={isCommentsOpen}
-        onClose={() => setIsCommentsOpen(false)}
-        {...commentsApi}
-      />
-
       <Modal
         isOpen={activeModal === 'sources'}
         onClose={() => {
           setActiveModal(null);
-          setFocusedSourceId(null);
+          setFocusedSourceKey(null);
+          setSelectedClaim(null);
         }}
-        title="Sources utilisées"
+        title={t('article_sources_used')}
         size="large"
       >
         <div className="text-sm text-black/70 dark:text-white/70 h-full">
-          <div className="flex flex-col space-y-3 h-full overflow-y-auto pr-2 pb-4">
-            {normalizedSources.map((s: any, index: number) => (
-              <div key={s.id || index}>
-                <SourceCard source={s} isFocused={s.id === focusedSourceId} />
+          {selectedClaim && (
+            <div className="mb-4 rounded-xl border border-[#00dc82]/40 bg-[#00dc82]/10 p-3 text-black dark:text-white">
+              <div className="text-xs font-semibold uppercase tracking-wide opacity-70">{t('article_claim')}</div>
+              <p className="mt-1 leading-6">{selectedClaim.text}</p>
+            </div>
+          )}
+
+          {focusedSourceClaims.length > 0 && (
+            <div className="mb-4 rounded-xl border border-black/10 p-3 dark:border-white/10">
+              <div className="text-xs font-semibold uppercase tracking-wide opacity-70">
+                {t('article_supported_by')} {focusedSource?.domain || focusedSource?.name || t('article_this_source')}
               </div>
-            ))}
+              <ul className="mt-2 space-y-2">
+                {focusedSourceClaims.map((claim) => (
+                  <li key={claim.id} className="leading-6">
+                    {claim.text}
+                  </li>
+                ))}
+              </ul>
+            </div>
+          )}
+
+          <div className="flex flex-col space-y-3 h-full overflow-y-auto pr-2 pb-4">
+            {normalizedSources.map((s: any, index: number) => {
+              const key = getSourceKey(s, index);
+              return (
+                <div
+                  key={s.id || key || index}
+                  role="button"
+                  tabIndex={0}
+                  onClick={() => setFocusedSourceKey(key)}
+                  onKeyDown={(event) => {
+                    if (event.key === 'Enter' || event.key === ' ') {
+                      event.preventDefault();
+                      setFocusedSourceKey(key);
+                    }
+                  }}
+                  className="block w-full rounded-xl text-left focus:outline-none focus:ring-2 focus:ring-[#00dc82]"
+                >
+                  <SourceCard source={s} isFocused={key === focusedSourceKey || String(s.id) === focusedSourceKey} />
+                </div>
+              );
+            })}
           </div>
         </div>
       </Modal>

@@ -1,17 +1,29 @@
-import { getSerperConfig } from '../lib/serper';
+import { getSerperConfig } from '../lib/serper.js';
 import { Router } from 'express';
-import { analyzeOutputQuality } from '../lib/semantic-scanner';
-import { checkMediaReputation } from '../lib/google-fact-check';
-import { newsIngestionQueue } from '../lib/queue';
-import { logger } from '../lib/logger';
+import { analyzeOutputQuality } from '../lib/semantic-scanner.js';
+import { checkMediaReputation } from '../lib/google-fact-check.js';
+import { newsIngestionQueue } from '../lib/queue.js';
+import { logger } from '../lib/logger.js';
+import { getCurrentUser } from '../lib/currentUser.js';
 import {
     DEFAULT_DEBUG_SITEMAP_PRESET,
     DEFAULT_DEBUG_SITEMAP_URL,
     NEWS_SITEMAPS,
     type NewsSitemapPreset,
-} from '../lib/news-sitemaps';
+} from '../lib/news-sitemaps.js';
 
 export const router = Router();
+
+router.use(async (req, res, next) => {
+    try {
+        const user = await getCurrentUser(req, res);
+        if (!user) return res.status(401).json({ error: 'UNAUTHENTICATED' });
+        if (user.role !== 'ADMIN') return res.status(403).json({ error: 'FORBIDDEN' });
+        return next();
+    } catch (error) {
+        return next(error);
+    }
+});
 
 // GET /api/debug/audit
 router.get('/audit', async (req, res) => {

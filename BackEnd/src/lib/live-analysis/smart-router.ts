@@ -1,6 +1,6 @@
 import OpenAI from 'openai';
-import { logger } from '../logger';
-import { RoutingDecision } from './types';
+import { logger } from '../logger.js';
+import { RoutingDecision } from './types.js';
 
 const openai = new OpenAI({
     apiKey: process.env.OPENAI_API_KEY,

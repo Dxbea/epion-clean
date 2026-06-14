@@ -1,6 +1,6 @@
-import { getRichTrustScore } from './trust-score';
-import { logger } from './logger';
-import type { WebSearchSource } from './web-chat';
+import { getRichTrustScore } from './trust-score.js';
+import { logger } from './logger.js';
+import type { WebSearchSource } from './web-chat.js';
 
 const DEFAULT_ENRICHMENT_CONCURRENCY = 6;
 const DEFAULT_ENRICHMENT_TIMEOUT_MS = 80_000;

@@ -1,5 +1,5 @@
 import { type Request, type Response, type NextFunction } from 'express';
-import { prisma } from '../lib/db';
+import { prisma } from '../lib/db.js';
 
 /**
  * GET /api/users/:id/followers

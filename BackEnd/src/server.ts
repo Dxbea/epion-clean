@@ -1,41 +1,41 @@
 // BackEnd/src/server.ts
 import * as Sentry from '@sentry/node';
 import path from 'path';
-import './env';
+import './env.js';
 import express from 'express';
 import cors from 'cors';
 import morgan from 'morgan';
 import cookieParser from 'cookie-parser';
 import helmet from 'helmet';
-import { router as csrfRouter } from './routes/csrf';
-import { csrfRequired } from './lib/csrf';
+import { router as csrfRouter } from './routes/csrf.js';
+import { csrfRequired } from './lib/csrf.js';
 
-import { env } from './env';
+import { env } from './env.js';
 import type { Request, Response, NextFunction } from 'express';
 
-import { router as apiRouter } from './routes';
-import logger from './lib/logger';
-import { router as favoritesRouter } from './routes/favorite';
-import { router as authRouter } from './routes/auth';
-import { router as adminRouter } from './routes/admin';
-import { router as meRouter } from './routes/me';
-import { router as statsRouter } from './routes/stats';
-import { router as commentsRouter } from './routes/comments';
-import { router as aiRouter } from './routes/ai';
-import { router as debugRouter } from './routes/debug-checks';
-import { router as socialRouter } from './routes/social';
-import { router as usersRouter } from './routes/users';
-import { router as healthRouter } from './routes/health';
-import { initializeCron } from './cron/dailyReset';
-import { NEWS_SITEMAPS } from './lib/news-sitemaps';
-import { newsIngestionQueue } from './lib/queue';
-import { prisma } from './lib/db';
-import { redis } from './lib/redis';
-import './workers/embedding.worker'; // 🧠 Initialize Embedding Worker
-import './workers/source-enrichment.worker'; // 🔍 Initialize Source Enrichment Worker
-import './workers/live-analysis.worker'; // ⚖️ Initialize Live Analysis Worker (Epion 2.0)
+import { router as apiRouter } from './routes/index.js';
+import logger from './lib/logger.js';
+import { router as favoritesRouter } from './routes/favorite.js';
+import { router as authRouter } from './routes/auth.js';
+import { router as adminRouter } from './routes/admin.js';
+import { router as meRouter } from './routes/me.js';
+import { router as statsRouter } from './routes/stats.js';
+import { router as commentsRouter } from './routes/comments.js';
+import { router as aiRouter } from './routes/ai.js';
+import { router as debugRouter } from './routes/debug-checks.js';
+import { router as socialRouter } from './routes/social.js';
+import { router as usersRouter } from './routes/users.js';
+import { router as healthRouter } from './routes/health.js';
+import { initializeCron } from './cron/dailyReset.js';
+import { NEWS_SITEMAPS } from './lib/news-sitemaps.js';
+import { newsIngestionQueue } from './lib/queue.js';
+import { prisma } from './lib/db.js';
+import { redis } from './lib/redis.js';
+import './workers/embedding.worker.js'; // 🧠 Initialize Embedding Worker
+import './workers/source-enrichment.worker.js'; // 🔍 Initialize Source Enrichment Worker
+import './workers/live-analysis.worker.js'; // ⚖️ Initialize Live Analysis Worker (Epion 2.0)
 
-import './workers/news-worker'; // Zero-Cost News Ingestion Worker
+import './workers/news-worker.js'; // Zero-Cost News Ingestion Worker
 
 // ... (existing code)
 
@@ -74,7 +74,6 @@ const allowedOrigin = [
   'https://epion-clean.vercel.app',
   'https://epion.app',
   'https://www.epion.app',
-  'https://api.epion.app'
 ];
 
 app.use(
@@ -141,16 +140,18 @@ app.get('/api/ping', (_req, res) => res.json({ pong: true, now: Date.now() }));
 app.get('/api/healthz', (_req, res) => res.json({ ok: true, service: 'epion-api' }));
 app.get('/api/version', (_req, res) => res.json({ name: 'epion-api', version: '0.1.0' }));
 app.use('/api/health', healthRouter);
+if (env.NODE_ENV !== 'production' && process.env.ENABLE_DEBUG_ROUTES === 'true') {
+  app.use('/api/debug', debugRouter);
 
 // ----------------------------
 //  🔑 Auth en premier
 // ----------------------------
-app.use('/api', authRouter);
 
 // ----------------------------
-//  🔧 Debug routes (BEFORE CSRF — no auth required for local testing)
+//  🔧 Debug routes (development/test only — disabled in production)
 // ----------------------------
-app.use('/api/debug', debugRouter);
+  log.info('Debug routes mounted (/api/debug) — non-production mode');
+}
 
 // ----------------------------
 //  🔒 CSRF token + protection
@@ -161,6 +162,7 @@ app.use('/api', csrfRouter);
 
 // protection CSRF pour toutes les requêtes mutantes sur /api
 app.use('/api', csrfRequired);
+app.use('/api', authRouter);
 
 // ----------------------------
 //  📚 Routes métiers

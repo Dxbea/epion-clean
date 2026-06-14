@@ -4,17 +4,20 @@ import { Router } from 'express';
 import { z } from 'zod';
 import bcrypt from 'bcrypt';
 import crypto from 'crypto';
-import { prisma } from '../lib/db';
-import { loginLimiter, forgotLimiter } from '../middleware/limits';
+import { prisma } from '../lib/db.js';
+import { loginLimiter, forgotLimiter } from '../middleware/limits.js';
 import {
   createJwtForSession,
   requireSession,
   setSessionCookie,
   clearSessionCookie,
-} from '../lib/session';
-import { sendMail, APP_URL } from '../lib/mailer';
-import { getCurrentUserId } from '../lib/currentUser';
-import { logger } from '../lib/logger';
+  invalidateSessionCache,
+  invalidateUserSessionCaches,
+} from '../lib/session.js';
+import { env } from '../env.js';
+import { sendMail, APP_URL } from '../lib/mailer.js';
+import { getCurrentUserId } from '../lib/currentUser.js';
+import { logger } from '../lib/logger.js';
 
 
 
@@ -48,7 +51,7 @@ function serverStrongPassword(pw: string): boolean {
   );
 }
 
-const BETA_MODE = process.env.BETA_MODE === 'true';
+const BETA_MODE = process.env.NODE_ENV !== 'test' && process.env.BETA_MODE === 'true';
 
 /* ------------------------ VERIFY INVITE CODE ------------------------ */
 router.post('/auth/verify-invite', async (req, res, next) => {
@@ -106,7 +109,7 @@ router.post('/auth/signup', async (req, res, next) => {
     const exists = await prisma.user.findUnique({ where: { email } });
     if (exists) return res.status(409).json({ error: 'EMAIL_EXISTS' });
 
-    const passwordHash = await bcrypt.hash(input.password, 10);
+    const passwordHash = await bcrypt.hash(input.password, env.BCRYPT_ROUNDS);
     const user = await prisma.user.create({
       data: {
         email,
@@ -126,9 +129,10 @@ router.post('/auth/signup', async (req, res, next) => {
       });
     }
 
-    // 👉 crée la session DB
+    // 👉 crée la session DB (7 jours, aligné sur le JWT)
+    const sessionExpiresAt = new Date(Date.now() + 7 * 24 * 60 * 60 * 1000);
     const session = await prisma.session.create({
-      data: { userId: user.id, expiresAt: null },
+      data: { userId: user.id, expiresAt: sessionExpiresAt },
       select: { id: true },
     });
 
@@ -171,9 +175,10 @@ router.post('/auth/login', loginLimiter, async (req, res, next) => {
     logger.info(`[AUTH] Login success`, { userId: user.id });
 
 
-    // 4️⃣ Création de la session DB
+    // 4️⃣ Création de la session DB (7 jours, aligné sur le JWT)
+    const sessionExpiresAt = new Date(Date.now() + 7 * 24 * 60 * 60 * 1000);
     const session = await prisma.session.create({
-      data: { userId: user.id, expiresAt: null },
+      data: { userId: user.id, expiresAt: sessionExpiresAt },
       select: { id: true },
     });
 
@@ -200,7 +205,20 @@ router.post('/auth/login', loginLimiter, async (req, res, next) => {
 // POST /api/auth/request-verify  { email }
 router.post('/auth/request-verify', async (req, res, next) => {
   try {
-    const email = String(req.body?.email || '').trim().toLowerCase();
+    let email = String(req.body?.email || '').trim().toLowerCase();
+    if (!email) {
+      const userId = await getCurrentUserId(req, res).catch(() => null);
+      if (userId) {
+        const user = await prisma.user.findUnique({
+          where: { id: userId },
+          select: { email: true },
+        });
+        if (user) {
+          email = user.email;
+        }
+      }
+    }
+
     if (!email) {
       return res.status(400).json({ error: 'invalid_email' });
     }
@@ -257,6 +275,7 @@ router.post('/auth/logout', async (req, res) => {
   const sess = await requireSession(req, res);
   if (sess) {
     await prisma.session.delete({ where: { id: sess.sessionId } }).catch(() => { });
+    await invalidateSessionCache(sess.sessionId);
   }
   clearSessionCookie(res);
   res.json({ ok: true });
@@ -319,7 +338,17 @@ router.post('/auth/forgot-password', forgotLimiter, async (req, res, next) => {
     await prisma.passwordReset.create({ data: { userId: user.id, token, expiresAt } });
 
     const resetUrl = `${process.env.FRONTEND_ORIGIN ?? 'http://localhost:5173'}/settings#security?resetToken=${token}`;
-    res.json({ ok: true, resetToken: token, resetUrl });
+    await sendMail({
+      to: user.email,
+      subject: 'Reset your password for Epion',
+      text: `Click this link to reset your password:\n\n${resetUrl}\n\nThis link is valid for 30 minutes.`,
+      html: `<p>Click this link to reset your password:</p>
+             <p><a href="${resetUrl}">${resetUrl}</a></p>
+             <p>This link is valid for 30 minutes.</p>`,
+    });
+
+    // Réponse neutre — le token est UNIQUEMENT envoyé par email
+    res.json({ ok: true });
   } catch (e) {
     next(e);
   }
@@ -336,10 +365,12 @@ router.post('/auth/reset-password', async (req, res, next) => {
       return res.status(400).json({ error: 'INVALID_OR_EXPIRED' });
     }
 
-    const newHash = await bcrypt.hash(newPassword, 10);
+    const newHash = await bcrypt.hash(newPassword, env.BCRYPT_ROUNDS);
+    await invalidateUserSessionCaches(pr.userId);
     await prisma.$transaction([
       prisma.user.update({ where: { id: pr.userId }, data: { passwordHash: newHash } }),
       prisma.passwordReset.update({ where: { token }, data: { usedAt: new Date() } }),
+      prisma.session.deleteMany({ where: { userId: pr.userId } }),
     ]);
 
     res.json({ ok: true });
@@ -362,8 +393,16 @@ router.post('/auth/change-password', async (req, res) => {
   const ok = await bcrypt.compare(parsed.data.currentPassword, user.passwordHash);
   if (!ok) return res.status(401).json({ error: 'WRONG_PASSWORD' });
 
-  const newHash = await bcrypt.hash(parsed.data.newPassword, 10);
-  await prisma.user.update({ where: { id: sess.userId }, data: { passwordHash: newHash } });
+  const newHash = await bcrypt.hash(parsed.data.newPassword, env.BCRYPT_ROUNDS);
+  const otherSessions = await prisma.session.findMany({
+    where: { userId: sess.userId, NOT: { id: sess.sessionId } },
+    select: { id: true },
+  });
+  await prisma.$transaction([
+    prisma.user.update({ where: { id: sess.userId }, data: { passwordHash: newHash } }),
+    prisma.session.deleteMany({ where: { userId: sess.userId, NOT: { id: sess.sessionId } } }),
+  ]);
+  await Promise.all(otherSessions.map((session) => invalidateSessionCache(session.id)));
   res.json({ ok: true });
 });
 
@@ -419,6 +458,7 @@ router.delete('/auth/sessions/:id', async (req, res) => {
   }
 
   await prisma.session.delete({ where: { id } });
+  await invalidateSessionCache(id);
 
   // si on supprime la session courante → on nettoie le cookie aussi
   if (id === sess.sessionId) {
@@ -436,12 +476,21 @@ router.delete('/auth/sessions/others', async (req, res) => {
   const sess = await requireSession(req, res);
   if (!sess) return res.status(401).json({ error: 'NO_SESSION' });
 
+  const otherSessions = await prisma.session.findMany({
+    where: {
+      userId: sess.userId,
+      NOT: { id: sess.sessionId },
+    },
+    select: { id: true },
+  });
+
   await prisma.session.deleteMany({
     where: {
       userId: sess.userId,
       NOT: { id: sess.sessionId },
     },
   });
+  await Promise.all(otherSessions.map((session) => invalidateSessionCache(session.id)));
 
   res.json({ ok: true });
 });
@@ -528,6 +577,119 @@ router.post('/auth/verify-email', async (req, res, next) => {
       prisma.user.update({
         where: { id: record.userId },
         data: { emailVerifiedAt: new Date() },
+      }),
+      prisma.emailVerificationToken.delete({
+        where: { id: record.id },
+      }),
+    ]);
+
+    return res.json({ ok: true });
+  } catch (e) {
+    next(e);
+  }
+});
+
+// POST /api/auth/change-email-request
+router.post('/auth/change-email-request', async (req, res, next) => {
+  try {
+    const userId = await getCurrentUserId(req, res);
+    const newEmail = String(req.body?.newEmail || '').trim().toLowerCase();
+
+    if (!newEmail || !z.string().email().safeParse(newEmail).success) {
+      return res.status(400).json({ error: 'INVALID_EMAIL' });
+    }
+
+    const user = await prisma.user.findUnique({
+      where: { id: userId },
+      select: { id: true, email: true },
+    });
+    if (!user) return res.status(401).json({ error: 'NO_SESSION' });
+
+    // Check if new email already exists
+    const exists = await prisma.user.findUnique({
+      where: { email: newEmail },
+    });
+    if (exists) {
+      return res.status(409).json({ error: 'EMAIL_EXISTS' });
+    }
+
+    // Clean old tokens for this user
+    await prisma.emailVerificationToken.deleteMany({
+      where: { userId: user.id },
+    });
+
+    // Encode the new email inside the token to avoid schema changes
+    const uuid = crypto.randomUUID();
+    const token = `${uuid}:${newEmail}`;
+    const expiresAt = new Date(Date.now() + 1000 * 60 * 60 * 24); // 24 hours
+
+    await prisma.emailVerificationToken.create({
+      data: {
+        userId: user.id,
+        token,
+        expiresAt,
+      },
+    });
+
+    const verifyUrl = `${APP_URL}/settings?changeEmailToken=${encodeURIComponent(token)}`;
+
+    await sendMail({
+      to: newEmail,
+      subject: 'Verify your new email for Epion',
+      text: `Click this link to confirm your new email address:\n\n${verifyUrl}`,
+      html: `<p>Click this link to confirm your new email address:</p>
+             <p><a href="${verifyUrl}">${verifyUrl}</a></p>
+             <p>This link is valid for 24 hours.</p>`,
+    });
+
+    return res.json({ verifyUrl });
+  } catch (e) {
+    next(e);
+  }
+});
+
+// POST /api/auth/confirm-email-change
+router.post('/auth/confirm-email-change', async (req, res, next) => {
+  try {
+    const token = String(req.body?.token || '').trim();
+    if (!token) {
+      return res.status(400).json({ error: 'INVALID_LINK' });
+    }
+
+    const record = await prisma.emailVerificationToken.findUnique({
+      where: { token },
+    });
+
+    if (!record) {
+      return res.status(400).json({ error: 'INVALID_LINK' });
+    }
+
+    if (record.expiresAt < new Date()) {
+      return res.status(400).json({ error: 'EXPIRED_LINK' });
+    }
+
+    // Extract the new email from token format: "uuid:newEmail"
+    const parts = record.token.split(':');
+    if (parts.length < 2) {
+      return res.status(400).json({ error: 'INVALID_LINK' });
+    }
+    const newEmail = parts.slice(1).join(':');
+
+    // Check one final time if it's already in use
+    const exists = await prisma.user.findUnique({
+      where: { email: newEmail },
+    });
+    if (exists) {
+      return res.status(409).json({ error: 'EMAIL_EXISTS' });
+    }
+
+    await prisma.$transaction([
+      prisma.user.update({
+        where: { id: record.userId },
+        data: {
+          email: newEmail,
+          emailVerifiedAt: new Date(),
+        },
       }),
       prisma.emailVerificationToken.delete({
         where: { id: record.id },

@@ -1,8 +1,8 @@
 import OpenAI from 'openai';
-import { ChatOptions } from '../types/chat';
-import { logger } from './logger';
-import { investigateArticle } from './live-analysis/fact-investigator';
-import { getRootDomain } from './utils/domain';
+import { ChatOptions } from '../types/chat.js';
+import { logger } from './logger.js';
+import { investigateArticle } from './live-analysis/fact-investigator.js';
+import { getRootDomain } from './utils/domain.js';
 
 const openai = new OpenAI({ apiKey: process.env.OPENAI_API_KEY });
 
