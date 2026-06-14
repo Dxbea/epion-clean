@@ -8,8 +8,13 @@ updates:
       day: "monday"
       time: "06:00"
       timezone: "Europe/Paris"
-    open-pull-requests-limit: 5
+    open-pull-requests-limit: 3
     target-branch: "main"
+    allow:
+      - dependency-type: "all"
+        update-types:
+          - "version-update:semver-patch"
+          - "version-update:semver-minor"
     commit-message:
       prefix: "deps(backend)"
 
@@ -20,7 +25,12 @@ updates:
       day: "monday"
       time: "06:30"
       timezone: "Europe/Paris"
-    open-pull-requests-limit: 5
+    open-pull-requests-limit: 3
     target-branch: "main"
+    allow:
+      - dependency-type: "all"
+        update-types:
+          - "version-update:semver-patch"
+          - "version-update:semver-minor"
     commit-message:
       prefix: "deps(frontend)"
