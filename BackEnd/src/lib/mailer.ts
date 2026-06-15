@@ -36,8 +36,8 @@ export async function sendMail(opts: MailOpts) {
       module: 'Mailer',
       to: opts.to,
       subject: opts.subject,
-      text: opts.text,
-      // html is usually too large to log fully in structured logs, maybe keep it out or truncate
+      hasText: Boolean(opts.text),
+      hasHtml: Boolean(opts.html),
     });
     return;
   }

@@ -31,6 +31,7 @@ import { NEWS_SITEMAPS } from './lib/news-sitemaps.js';
 import { newsIngestionQueue } from './lib/queue.js';
 import { prisma } from './lib/db.js';
 import { redis } from './lib/redis.js';
+import { betterAuthExpressHandler } from './lib/better-auth-handler.js';
 import './workers/embedding.worker.js'; // 🧠 Initialize Embedding Worker
 import './workers/source-enrichment.worker.js'; // 🔍 Initialize Source Enrichment Worker
 import './workers/live-analysis.worker.js'; // ⚖️ Initialize Live Analysis Worker (Epion 2.0)
@@ -88,6 +89,10 @@ app.use(
     credentials: true,
   }),
 );
+
+// Better Auth must receive the raw Node request before Express body parsing.
+// Legacy /api/auth routes are explicitly passed through by the handler.
+app.all('/api/auth/*', betterAuthExpressHandler);
 
 // ----------------------------
 //  📦 Middleware globaux

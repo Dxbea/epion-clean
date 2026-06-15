@@ -179,10 +179,10 @@ router.post('/articles/:id/comments', async (req, res, next) => {
     // Vérification email vérifié
     const user = await prisma.user.findUnique({
       where: { id: userId },
-      select: { emailVerifiedAt: true },
+      select: { emailVerified: true },
     });
 
-    if (!user || !user.emailVerifiedAt) {
+    if (!user || !user.emailVerified) {
       return res.status(403).json({
         error: 'EMAIL_NOT_VERIFIED',
         message:

@@ -1,7 +1,7 @@
 import type { Request, Response, NextFunction } from 'express';
 import crypto from 'crypto';
 import { env } from '../env.js';
-import { requireSession } from './session.js';
+import { getCurrentSession } from './currentUser.js';
 
 const CSRF_SECRET = env.JWT_SECRET;
 
@@ -77,7 +77,7 @@ export async function csrfRequired(req: Request, res: Response, next: NextFuncti
     return next();
   }
 
-  const sess = await requireSession(req, res);
+  const sess = await getCurrentSession(req, res);
   if (!sess) {
     return res.status(401).json({ error: 'NO_SESSION' });
   }

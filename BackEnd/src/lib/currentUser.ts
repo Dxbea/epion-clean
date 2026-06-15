@@ -1,39 +1,78 @@
-// BackEnd/src/lib/currentUser.ts
+import type { Request, Response } from 'express';
+import type { Role } from '@prisma/client';
+import { fromNodeHeaders } from 'better-auth/node';
+
+import { auth } from './better-auth.js';
 import { prisma } from './db.js';
-import { requireSession } from './session.js';
 
 export type CurrentUser = {
   id: string;
   email: string;
+  emailVerified: boolean;
   name: string | null;
-  role: string;
+  username: string | null;
+  phone: string | null;
+  avatarUrl: string | null;
+  bannerUrl: string | null;
+  bio: string | null;
+  followersCount: number;
+  followingCount: number;
+  role: Role;
+  sessionId: string;
 };
 
-/**
- * PROD : pas de user démo ici.
- * Si pas de session → on renvoie null et la route décide.
- */
-export async function getCurrentUser(
-  req: any,
-  res: any,
-): Promise<CurrentUser | null> {
-  const sess = await requireSession(req, res);
-  if (!sess) return null;
+export type CurrentSession = {
+  userId: string;
+  sessionId: string;
+};
+
+const currentUserSelect = {
+  id: true,
+  email: true,
+  emailVerified: true,
+  name: true,
+  username: true,
+  phone: true,
+  avatarUrl: true,
+  bannerUrl: true,
+  bio: true,
+  followersCount: true,
+  followingCount: true,
+  role: true,
+} as const;
+
+async function getBetterAuthSession(req: Request) {
+  return auth.api.getSession({
+    headers: fromNodeHeaders(req.headers),
+    query: {
+      disableCookieCache: true,
+    },
+  });
+}
+
+export async function getCurrentUser(req: Request, _res?: Response): Promise<CurrentUser | null> {
+  const betterAuthSession = await getBetterAuthSession(req);
+  if (!betterAuthSession) return null;
+
+  const sessionId = betterAuthSession.session.id;
+  const userId = betterAuthSession.user.id;
 
   const user = await prisma.user.findUnique({
-    where: { id: sess.userId },
-    select: { id: true, email: true, name: true, role: true },
+    where: { id: userId },
+    select: currentUserSelect,
   });
 
   if (!user) return null;
-  return user;
+  return { ...user, sessionId };
 }
 
-/**
- * Helper pratique pour les routes protégées.
- * Si pas de user → on lève une erreur 401 gérée par les routes ou le middleware global.
- */
-export async function getCurrentUserId(req: any, res: any): Promise<string> {
+export async function getCurrentSession(req: Request, res?: Response): Promise<CurrentSession | null> {
+  const user = await getCurrentUser(req, res);
+  if (!user) return null;
+  return { userId: user.id, sessionId: user.sessionId };
+}
+
+export async function getCurrentUserId(req: Request, res?: Response): Promise<string> {
   const user = await getCurrentUser(req, res);
   if (!user) {
     const err: any = new Error('UNAUTHENTICATED');

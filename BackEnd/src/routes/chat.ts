@@ -506,7 +506,7 @@ router.post('/sessions/:id/messages', chatAttachmentUpload, async (req, res, nex
     const user = await prisma.user.findUnique({
       where: { id: userId },
       select: {
-        emailVerifiedAt: true,
+        emailVerified: true,
         subscriptionTier: true,
         dailyQueryCount: true,
         role: true,
@@ -516,7 +516,7 @@ router.post('/sessions/:id/messages', chatAttachmentUpload, async (req, res, nex
       },
     });
 
-    if (!user || !user.emailVerifiedAt) {
+    if (!user || !user.emailVerified) {
       return res.status(403).json({
         error: 'EMAIL_NOT_VERIFIED',
         message: 'You must verify your email to use the chat.',

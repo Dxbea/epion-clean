@@ -1,6 +1,6 @@
 // BackEnd/src/routes/csrf.ts
 import { Router } from 'express';
-import { requireSession } from '../lib/session.js';
+import { getCurrentSession } from '../lib/currentUser.js';
 import { createCsrfToken } from '../lib/csrf.js';
 
 export const router = Router();
@@ -12,7 +12,7 @@ export const router = Router();
  */
 router.get('/csrf', async (req, res, next) => {
   try {
-    const sess = await requireSession(req, res);
+    const sess = await getCurrentSession(req, res);
     if (!sess) {
       return res.status(401).json({ error: 'NO_SESSION' });
     }

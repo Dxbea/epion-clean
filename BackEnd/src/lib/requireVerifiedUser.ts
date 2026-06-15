@@ -1,38 +1,23 @@
-// BackEnd/src/lib/requireVerifiedUser.ts
 import type { Request, Response } from 'express';
-import { prisma } from './db.js';
-import { requireSession } from './session.js';
+
+import { getCurrentUser, type CurrentUser } from './currentUser.js';
 
 type RequireVerifiedResult =
-  | { session: { userId: string; sessionId: string }; user: { id: string; emailVerifiedAt: Date | null } }
+  | { session: { userId: string; sessionId: string }; user: CurrentUser }
   | null;
 
-/**
- * Helper pour exiger :
- *  - une session valide
- *  - un email vérifié
- *
- * Si non vérifié → répond 403 + error: 'EMAIL_NOT_VERIFIED'
- * Si pas de session → laisse requireSession gérer (401).
- */
 export async function requireVerifiedUser(
   req: Request,
   res: Response,
 ): Promise<RequireVerifiedResult> {
-  const sess = await requireSession(req, res);
-  if (!sess) return null;
-
-  const user = await prisma.user.findUnique({
-    where: { id: sess.userId },
-    select: { id: true, emailVerifiedAt: true },
-  });
+  const user = await getCurrentUser(req, res);
 
   if (!user) {
-    res.status(401).json({ error: 'INVALID_SESSION', message: 'Session invalid.' });
+    res.status(401).json({ error: 'NO_SESSION' });
     return null;
   }
 
-  if (!user.emailVerifiedAt) {
+  if (!user.emailVerified) {
     res.status(403).json({
       error: 'EMAIL_NOT_VERIFIED',
       message: 'Email must be verified to perform this action.',
@@ -40,5 +25,5 @@ export async function requireVerifiedUser(
     return null;
   }
 
-  return { session: sess, user };
+  return { session: { userId: user.id, sessionId: user.sessionId }, user };
 }

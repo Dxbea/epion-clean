@@ -1,6 +1,6 @@
 import { Router } from 'express';
 import { prisma } from '../lib/db.js';
-import { requireSession } from '../lib/session.js';
+import { getCurrentUserId } from '../lib/currentUser.js';
 import { callWebSearchLLM, type WebChatMessage } from '../lib/web-chat.js';
 import { hasSufficientFunds, chargeUser, COSTS } from '../lib/billing-service.js';
 import { liveAnalysisQueue } from '../lib/queue.js';
@@ -37,8 +37,8 @@ async function canAccessArticle(
 // ------------------------------------------------------------------
 router.post('/summarize', async (req, res) => {
     try {
-        const sess = await requireSession(req, res);
-        if (!sess) return res.status(401).json({ error: 'NO_SESSION' });
+        const userId = await getCurrentUserId(req, res).catch(() => null);
+        if (!userId) return res.status(401).json({ error: 'NO_SESSION' });
 
         const body = summarizeSchema.safeParse(req.body);
         if (!body.success) return res.status(400).json({ error: 'INVALID_INPUT', details: body.error.format() });
@@ -52,7 +52,7 @@ router.post('/summarize', async (req, res) => {
         });
 
         if (!article) return res.status(404).json({ error: 'Article not found' });
-        if (!(await canAccessArticle(sess.userId, article))) {
+        if (!(await canAccessArticle(userId, article))) {
             return res.status(404).json({ error: 'Article not found' });
         }
 
@@ -61,7 +61,7 @@ router.post('/summarize', async (req, res) => {
             return res.json({ summary: article.aiSummary, cached: true });
         }
 
-        const hasFunds = await hasSufficientFunds(sess.userId, 'CHAT_FAST');
+        const hasFunds = await hasSufficientFunds(userId, 'CHAT_FAST');
         if (!hasFunds) {
             return res.status(402).json({
                 error: "CrÃ©dits Ã©puisÃ©s pour aujourd'hui.",
@@ -95,7 +95,7 @@ router.post('/summarize', async (req, res) => {
             data: { aiSummary: summary }
         });
 
-        await chargeUser(sess.userId, 'CHAT_FAST');
+        await chargeUser(userId, 'CHAT_FAST');
 
         res.json({ summary, cached: false });
 
@@ -112,8 +112,8 @@ router.post('/summarize', async (req, res) => {
 // ------------------------------------------------------------------
 router.post('/fact-check', async (req, res) => {
     try {
-        const sess = await requireSession(req, res);
-        if (!sess) return res.status(401).json({ error: 'NO_SESSION' });
+        const userId = await getCurrentUserId(req, res).catch(() => null);
+        if (!userId) return res.status(401).json({ error: 'NO_SESSION' });
 
         const body = summarizeSchema.safeParse(req.body);
         if (!body.success) return res.status(400).json({ error: 'INVALID_INPUT', details: body.error.format() });
@@ -127,7 +127,7 @@ router.post('/fact-check', async (req, res) => {
         });
 
         if (!article) return res.status(404).json({ error: 'Article not found' });
-        if (!(await canAccessArticle(sess.userId, article))) {
+        if (!(await canAccessArticle(userId, article))) {
             return res.status(404).json({ error: 'Article not found' });
         }
 
@@ -137,7 +137,7 @@ router.post('/fact-check', async (req, res) => {
         }
 
         // 3. Check billing
-        const hasFunds = await hasSufficientFunds(sess.userId, 'FACT_CHECK_PREMIUM');
+        const hasFunds = await hasSufficientFunds(userId, 'FACT_CHECK_PREMIUM');
         if (!hasFunds) {
             return res.status(402).json({
                 error: 'Crédits insuffisants pour le fact-check.',
@@ -153,7 +153,7 @@ router.post('/fact-check', async (req, res) => {
         // 5. Enqueue live-analysis job
         const job = await liveAnalysisQueue.add('fact-check', {
             articleId: article.id,
-            requestedByUserId: sess.userId,
+            requestedByUserId: userId,
             title: article.title,
             content: article.content || '',
             citationUrls,
@@ -194,8 +194,8 @@ router.post('/fact-check', async (req, res) => {
 // ------------------------------------------------------------------
 router.get('/fact-check/:jobId', async (req, res) => {
     try {
-        const sess = await requireSession(req, res);
-        if (!sess) return res.status(401).json({ error: 'NO_SESSION' });
+        const userId = await getCurrentUserId(req, res).catch(() => null);
+        if (!userId) return res.status(401).json({ error: 'NO_SESSION' });
 
         const { jobId } = req.params;
 
@@ -212,7 +212,7 @@ router.get('/fact-check/:jobId', async (req, res) => {
                 ? job.data.requestedByUserId
                 : null;
 
-        if (requestedByUserId && requestedByUserId !== sess.userId) {
+        if (requestedByUserId && requestedByUserId !== userId) {
             return res.status(404).json({ error: 'Job not found', jobId });
         }
 
@@ -230,14 +230,14 @@ router.get('/fact-check/:jobId', async (req, res) => {
         });
 
         if (!article) return res.status(404).json({ error: 'Article not found' });
-        if (!requestedByUserId && !(await canAccessArticle(sess.userId, article))) {
+        if (!requestedByUserId && !(await canAccessArticle(userId, article))) {
             return res.status(404).json({ error: 'Job not found', jobId });
         }
 
         if (article?.factCheckStatus === 'COMPLETED' && article.factCheckData) {
             // Full pipeline complete — clean up the BullMQ job
             // 🔐 Charge user NOW — only on confirmed success (Check→Service→Settlement)
-            const chargedUserId = requestedByUserId || sess.userId;
+            const chargedUserId = requestedByUserId || userId;
             if (!job.data?.chargedAt) {
                 const chargeLockKey = `billing:fact-check:${jobId}`;
                 const lockAcquired = await redis.set(chargeLockKey, chargedUserId, 'EX', 24 * 60 * 60, 'NX');

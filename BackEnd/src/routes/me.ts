@@ -1,7 +1,7 @@
 // BackEnd/src/routes/me.ts
 import { Router } from 'express';
 import { prisma } from '../lib/db.js';
-import { requireSession } from '../lib/session.js';
+import { getCurrentUser, getCurrentUserId } from '../lib/currentUser.js';
 import { checkAndIncrement } from '../lib/rateLimiter.js';
 import { logger } from '../lib/logger.js';
 
@@ -13,32 +13,13 @@ export const router = Router();
  */
 router.get('/', async (req, res, next) => {
   try {
-    const sess = await requireSession(req, res);
-    if (!sess) return res.status(401).json({ error: 'NO_SESSION' });
-
-    const user = await prisma.user.findUnique({
-      where: { id: sess.userId },
-      select: {
-        id: true,
-        email: true,
-        emailVerifiedAt: true,
-        name: true,
-        username: true,
-        phone: true,
-        avatarUrl: true,
-        bannerUrl: true,
-        role: true,
-        bio: true,
-        followersCount: true,
-        followingCount: true,
-      },
-    });
-    if (!user) return res.status(401).json({ error: 'INVALID_SESSION' });
+    const user = await getCurrentUser(req, res);
+    if (!user) return res.status(401).json({ error: 'NO_SESSION' });
 
     return res.json({
       id: user.id,
       email: user.email,
-      emailVerifiedAt: user.emailVerifiedAt,
+      emailVerified: user.emailVerified,
       displayName: user.name ?? '',
       username: user.username ?? '',
       phone: user.phone ?? '',
@@ -61,15 +42,15 @@ router.get('/', async (req, res, next) => {
  */
 router.put('/', async (req, res, next) => {
   try {
-    const sess = await requireSession(req, res);
-    if (!sess) return res.status(401).json({ error: 'NO_SESSION' });
+    const userId = await getCurrentUserId(req, res).catch(() => null);
+    if (!userId) return res.status(401).json({ error: 'NO_SESSION' });
 
     // Rate limiting (Maintenant couplé au quota DB)
-    await checkAndIncrement(sess.userId);
+    await checkAndIncrement(userId);
 
     const { displayName, username, phone, avatarUrl, bio } = req.body ?? {};
 
-    logger.info(`[ME] User ${sess.userId} updating profile`, { displayName, username });
+    logger.info(`[ME] User ${userId} updating profile`, { displayName, username });
 
     const dn = String(displayName ?? '').trim();
     const un = String(username ?? '').trim();
@@ -86,13 +67,13 @@ router.put('/', async (req, res, next) => {
 
     // username unique
     const existing = await prisma.user.findFirst({
-      where: { username: un, NOT: { id: sess.userId } },
+      where: { username: un, NOT: { id: userId } },
       select: { id: true },
     });
     if (existing) return res.status(409).json({ error: 'USERNAME_TAKEN' });
 
     const updated = await prisma.user.update({
-      where: { id: sess.userId },
+      where: { id: userId },
       data: {
         name: dn,
         username: un || null,
@@ -103,7 +84,7 @@ router.put('/', async (req, res, next) => {
       select: {
         id: true,
         email: true,
-        emailVerifiedAt: true,
+        emailVerified: true,
         name: true,
         username: true,
         phone: true,
@@ -115,12 +96,12 @@ router.put('/', async (req, res, next) => {
       },
     });
 
-    logger.info(`[ME] User ${sess.userId} updated successfully`);
+    logger.info(`[ME] User ${userId} updated successfully`);
 
     return res.json({
       id: updated.id,
       email: updated.email,
-      emailVerifiedAt: updated.emailVerifiedAt,
+      emailVerified: updated.emailVerified,
       displayName: updated.name ?? '',
       username: updated.username ?? '',
       phone: updated.phone ?? '',
@@ -158,8 +139,8 @@ router.get('/username/available', async (req, res, next) => {
  */
 router.post('/avatar', async (req, res, next) => {
   try {
-    const sess = await requireSession(req, res);
-    if (!sess) return res.status(401).json({ error: 'NO_SESSION' });
+    const userId = await getCurrentUserId(req, res).catch(() => null);
+    if (!userId) return res.status(401).json({ error: 'NO_SESSION' });
 
     const dataUrl = String(req.body?.dataUrl || '');
     if (!/^data:image\/(png|jpe?g|webp);base64,/i.test(dataUrl)) {
@@ -172,12 +153,12 @@ router.post('/avatar', async (req, res, next) => {
     }
 
     const updated = await prisma.user.update({
-      where: { id: sess.userId },
+      where: { id: userId },
       data: { avatarUrl: dataUrl },
       select: { id: true, avatarUrl: true },
     });
 
-    logger.info(`[ME] Avatar updated`, { userId: sess.userId });
+    logger.info(`[ME] Avatar updated`, { userId });
 
     res.json({ ok: true, avatarUrl: updated.avatarUrl });
   } catch (e) {
@@ -195,8 +176,8 @@ import path from 'path';
 
 router.post('/banner', async (req, res, next) => {
   try {
-    const sess = await requireSession(req, res);
-    if (!sess) return res.status(401).json({ error: 'NO_SESSION' });
+    const userId = await getCurrentUserId(req, res).catch(() => null);
+    if (!userId) return res.status(401).json({ error: 'NO_SESSION' });
 
     const dataUrl = String(req.body?.dataUrl || '');
     if (!/^data:image\/(png|jpe?g|webp);base64,/i.test(dataUrl)) {
@@ -224,7 +205,7 @@ router.post('/banner', async (req, res, next) => {
     const base64Data = matches[2];
 
     // Generate filename
-    const filename = `${sess.userId}-${Date.now()}.${ext}`;
+    const filename = `${userId}-${Date.now()}.${ext}`;
     const filePath = path.join(uploadDir, filename);
 
     // Save file
@@ -235,7 +216,7 @@ router.post('/banner', async (req, res, next) => {
 
     // Update DB
     const updated = await prisma.user.update({
-      where: { id: sess.userId },
+      where: { id: userId },
       data: { bannerUrl: publicUrl },
       select: { id: true, bannerUrl: true },
     });
@@ -257,10 +238,8 @@ router.post('/banner', async (req, res, next) => {
  */
 router.get('/articles/stats', async (req, res, next) => {
   try {
-    const sess = await requireSession(req, res);
-    if (!sess) return res.status(401).json({ error: 'NO_SESSION' });
-
-    const userId = sess.userId;
+    const userId = await getCurrentUserId(req, res).catch(() => null);
+    if (!userId) return res.status(401).json({ error: 'NO_SESSION' });
 
     // petit rate-limit : stats "mes articles"
     // Rate limiting (DB)
@@ -294,10 +273,8 @@ router.get('/articles/stats', async (req, res, next) => {
  */
 router.get('/articles', async (req, res, next) => {
   try {
-    const sess = await requireSession(req, res);
-    if (!sess) return res.status(401).json({ error: 'NO_SESSION' });
-
-    const userId = sess.userId;
+    const userId = await getCurrentUserId(req, res).catch(() => null);
+    if (!userId) return res.status(401).json({ error: 'NO_SESSION' });
 
     // rate-limit léger sur la liste paginée (DB)
     await checkAndIncrement(userId);

@@ -22,10 +22,10 @@ export async function createAIArticle(req: Request, res: Response, next: NextFun
         // 1. Auth & Verification Checks
         const user = await prisma.user.findUnique({
             where: { id: userId },
-            select: { emailVerifiedAt: true, role: true }
+            select: { emailVerified: true, role: true }
         });
 
-        if (!user || (!user.emailVerifiedAt && user.role !== 'ADMIN')) {
+        if (!user || (!user.emailVerified && user.role !== 'ADMIN')) {
             return res.status(403).json({ error: 'Email verification required.' });
         }
 
