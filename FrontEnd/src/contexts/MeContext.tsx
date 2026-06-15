@@ -1,6 +1,7 @@
 // src/contexts/MeContext.tsx
 import * as React from 'react'
 import { API_BASE } from '@/config/api'
+import { authClient } from '@/lib/better-auth-client'
 
 /**
  * Shape utilisateur global – doit matcher ce que renvoie GET /api/me
@@ -8,6 +9,7 @@ import { API_BASE } from '@/config/api'
 export type Me = {
   id: string
   email: string
+  emailVerified: boolean
   emailVerifiedAt: string | null
   displayName: string
   username: string
@@ -41,7 +43,7 @@ const MeCtx = React.createContext<MeCtxShape | null>(null)
 
 async function fetchFullMe(): Promise<Me | null> {
   try {
-    const res = await fetch(`${API_BASE}/api/auth/me?t=${Date.now()}`, {
+    const res = await fetch(`${API_BASE}/api/me?t=${Date.now()}`, {
       credentials: 'include',
       cache: 'no-store',
     })
@@ -53,6 +55,7 @@ async function fetchFullMe(): Promise<Me | null> {
     const data: Me = {
       id: raw.id,
       email: raw.email,
+      emailVerified: Boolean(raw.emailVerified ?? raw.emailVerifiedAt),
       emailVerifiedAt: raw.emailVerifiedAt ?? null,
       displayName: raw.displayName ?? raw.name ?? '',
       username: raw.username ?? '',
@@ -75,42 +78,40 @@ export function MeProvider({ children }: { children: React.ReactNode }) {
   const [me, setMe] = React.useState<Me | null>(null)
   const [loading, setLoading] = React.useState(true)
 
-  // au montage : charge /api/me
-  React.useEffect(() => {
-    let alive = true
+  const refresh = React.useCallback(async () => {
+    setLoading(true)
+    try {
+      const session = await authClient.getSession({
+        query: {
+          disableCookieCache: true,
+        },
+      })
+      if (session.error || !session.data) {
+        setMe(null)
+        return
+      }
 
-      ; (async () => {
-        setLoading(true)
-        const data = await fetchFullMe()
-        if (!alive) return
-        setMe(data)
-        setLoading(false)
-      })()
-
-    return () => {
-      alive = false
+      const data = await fetchFullMe()
+      setMe(data)
+    } finally {
+      setLoading(false)
     }
   }, [])
 
-  const refresh = React.useCallback(async () => {
-    setLoading(true)
-    const data = await fetchFullMe()
-    setMe(data)
-    setLoading(false)
-  }, [])
+  React.useEffect(() => {
+    void refresh()
+  }, [refresh])
 
   const login = React.useCallback(
     async (email: string, password: string) => {
-      const res = await fetch(`${API_BASE}/api/auth/login`, {
-        method: 'POST',
-        credentials: 'include',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ email, password }),
+      const res = await authClient.signIn.email({
+        email,
+        password,
       })
 
-      if (!res.ok) {
-        const text = await res.text().catch(() => `HTTP ${res.status}`)
-        throw new Error(`HTTP ${res.status} ${text || ''}`.trim())
+      if (res.error) {
+        const status = res.error.status ? `HTTP ${res.error.status}` : 'HTTP 401'
+        throw new Error(`${status} ${res.error.message || ''}`.trim())
       }
 
       await refresh()
@@ -139,10 +140,7 @@ export function MeProvider({ children }: { children: React.ReactNode }) {
 
   const logout = React.useCallback(async () => {
     try {
-      await fetch(`${API_BASE}/api/auth/logout`, {
-        method: 'POST',
-        credentials: 'include',
-      })
+      await authClient.signOut()
     } catch {
       // ignore
     }
