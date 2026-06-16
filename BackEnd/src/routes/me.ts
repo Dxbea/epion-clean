@@ -1,9 +1,11 @@
 // BackEnd/src/routes/me.ts
 import { Router } from 'express';
+import { fromNodeHeaders } from 'better-auth/node';
 import { prisma } from '../lib/db.js';
 import { getCurrentUser, getCurrentUserId } from '../lib/currentUser.js';
 import { checkAndIncrement } from '../lib/rateLimiter.js';
 import { logger } from '../lib/logger.js';
+import { auth } from '../lib/better-auth.js';
 
 export const router = Router();
 
@@ -130,6 +132,93 @@ router.get('/username/available', async (req, res, next) => {
     res.json({ available: !clash });
   } catch (e) {
     next(e);
+  }
+});
+
+router.get('/sessions', async (req, res, next) => {
+  try {
+    const user = await getCurrentUser(req, res);
+    if (!user) return res.status(401).json({ error: 'NO_SESSION' });
+
+    const sessions = await prisma.betterAuthSession.findMany({
+      where: {
+        userId: user.id,
+        expiresAt: { gt: new Date() },
+      },
+      orderBy: { createdAt: 'desc' },
+      select: {
+        id: true,
+        createdAt: true,
+        expiresAt: true,
+        updatedAt: true,
+      },
+    });
+
+    return res.json({
+      sessions: sessions.map((session) => ({
+        id: session.id,
+        createdAt: session.createdAt.toISOString(),
+        expiresAt: session.expiresAt.toISOString(),
+        lastActiveAt: session.updatedAt.toISOString(),
+        current: session.id === user.sessionId,
+      })),
+    });
+  } catch (error) {
+    next(error);
+  }
+});
+
+router.delete('/sessions/others', async (req, res, next) => {
+  try {
+    const user = await getCurrentUser(req, res);
+    if (!user) return res.status(401).json({ error: 'NO_SESSION' });
+
+    const deleted = await prisma.betterAuthSession.count({
+      where: {
+        userId: user.id,
+        id: { not: user.sessionId },
+        expiresAt: { gt: new Date() },
+      },
+    });
+
+    await auth.api.revokeOtherSessions({
+      headers: fromNodeHeaders(req.headers),
+    });
+
+    return res.json({ ok: true, deleted });
+  } catch (error) {
+    next(error);
+  }
+});
+
+router.delete('/sessions/:id', async (req, res, next) => {
+  try {
+    const user = await getCurrentUser(req, res);
+    if (!user) return res.status(401).json({ error: 'NO_SESSION' });
+
+    const target = await prisma.betterAuthSession.findFirst({
+      where: {
+        id: req.params.id,
+        userId: user.id,
+      },
+      select: {
+        id: true,
+        token: true,
+      },
+    });
+
+    if (!target) return res.status(404).json({ error: 'NOT_FOUND' });
+
+    await auth.api.revokeSession({
+      headers: fromNodeHeaders(req.headers),
+      body: {
+        token: target.token,
+      },
+    });
+
+    return res.json({ ok: true, current: target.id === user.sessionId });
+  } catch (error) {
+    next(error);
   }
 });
 

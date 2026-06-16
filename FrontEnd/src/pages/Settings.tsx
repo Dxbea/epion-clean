@@ -22,8 +22,8 @@ import { useI18n } from '@/i18n/I18nContext';
 
 import { useToast } from '@/components/ui/Toast';
 import { useMe } from '@/contexts/MeContext';
-import { API_BASE } from '@/config/api';
 import { useUnsavedChanges } from '@/hooks/useUnsavedChanges';
+import { authClient, getEmailVerificationCallbackURL } from '@/lib/better-auth-client';
 
 function resolveLabel(
   t: (key: string) => string,
@@ -43,7 +43,7 @@ function resolveLabel(
 // 🔁 remplace ENTIEREMENT EmailAndVerificationBlock dans Settings.tsx
 
 function EmailAndVerificationBlock(): React.JSX.Element {
-  const { me, refresh } = useMe();
+  const { me } = useMe();
   const { push } = useToast();
   const { t } = useI18n();
   const emailVerificationLabel = resolveLabel(t, 'settings_email_verification', 'Email verification');
@@ -63,23 +63,14 @@ function EmailAndVerificationBlock(): React.JSX.Element {
     if (!newEmail.trim()) return;
     try {
       setBusyChangeEmail(true);
-      const res = await fetch(`${API_BASE}/api/auth/change-email-request`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        credentials: 'include',
-        body: JSON.stringify({ newEmail: newEmail.trim().toLowerCase() }),
+      const res = await authClient.changeEmail({
+        newEmail: newEmail.trim().toLowerCase(),
+        callbackURL: getEmailVerificationCallbackURL(),
       });
-
-      const j = await res.json().catch(() => ({}));
-      if (j?.verifyUrl) {
-        // dev helper: copie le lien dans le presse‐papier pour test
-        await navigator.clipboard.writeText(j.verifyUrl).catch(() => { });
-      }
-
+      if (res.error) throw new Error(res.error.message || `HTTP ${res.error.status || 400}`);
       push('If this address is valid, we sent a verification link.', 'success');
       setNewEmail('');
-    } catch (err: any) {
-      console.error(err);
+    } catch {
       push('Could not send verification email. Try again.', 'error');
     } finally {
       setBusyChangeEmail(false);
@@ -548,7 +539,7 @@ function SecurityBlock({ id }: { id?: string }): React.JSX.Element {
 export default function Settings(): React.JSX.Element {
   const { t, locale } = useI18n();
   const { push } = useToast();
-  const { me, loading, refresh } = useMe();
+  const { me, loading } = useMe();
   const signedIn = Boolean(me);
 
   // items pour la nav latérale / menu mobile
@@ -581,48 +572,6 @@ export default function Settings(): React.JSX.Element {
     }
   }, []);
 
-  // handle verifyToken and changeEmailToken in URL
-  React.useEffect(() => {
-    const url = new URL(window.location.href);
-
-    // 1. confirm-email-change
-    const changeEmailToken = url.searchParams.get('changeEmailToken');
-    if (changeEmailToken) {
-      (async () => {
-        try {
-          const res = await fetch(
-            `${API_BASE}/api/auth/confirm-email-change`,
-            {
-              method: 'POST',
-              headers: { 'Content-Type': 'application/json' },
-              credentials: 'include',
-              body: JSON.stringify({ token: changeEmailToken }),
-            }
-          );
-          if (!res.ok) {
-            push(
-              res.status === 409
-                ? 'This email is already in use.'
-                : 'Invalid or expired link.',
-              'error'
-            );
-          } else {
-            await refresh();
-            push(
-              'Email updated & verified. You’re all set!',
-              'success'
-            );
-          }
-        } catch {
-          push('Invalid or expired link.', 'error');
-        } finally {
-          // cleanup URL
-          url.searchParams.delete('changeEmailToken');
-          window.location.replace(url.toString());
-        }
-      })();
-    }
-  }, [push, refresh]);
 
   return (
     <PageContainer className="py-10">

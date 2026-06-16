@@ -1,11 +1,9 @@
 // DEBUT BLOC (remplace tout ce qui est entre ce commentaire et "FIN BLOC")
 import { Router } from 'express';
 import { prisma } from '../lib/db.js';
-
-import { env } from '../env.js';
+import { getCurrentUser } from '../lib/currentUser.js';
 
 export const router = Router();
-const COOKIE_NAME = env.COOKIE_NAME || 'epion_session';
 
 router.get('/:slug/articles', async (req, res, next) => {
   try {
@@ -14,7 +12,13 @@ router.get('/:slug/articles', async (req, res, next) => {
     const cursor = typeof req.query.cursor === 'string' ? req.query.cursor : undefined;
 
     // CACHE: 5min si anonyme
-    if (!req.cookies?.[COOKIE_NAME]) {
+    let authenticated = false;
+    try {
+      authenticated = Boolean(await getCurrentUser(req, res));
+    } catch {
+      authenticated = false;
+    }
+    if (!authenticated) {
       res.set('Cache-Control', 'public, max-age=300');
       res.set('Vary', 'Cookie');
     }

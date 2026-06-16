@@ -83,6 +83,9 @@ export const auth = betterAuth({
     fields: {
       image: 'avatarUrl',
     },
+    changeEmail: {
+      enabled: true,
+    },
     additionalFields: {
       username: {
         type: 'string',

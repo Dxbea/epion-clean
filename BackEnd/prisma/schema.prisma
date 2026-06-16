@@ -46,7 +46,6 @@ model User {
   email        String   @unique
   name         String?
   role         Role     @default(USER)
-  passwordHash String?
   emailVerified Boolean  @default(false)
   createdAt    DateTime @default(now())
   updatedAt    DateTime @updatedAt
@@ -59,7 +58,6 @@ model User {
   saved       SavedArticle[]
   messages    ChatMessage[]
   sessions    ChatSession[]
-  Session     Session[]
   betterAuthSessions BetterAuthSession[]
   betterAuthAccounts BetterAuthAccount[]
   comments    Comment[]         @relation("UserComments")
@@ -69,11 +67,6 @@ model User {
   contributionValidations ArticleContributionValidation[] @relation("UserArticleContributionValidations")
   ArticleView ArticleView[]
   ChatFolder  ChatFolder[]
-
-  emailVerifiedAt DateTime?
-
-  passwordResets         PasswordReset[] // back-rel manquante
-  EmailVerificationToken EmailVerificationToken[]
 
   subscriptionTier SubscriptionTier @default(FREE)
   dailyQueryCount  Int              @default(0) // Reset à minuit
@@ -164,18 +157,6 @@ model Organization {
   members User[]
 }
 
-model Session {
-  id        String    @id @default(cuid())
-  userId    String
-  user      User      @relation(fields: [userId], references: [id])
-  createdAt DateTime  @default(now())
-  expiresAt DateTime?
-  revokedAt DateTime?
-}
-
-// Better Auth foundation models.
-// Legacy Session, PasswordReset and EmailVerificationToken remain in place
-// until Epion fully migrates identity/session behavior.
 model BetterAuthSession {
   id        String   @id
   expiresAt DateTime
@@ -525,30 +506,6 @@ model ChatMessage {
 
   @@index([sessionId, createdAt])
   @@index([userId, createdAt]) // ⬅️ ajouté pour le count { where: { userId } }
-}
-
-model PasswordReset {
-  id        String    @id @default(cuid())
-  userId    String
-  user      User      @relation(fields: [userId], references: [id], onDelete: Cascade)
-  token     String    @unique
-  expiresAt DateTime
-  usedAt    DateTime?
-  createdAt DateTime  @default(now())
-
-  @@index([userId])
-}
-
-model EmailVerificationToken {
-  id        String   @id @default(cuid())
-  userId    String
-  token     String   @unique
-  createdAt DateTime @default(now())
-  expiresAt DateTime
-
-  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
-
-  @@index([userId])
 }
 
 model Source {

@@ -20,11 +20,9 @@ import { embeddingQueue } from '../lib/queue.js';
 import { hashAnalysisInput } from '../lib/score-helpers.js';
 
 
-import { env } from '../env.js';
 import { getArticleImageProposals } from '../lib/images/proposals.js';
 
 export const router = Router();
-const COOKIE_NAME = env.COOKIE_NAME || 'epion_session';
 
 const ALLOWED_OPINION_POSITIONS = [-1, -0.6, -0.2, 0.2, 0.6, 1] as const;
 const DEFAULT_OPINION_QUESTION = {
@@ -33,6 +31,14 @@ const DEFAULT_OPINION_QUESTION = {
   thesisB: 'Plutôt structurel',
 };
 const SOURCE_ONLY_TEXT = 'A source has been proposed for readers to examine.';
+
+async function hasAuthenticatedUser(req: Parameters<typeof getCurrentUser>[0], res: Parameters<typeof getCurrentUser>[1]): Promise<boolean> {
+  try {
+    return Boolean(await getCurrentUser(req, res));
+  } catch {
+    return false;
+  }
+}
 
 function isAllowedOpinionPosition(value: unknown): value is number {
   return typeof value === 'number' && ALLOWED_OPINION_POSITIONS.some((position) => position === value);
@@ -384,7 +390,7 @@ async function getDefaultAuthorId(): Promise<string> {
 router.get('/top', async (req, res, next) => {
   try {
     // CACHE: 5min si anonyme
-    if (!req.cookies?.[COOKIE_NAME]) {
+    if (!(await hasAuthenticatedUser(req, res))) {
       res.set('Cache-Control', 'public, max-age=300');
       res.set('Vary', 'Cookie');
     }
@@ -556,7 +562,7 @@ router.get('/', async (req, res, next) => {
   try {
     // CACHE: 60s si anonyme (+stale 30s)
     // On ne cache pas si status=ALL (car admin) mais le check cookie couvre déjà ça (admin = connecté)
-    if (!req.cookies?.[COOKIE_NAME]) {
+    if (!(await hasAuthenticatedUser(req, res))) {
       res.set('Cache-Control', 'public, max-age=60, stale-while-revalidate=30');
       res.set('Vary', 'Cookie');
     }
@@ -1114,7 +1120,7 @@ router.get('/slug/:slug', async (req, res, next) => {
     // Donc Safe de mettre le header, car si 404/403, le cache ne s'appliquera pas pareil (ou on s'en fiche).
     // => On met le cache conditionnel, et si on renvoie une erreur, Express/Client gérera.
 
-    if (!req.cookies?.[COOKIE_NAME]) {
+    if (!(await hasAuthenticatedUser(req, res))) {
       res.set('Cache-Control', 'public, max-age=3600, stale-while-revalidate=600');
       res.set('Vary', 'Cookie');
     }
@@ -1381,7 +1387,7 @@ router.get('/search', async (req, res, next) => {
 router.get('/:id', async (req, res, next) => {
   try {
     // CACHE: 1h si anonyme
-    if (!req.cookies?.[COOKIE_NAME]) {
+    if (!(await hasAuthenticatedUser(req, res))) {
       res.set('Cache-Control', 'public, max-age=3600, stale-while-revalidate=600');
       res.set('Vary', 'Cookie');
     }

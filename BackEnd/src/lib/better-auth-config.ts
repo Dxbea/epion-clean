@@ -64,5 +64,5 @@ export function getBetterAuthSecret(): string {
     throw new Error('BETTER_AUTH_SECRET must be set in production.');
   }
 
-  return env.JWT_SECRET;
+  return 'dev-better-auth-secret-change-me-32-chars-min';
 }

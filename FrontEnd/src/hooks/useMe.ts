@@ -8,7 +8,6 @@ export type Me = {
   id: string
   email: string
   emailVerified: boolean
-  emailVerifiedAt: string | null
   displayName: string
   username: string
   phone: string | null

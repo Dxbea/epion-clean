@@ -1,7 +1,8 @@
 import * as React from 'react'
 
 import Button from '@/components/ui/Button'
-import { API_BASE } from '@/config/api'
+import { apiDeleteOtherSessions, apiDeleteSession, apiListSessions } from '@/api/auth'
+import { useMe } from '@/contexts/MeContext'
 import { useI18n } from '@/i18n/I18nContext'
 import { useToast } from '@/components/ui/Toast'
 
@@ -9,12 +10,14 @@ type Session = {
   id: string
   createdAt: string
   expiresAt: string | null
+  lastActiveAt?: string | null
   current: boolean
 }
 
 export default function SessionsList({ id }: { id?: string }) {
   const { t } = useI18n()
   const { push } = useToast()
+  const { refresh } = useMe()
   const [loading, setLoading] = React.useState(true)
   const [list, setList] = React.useState<Session[]>([])
   const [busyAll, setBusyAll] = React.useState(false)
@@ -23,10 +26,8 @@ export default function SessionsList({ id }: { id?: string }) {
   async function fetchList(silent = false) {
     try {
       if (!silent) setLoading(true)
-      const response = await fetch(`${API_BASE}/api/auth/sessions`, { credentials: 'include' })
-      if (!response.ok) throw new Error('HTTP ' + response.status)
-      const json = await response.json()
-      setList(json.sessions as Session[])
+      const json = await apiListSessions()
+      setList(json.sessions)
     } catch {
       push('Failed to load sessions', 'error')
     } finally {
@@ -43,11 +44,10 @@ export default function SessionsList({ id }: { id?: string }) {
     setList(previous.filter((session) => session.id !== id))
 
     try {
-      const response = await fetch(`${API_BASE}/api/auth/sessions/${id}`, {
-        method: 'DELETE',
-        credentials: 'include',
-      })
-      if (!response.ok) throw new Error('HTTP ' + response.status)
+      const result = await apiDeleteSession(id)
+      if ((result as { current?: boolean }).current) {
+        await refresh()
+      }
       push(t('saved'), 'success')
     } catch {
       setList(previous)
@@ -58,12 +58,7 @@ export default function SessionsList({ id }: { id?: string }) {
   async function revokeOthers() {
     try {
       setBusyAll(true)
-      const response = await fetch(`${API_BASE}/api/auth/sessions/others`, {
-        method: 'DELETE',
-        credentials: 'include',
-      })
-      if (!response.ok) throw new Error('HTTP ' + response.status)
-      const { deleted } = await response.json()
+      const { deleted } = await apiDeleteOtherSessions()
       await fetchList(true)
       push(deleted > 0 ? t('revoke_all_done') : t('no_other_sessions'), 'success')
     } catch {

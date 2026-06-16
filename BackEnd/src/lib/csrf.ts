@@ -3,7 +3,10 @@ import crypto from 'crypto';
 import { env } from '../env.js';
 import { getCurrentSession } from './currentUser.js';
 
-const CSRF_SECRET = env.JWT_SECRET;
+const CSRF_SECRET =
+  env.CSRF_SECRET ??
+  env.BETTER_AUTH_SECRET ??
+  'dev-csrf-secret-change-me-32-chars-min';
 
 type CsrfPayload = {
   sid: string;
@@ -11,12 +14,6 @@ type CsrfPayload = {
 };
 
 const csrfExemptAuthPaths = new Set([
-  '/auth/login',
-  '/auth/signup',
-  '/auth/forgot-password',
-  '/auth/reset-password',
-  '/auth/verify-email',
-  '/auth/request-verify',
   '/auth/verify-invite',
 ]);
 

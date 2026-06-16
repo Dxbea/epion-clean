@@ -17,7 +17,7 @@ export default function Cookies() {
 
   const cookies: Row[] = [
     {
-      name: 'epion_session',
+      name: 'better-auth.session_token',
       type: 'cookie',
       purpose: "Session d'authentification strictement necessaire.",
       duration: '7 jours',

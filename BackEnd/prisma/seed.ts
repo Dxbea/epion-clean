@@ -1,36 +1,24 @@
 /// <reference types="node" />
 import { PrismaClient, Role, ArticleStatus } from '@prisma/client';
-import bcrypt from 'bcryptjs';
 
 const prisma = new PrismaClient();
 
 async function getSeedAuthor() {
   const seedAdminEmail = process.env.SEED_ADMIN_EMAIL?.trim().toLowerCase();
-  const seedAdminPassword = process.env.SEED_ADMIN_PASSWORD;
 
-  if (seedAdminEmail || seedAdminPassword) {
-    if (!seedAdminEmail || !seedAdminPassword) {
-      throw new Error('Set both SEED_ADMIN_EMAIL and SEED_ADMIN_PASSWORD to create a seed admin.');
-    }
-
-    if (seedAdminPassword.length < 12) {
-      throw new Error('SEED_ADMIN_PASSWORD must be at least 12 characters.');
-    }
-
-    const hashedPassword = await bcrypt.hash(seedAdminPassword, 12);
-    const admin = await prisma.user.upsert({
+  if (seedAdminEmail) {
+    const existing = await prisma.user.findUnique({
       where: { email: seedAdminEmail },
-      update: {
-        passwordHash: hashedPassword,
-        role: Role.ADMIN,
-      },
-      create: {
-        email: seedAdminEmail,
-        name: 'Admin Epion',
-        role: Role.ADMIN,
-        passwordHash: hashedPassword,
-        username: 'admin',
-      },
+      select: { id: true, email: true },
+    });
+
+    if (!existing) {
+      throw new Error('SEED_ADMIN_EMAIL must match an existing Better Auth user.');
+    }
+
+    const admin = await prisma.user.update({
+      where: { id: existing.id },
+      data: { role: Role.ADMIN },
     });
 
     await prisma.userUsage.upsert({
@@ -46,7 +34,7 @@ async function getSeedAuthor() {
       },
     });
 
-    console.log(`Admin user created/verified from SEED_ADMIN_EMAIL: ${admin.email}`);
+    console.log(`Admin user promoted from SEED_ADMIN_EMAIL: ${admin.email}`);
     return admin;
   }
 
@@ -57,7 +45,6 @@ async function getSeedAuthor() {
       email: 'seed@local.test',
       name: 'Seed User',
       role: Role.USER,
-      passwordHash: null,
       username: 'seed',
     },
   });
@@ -75,7 +62,7 @@ async function getSeedAuthor() {
     },
   });
 
-  console.log('No seed admin created. Set SEED_ADMIN_EMAIL and SEED_ADMIN_PASSWORD to create one.');
+  console.log('No seed admin promoted. Set SEED_ADMIN_EMAIL to promote an existing Better Auth user.');
   return seedAuthor;
 }
 

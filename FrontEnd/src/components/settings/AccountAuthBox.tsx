@@ -7,9 +7,8 @@ import { useToast } from '@/components/ui/Toast';
 import { useMe } from '@/contexts/MeContext';
 import { Link } from 'react-router-dom';
 import { API_BASE } from '@/config/api';
-import { withCsrf } from '@/lib/csrf';
 import VerifyEmailActions from '@/components/account/VerifyEmailActions';
-import { authClient } from '@/lib/better-auth-client';
+import { authClient, getEmailVerificationCallbackURL } from '@/lib/better-auth-client';
 
 /* ----------------------------------
    Helpers communs
@@ -393,7 +392,7 @@ function SignedInCompact({
    -> tout : change email, reset pw, etc.
 ----------------------------------------------------------------------------- */
 /* ----------------------------------------------------------------------------- */
-/* SignedInFull – ici on patch les deux fetch en withCsrf */
+/* SignedInFull */
 /* ----------------------------------------------------------------------------- */
 
 function SignedInFull({
@@ -403,7 +402,6 @@ function SignedInFull({
 }: {
   me: {
     email: string;
-    emailVerifiedAt?: string | null;
     displayName?: string | null;
     username?: string | null;
   };
@@ -432,18 +430,11 @@ function SignedInFull({
 
     try {
       setChgBusy(true);
-      const res = await fetch(
-        `${API_BASE}/api/auth/change-email-request`,
-        await withCsrf({
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ newEmail: trimmed }),
-        }),
-      );
-      const j = await res.json().catch(() => ({} as any));
-      if (j?.verifyUrl) {
-        await navigator.clipboard.writeText(j.verifyUrl).catch(() => {});
-      }
+      const res = await authClient.changeEmail({
+        newEmail: trimmed,
+        callbackURL: getEmailVerificationCallbackURL(),
+      });
+      if (res.error) throw new Error(res.error.message || `HTTP ${res.error.status || 400}`);
       push('If this address is valid, we sent a verification link.', 'success');
       setNewEmail('');
     } catch {

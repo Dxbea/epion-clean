@@ -16,7 +16,6 @@ let usernameCounter = 0;
 describe('Better Auth current-user context', () => {
   let prisma: PrismaClient;
   let app: express.Express;
-  let createJwtForSession: (userId: string, sessionId: string) => string;
   let sendMailMock: ReturnType<typeof vi.fn>;
   let hashPassword: (password: string) => Promise<string>;
   let generateId: (options?: { model?: string; size?: number }) => string;
@@ -31,9 +30,6 @@ describe('Better Auth current-user context', () => {
 
     await prisma.betterAuthSession.deleteMany({ where: { userId: { in: userIds } } });
     await prisma.betterAuthAccount.deleteMany({ where: { userId: { in: userIds } } });
-    await prisma.session.deleteMany({ where: { userId: { in: userIds } } });
-    await prisma.passwordReset.deleteMany({ where: { userId: { in: userIds } } });
-    await prisma.emailVerificationToken.deleteMany({ where: { userId: { in: userIds } } });
     await prisma.user.deleteMany({ where: { id: { in: userIds } } });
   }
 
@@ -92,11 +88,9 @@ describe('Better Auth current-user context', () => {
     const authModule = await import('../src/lib/better-auth.js');
     const currentUserModule = await import('../src/lib/currentUser.js');
     const verifiedModule = await import('../src/lib/requireVerifiedUser.js');
-    const sessionModule = await import('../src/lib/session.js');
     const mailerModule = await import('../src/lib/mailer.js');
 
     prisma = dbModule.prisma;
-    createJwtForSession = sessionModule.createJwtForSession;
     sendMailMock = vi.mocked(mailerModule.sendMail);
     const authContext = await authModule.auth.$context;
     hashPassword = authContext.password.hash;
@@ -168,13 +162,7 @@ describe('Better Auth current-user context', () => {
     const revoked = await request(app).get('/protected').set('Cookie', cookie);
     expect(revoked.status).toBe(401);
 
-    const legacySession = await prisma.session.create({
-      data: {
-        userId,
-        expiresAt: new Date(Date.now() + 60 * 60 * 1000),
-      },
-    });
-    const legacyCookie = `epion_session=${createJwtForSession(userId, legacySession.id)}`;
+    const legacyCookie = `epion_session=legacy-${userId}`;
     const legacyOnly = await request(app).get('/protected').set('Cookie', legacyCookie);
     expect(legacyOnly.status).toBe(401);
 

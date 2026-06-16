@@ -2,7 +2,7 @@
 import * as React from 'react';
 import { useMe } from '@/contexts/MeContext';
 import { useToast } from '@/components/ui/Toast';
-import { API_BASE } from '@/config/api';
+import { authClient, getEmailVerificationCallbackURL } from '@/lib/better-auth-client';
 
 export default function AccountChangeEmailBox() {
   const { me } = useMe();
@@ -17,22 +17,11 @@ export default function AccountChangeEmailBox() {
     try {
       setBusy(true);
 
-      const res = await fetch(`${API_BASE}/api/auth/change-email-request`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        credentials: 'include',
-        body: JSON.stringify({
-          newEmail: newEmail.trim().toLowerCase(),
-        }),
+      const res = await authClient.changeEmail({
+        newEmail: newEmail.trim().toLowerCase(),
+        callbackURL: getEmailVerificationCallbackURL(),
       });
-
-      // backend peut renvoyer { verifyUrl } en dev (copiable)
-      const j = await res.json().catch(() => ({}));
-      if (j?.verifyUrl) {
-        await navigator.clipboard
-          .writeText(j.verifyUrl)
-          .catch(() => {});
-      }
+      if (res.error) throw new Error(res.error.message || `HTTP ${res.error.status || 400}`);
 
       push(
         'If this address is valid, we sent a verification link.',

@@ -3,10 +3,9 @@
 
 import * as React from 'react';
 import { Link } from 'react-router-dom';
-import { API_BASE } from '@/config/api';
 import { useMe } from '@/contexts/MeContext';
 import { useToast } from '@/components/ui/Toast';
-import { authClient } from '@/lib/better-auth-client';
+import { authClient, getEmailVerificationCallbackURL } from '@/lib/better-auth-client';
 
 export default function AccountPanelFull() {
   const { me } = useMe();
@@ -35,18 +34,11 @@ export default function AccountPanelFull() {
     if (!newEmail.trim()) return;
     try {
       setChgBusy(true);
-      const res = await fetch(`${API_BASE}/api/auth/change-email-request`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        credentials: 'include',
-        body: JSON.stringify({ newEmail: newEmail.trim().toLowerCase() }),
+      const res = await authClient.changeEmail({
+        newEmail: newEmail.trim().toLowerCase(),
+        callbackURL: getEmailVerificationCallbackURL(),
       });
-
-      // en dev l'API peut renvoyer { verifyUrl }
-      const j = await res.json().catch(() => ({} as any));
-      if (j?.verifyUrl) {
-        await navigator.clipboard.writeText(j.verifyUrl).catch(() => {});
-      }
+      if (res.error) throw new Error(res.error.message || `HTTP ${res.error.status || 400}`);
 
       push('If this address is valid, we sent a verification link.', 'success');
       setNewEmail('');

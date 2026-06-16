@@ -63,11 +63,12 @@ export type SessionItem = {
   id: string;
   createdAt: string;
   expiresAt: string | null;
+  lastActiveAt?: string | null;
   current: boolean;
 };
 
 export async function apiListSessions(): Promise<{ sessions: SessionItem[] }> {
-  const res = await fetch(`${API_BASE}/api/auth/sessions`, {
+  const res = await fetch(`${API_BASE}/api/me/sessions`, {
     credentials: 'include',
   });
   if (!res.ok) throw new Error('HTTP ' + res.status);
@@ -76,7 +77,7 @@ export async function apiListSessions(): Promise<{ sessions: SessionItem[] }> {
 
 export async function apiDeleteSession(id: string) {
   const res = await fetch(
-    `${API_BASE}/api/auth/sessions/${id}`,
+    `${API_BASE}/api/me/sessions/${id}`,
     await withCsrf({
       method: 'DELETE',
     }),
@@ -87,7 +88,7 @@ export async function apiDeleteSession(id: string) {
 
 export async function apiDeleteOtherSessions() {
   const res = await fetch(
-    `${API_BASE}/api/auth/sessions/others`,
+    `${API_BASE}/api/me/sessions/others`,
     await withCsrf({
       method: 'DELETE',
     }),

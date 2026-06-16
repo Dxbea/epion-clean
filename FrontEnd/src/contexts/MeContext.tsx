@@ -11,7 +11,6 @@ export type Me = {
   id: string
   email: string
   emailVerified: boolean
-  emailVerifiedAt: string | null
   displayName: string
   username: string
   phone: string | null
@@ -57,7 +56,6 @@ async function fetchFullMe(): Promise<Me | null> {
       id: raw.id,
       email: raw.email,
       emailVerified: Boolean(raw.emailVerified),
-      emailVerifiedAt: raw.emailVerifiedAt ?? null,
       displayName: raw.displayName ?? raw.name ?? '',
       username: raw.username ?? '',
       phone: raw.phone ?? null,

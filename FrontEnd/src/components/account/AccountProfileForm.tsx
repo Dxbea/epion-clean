@@ -33,7 +33,7 @@ type FormValues = z.infer<typeof schema>
 type ServerMe = {
   id: string
   email: string
-  emailVerifiedAt: string | null
+  emailVerified: boolean
   displayName: string
   username: string
   phone: string | null

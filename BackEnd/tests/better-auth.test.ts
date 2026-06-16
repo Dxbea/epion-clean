@@ -18,6 +18,7 @@ describe('Better Auth foundation', () => {
   let prisma: PrismaClient;
   let compatibleApp: express.Express;
   let betterAuthApp: express.Express;
+  let meApp: express.Express;
   let sendMailMock: ReturnType<typeof vi.fn>;
 
   async function cleanupUsers() {
@@ -35,9 +36,6 @@ describe('Better Auth foundation', () => {
 
     await prisma.betterAuthSession.deleteMany({ where: { userId: { in: userIds } } });
     await prisma.betterAuthAccount.deleteMany({ where: { userId: { in: userIds } } });
-    await prisma.session.deleteMany({ where: { userId: { in: userIds } } });
-    await prisma.passwordReset.deleteMany({ where: { userId: { in: userIds } } });
-    await prisma.emailVerificationToken.deleteMany({ where: { userId: { in: userIds } } });
     await prisma.user.deleteMany({ where: { id: { in: userIds } } });
     await prisma.betterAuthVerification.deleteMany({
       where: {
@@ -130,6 +128,7 @@ describe('Better Auth foundation', () => {
     const dbModule = await import('../src/lib/db.js');
     const handlerModule = await import('../src/lib/better-auth-handler.js');
     const authModule = await import('../src/lib/better-auth.js');
+    const meModule = await import('../src/routes/me.js');
     const mailerModule = await import('../src/lib/mailer.js');
 
     prisma = dbModule.prisma;
@@ -140,6 +139,11 @@ describe('Better Auth foundation', () => {
 
     betterAuthApp = express();
     betterAuthApp.all('/api/auth/*', toNodeHandler(authModule.auth));
+
+    meApp = express();
+    meApp.all('/api/auth/*', toNodeHandler(authModule.auth));
+    meApp.use(express.json());
+    meApp.use('/api/me', meModule.router);
 
     await cleanupUsers();
   });
@@ -173,6 +177,25 @@ describe('Better Auth foundation', () => {
     expect(response.body.message).toMatch(/If this email exists/i);
   });
 
+  it('does not serve removed legacy auth endpoints from the compatibility handler', async () => {
+    const endpoints = [
+      ['post', '/api/auth/signup'],
+      ['post', '/api/auth/login'],
+      ['post', '/api/auth/logout'],
+      ['get', '/api/auth/me'],
+      ['post', '/api/auth/request-verify'],
+      ['post', '/api/auth/email/verification-link'],
+      ['post', '/api/auth/change-email-request'],
+      ['post', '/api/auth/confirm-email-change'],
+      ['get', '/api/auth/sessions'],
+    ] as const;
+
+    for (const [method, path] of endpoints) {
+      const response = await request(compatibleApp)[method](path).set('Origin', 'http://localhost:5173');
+      expect(response.status).toBe(404);
+    }
+  });
+
   it('signs up with email/password, persists User and BetterAuthAccount, and sends verification email', async () => {
     const email = uniqueEmail('signup');
     const response = await signUp(email);
@@ -189,7 +212,6 @@ describe('Better Auth foundation', () => {
     expect(user).toBeTruthy();
     expect(user?.emailVerified).toBe(false);
     expect(user?.username).toMatch(/^ba_/);
-    expect(user?.passwordHash).toBeNull();
     expect(user?.betterAuthAccounts).toHaveLength(1);
     expect(user?.betterAuthAccounts[0].providerId).toBe('credential');
     expect(user?.betterAuthAccounts[0].password).toBeTruthy();
@@ -215,12 +237,10 @@ describe('Better Auth foundation', () => {
 
     const user = await prisma.user.findUniqueOrThrow({
       where: { email },
-      include: { betterAuthAccounts: true, Session: true },
+      include: { betterAuthAccounts: true },
     });
     expect(user.username).toMatch(/^ba_/);
     expect(user.inviteCodeId).toBe(invite.id);
-    expect(user.passwordHash).toBeNull();
-    expect(user.Session).toHaveLength(0);
     expect(user.betterAuthAccounts).toHaveLength(1);
 
     const consumed = await prisma.inviteCode.findUniqueOrThrow({ where: { id: invite.id } });
@@ -283,6 +303,88 @@ describe('Better Auth foundation', () => {
       .set('Cookie', cookie);
     expect(sessionAfterSignOut.status).toBe(200);
     expect(sessionAfterSignOut.body).toBeNull();
+  });
+
+  it('lists and revokes Better Auth sessions without exposing tokens', async () => {
+    const email = uniqueEmail('session-list');
+    await signUp(email);
+    await verifyLatestEmail();
+
+    const firstLogin = await signIn(email);
+    expect(firstLogin.status).toBe(200);
+    const firstCookie = extractCookie(firstLogin);
+
+    const secondLogin = await signIn(email);
+    expect(secondLogin.status).toBe(200);
+
+    const list = await request(meApp)
+      .get('/api/me/sessions')
+      .set('Cookie', firstCookie);
+    expect(list.status).toBe(200);
+    expect(list.body.sessions.length).toBeGreaterThan(1);
+    expect(JSON.stringify(list.body)).not.toContain('token');
+
+    const otherSession = list.body.sessions.find((session: { current: boolean }) => !session.current);
+    expect(otherSession).toBeTruthy();
+
+    const revoked = await request(meApp)
+      .delete(`/api/me/sessions/${otherSession.id}`)
+      .set('Cookie', firstCookie);
+    expect(revoked.status).toBe(200);
+    expect(revoked.body.ok).toBe(true);
+    expect(JSON.stringify(revoked.body)).not.toContain('token');
+
+    const revokedOthers = await request(meApp)
+      .delete('/api/me/sessions/others')
+      .set('Cookie', firstCookie);
+    expect(revokedOthers.status).toBe(200);
+    expect(revokedOthers.body.ok).toBe(true);
+
+    const after = await request(meApp)
+      .get('/api/me/sessions')
+      .set('Cookie', firstCookie);
+    expect(after.status).toBe(200);
+    expect(after.body.sessions.every((session: { current: boolean }) => session.current)).toBe(true);
+  });
+
+  it('changes email through Better Auth verification and refreshes Epion profile data', async () => {
+    const email = uniqueEmail('change-email');
+    const newEmail = uniqueEmail('changed-email');
+    await signUp(email);
+    await verifyLatestEmail();
+
+    const login = await signIn(email);
+    expect(login.status).toBe(200);
+    const cookie = extractCookie(login);
+
+    sendMailMock.mockClear();
+    const requested = await request(betterAuthApp)
+      .post('/api/auth/change-email')
+      .set('Origin', 'http://localhost:5173')
+      .set('Cookie', cookie)
+      .send({
+        newEmail,
+        callbackURL: 'http://localhost:5173/verify-email',
+      });
+    expect(requested.status).toBe(200);
+    expect(requested.body.status).toBe(true);
+    expect(sendMailMock).toHaveBeenCalledTimes(1);
+    expect(latestMail().to).toBe(newEmail);
+
+    const verificationUrl = extractUrl(latestMail().html);
+    const verified = await request(betterAuthApp)
+      .get(`/api/auth/verify-email${verificationUrl.search}`)
+      .set('Origin', 'http://localhost:5173');
+    expect(verified.status).toBe(200);
+    expect(verified.body.status).toBe(true);
+
+    const profile = await request(meApp)
+      .get('/api/me')
+      .set('Cookie', cookie);
+    expect(profile.status).toBe(200);
+    expect(profile.body.email).toBe(newEmail);
+    expect(profile.body.emailVerified).toBe(true);
+    expect(JSON.stringify(profile.body)).not.toContain('token');
   });
 
   it('manually resends verification email for an existing unverified account without duplicates', async () => {

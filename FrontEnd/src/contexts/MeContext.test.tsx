@@ -36,7 +36,6 @@ const profile: Me = {
   id: 'user-1',
   email: 'user@example.com',
   emailVerified: true,
-  emailVerifiedAt: null,
   displayName: 'User Example',
   username: 'user',
   phone: null,
