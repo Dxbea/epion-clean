@@ -1,7 +1,8 @@
 // src/contexts/MeContext.tsx
 import * as React from 'react'
 import { API_BASE } from '@/config/api'
-import { authClient } from '@/lib/better-auth-client'
+import { authClient, getEmailVerificationCallbackURL } from '@/lib/better-auth-client'
+import { clearStoredAuthRedirects } from '@/lib/auth-navigation'
 
 /**
  * Shape utilisateur global – doit matcher ce que renvoie GET /api/me
@@ -55,7 +56,7 @@ async function fetchFullMe(): Promise<Me | null> {
     const data: Me = {
       id: raw.id,
       email: raw.email,
-      emailVerified: Boolean(raw.emailVerified ?? raw.emailVerifiedAt),
+      emailVerified: Boolean(raw.emailVerified),
       emailVerifiedAt: raw.emailVerifiedAt ?? null,
       displayName: raw.displayName ?? raw.name ?? '',
       username: raw.username ?? '',
@@ -110,27 +111,35 @@ export function MeProvider({ children }: { children: React.ReactNode }) {
       })
 
       if (res.error) {
+        const code = String((res.error as { code?: string }).code || res.error.message || '')
+        if (res.error.status === 403 || code.includes('EMAIL_NOT_VERIFIED') || code.includes('Email not verified')) {
+          throw new Error('EMAIL_NOT_VERIFIED')
+        }
         const status = res.error.status ? `HTTP ${res.error.status}` : 'HTTP 401'
         throw new Error(`${status} ${res.error.message || ''}`.trim())
       }
 
       await refresh()
+      clearStoredAuthRedirects()
     },
     [refresh],
   )
 
   const signup = React.useCallback(
     async (email: string, password: string, displayName: string, inviteCode?: string) => {
-      const res = await fetch(`${API_BASE}/api/auth/signup`, {
-        method: 'POST',
-        credentials: 'include',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ email, password, displayName, ...(inviteCode ? { inviteCode } : {}) }),
+      const username = displayName.trim().toLowerCase().replace(/[^a-z0-9_]+/g, '_').replace(/^_+|_+$/g, '').slice(0, 20)
+      const res = await authClient.signUp.email({
+        email,
+        password,
+        name: displayName,
+        username,
+        callbackURL: getEmailVerificationCallbackURL(),
+        ...(inviteCode ? { inviteCode } : {}),
       })
 
-      if (!res.ok) {
-        const text = await res.text().catch(() => `HTTP ${res.status}`)
-        throw new Error(`HTTP ${res.status} ${text || ''}`.trim())
+      if (res.error) {
+        const status = res.error.status ? `HTTP ${res.error.status}` : 'HTTP 400'
+        throw new Error(`${status} ${res.error.message || ''}`.trim())
       }
 
       await refresh()

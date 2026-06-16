@@ -4,7 +4,8 @@ import { prismaAdapter } from 'better-auth/adapters/prisma';
 import { prisma } from './db.js';
 import { env } from '../env.js';
 import { logger } from './logger.js';
-import { sendMail } from './mailer.js';
+import { APP_URL, sendMail } from './mailer.js';
+import { prepareBetterAuthSignupUser } from './better-auth-signup.js';
 import {
   getBetterAuthBaseUrl,
   getBetterAuthSecret,
@@ -59,7 +60,10 @@ export const auth = betterAuth({
   },
   emailVerification: {
     sendOnSignUp: true,
-    sendVerificationEmail: async ({ user, url }) => {
+    sendOnSignIn: true,
+    autoSignInAfterVerification: true,
+    sendVerificationEmail: async ({ user, token }) => {
+      const url = `${APP_URL}/verify-email?token=${encodeURIComponent(token)}`;
       await sendBetterAuthEmail({
         to: user.email,
         subject: 'Verify your email for Epion',
@@ -79,6 +83,19 @@ export const auth = betterAuth({
     fields: {
       image: 'avatarUrl',
     },
+    additionalFields: {
+      username: {
+        type: 'string',
+        required: false,
+        returned: true,
+      },
+      inviteCodeId: {
+        type: 'string',
+        required: false,
+        input: true,
+        returned: false,
+      },
+    },
   },
   session: {
     modelName: 'BetterAuthSession',
@@ -91,5 +108,12 @@ export const auth = betterAuth({
   },
   verification: {
     modelName: 'BetterAuthVerification',
+  },
+  databaseHooks: {
+    user: {
+      create: {
+        before: prepareBetterAuthSignupUser,
+      },
+    },
   },
 });

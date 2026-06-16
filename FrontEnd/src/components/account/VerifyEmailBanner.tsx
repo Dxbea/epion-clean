@@ -5,7 +5,7 @@ import VerifyEmailActions from '@/components/account/VerifyEmailActions';
 
 export default function VerifyEmailBanner() {
   const { me } = useMe();
-  if (!me || me.emailVerifiedAt) return null;
+  if (!me || me.emailVerified) return null;
 
   return (
     <div className="mb-6 rounded-2xl border border-amber-300/60 bg-amber-50 p-4 dark:border-yellow-900/40 dark:bg-yellow-900/20">

@@ -28,7 +28,7 @@ export default function CreateArticlePage() {
   const [isGenerating, setIsGenerating] = React.useState(false);
   const [error, setError] = React.useState<string | null>(null);
 
-  const emailNotVerified = !!me && !me.emailVerifiedAt;
+  const emailNotVerified = !!me && !me.emailVerified;
   const promptTooLong = prompt.length > MAX_PROMPT_CHARS;
 
   React.useEffect(() => {

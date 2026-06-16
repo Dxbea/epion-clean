@@ -6,18 +6,29 @@ import { useMe } from '@/contexts/MeContext';
 import { API_BASE } from '@/config/api';
 import PageContainer from '@/components/ui/PageContainer';
 import { H2, Body, Button } from '@/components/ui';
+import { DEFAULT_AUTHENTICATED_DESTINATION } from '@/lib/auth-navigation';
 
 export default function VerifyEmail() {
   const [searchParams] = useSearchParams();
+  const hasTokenParam = searchParams.has('token');
   const token = searchParams.get('token');
   const { t } = useI18n();
-  const { refresh } = useMe();
+  const { me, loading, refresh } = useMe();
   const navigate = useNavigate();
 
-  const [status, setStatus] = useState<'loading' | 'success' | 'error'>('loading');
+  const [status, setStatus] = useState<'loading' | 'success' | 'error' | 'neutral'>('loading');
   const [errorMessage, setErrorMessage] = useState('');
 
   useEffect(() => {
+    if (!hasTokenParam) {
+      if (loading) return;
+      if (me?.emailVerified) {
+        navigate(DEFAULT_AUTHENTICATED_DESTINATION, { replace: true });
+        return;
+      }
+      setStatus('neutral');
+      return;
+    }
     if (!token) {
       setStatus('error');
       setErrorMessage(t('invalid_link') || 'Invalid verification link.');
@@ -28,22 +39,21 @@ export default function VerifyEmail() {
 
     async function verify() {
       try {
-        const res = await fetch(`${API_BASE}/api/auth/verify-email`, {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
+        const res = await fetch(`${API_BASE}/api/auth/verify-email?token=${encodeURIComponent(token)}`, {
+          method: 'GET',
           credentials: 'include',
-          body: JSON.stringify({ token }),
         });
 
         if (!isSubscribed) return;
 
         if (res.ok) {
           setStatus('success');
-          await refresh(); // Force the React context to fetch the updated user with emailVerifiedAt
+          await refresh();
         } else {
           const data = await res.json().catch(() => ({}));
           setStatus('error');
-          if (data.error === 'EXPIRED_LINK') {
+          const code = String(data.code || data.error || data.message || '');
+          if (code.includes('EXPIRED')) {
             setErrorMessage(t('expired_link') || 'Verification link has expired.');
           } else {
             setErrorMessage(t('invalid_link') || 'Invalid or already used verification link.');
@@ -61,7 +71,7 @@ export default function VerifyEmail() {
     return () => {
       isSubscribed = false;
     };
-  }, [token, t]);
+  }, [hasTokenParam, token, t, refresh, loading, me?.emailVerified, navigate]);
 
   return (
     <PageContainer className="flex flex-col items-center justify-center py-20 text-center">
@@ -114,6 +124,20 @@ export default function VerifyEmail() {
             >
               {t('go_to_account') || 'Go to my account'}
             </Button>
+          </div>
+        )}
+
+        {status === 'neutral' && (
+          <div className="flex flex-col items-center gap-4">
+            <H2 as="h1" className="text-xl">{t('settings_email_verification') || 'Email verification'}</H2>
+            <Body className="opacity-70">
+              Check your inbox for the verification link. If you already verified your email, sign in again to continue.
+            </Body>
+            <Link to="/settings#account" className="mt-4 block w-full">
+              <Button className="w-full" variant="primary">
+                {t('go_to_account') || 'Go to my account'}
+              </Button>
+            </Link>
           </div>
         )}
 

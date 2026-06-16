@@ -6,6 +6,7 @@ import { Link } from 'react-router-dom';
 import { API_BASE } from '@/config/api';
 import { useMe } from '@/contexts/MeContext';
 import { useToast } from '@/components/ui/Toast';
+import { authClient } from '@/lib/better-auth-client';
 
 export default function AccountPanelFull() {
   const { me } = useMe();
@@ -60,11 +61,9 @@ export default function AccountPanelFull() {
     if (!me?.email) return;
     try {
       setLinkBusy(true);
-      await fetch(`${API_BASE}/api/auth/forgot-password`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        credentials: 'include',
-        body: JSON.stringify({ email: me.email }),
+      await authClient.requestPasswordReset({
+        email: me.email,
+        redirectTo: typeof window === 'undefined' ? '/reset-password' : `${window.location.origin}/reset-password`,
       });
       push('If this email exists, a reset link has been generated.', 'success');
     } catch {
@@ -80,7 +79,7 @@ export default function AccountPanelFull() {
     me.email?.split('@')[0] ||
     'Account';
 
-  const isVerified = Boolean(me.emailVerifiedAt);
+  const isVerified = Boolean(me.emailVerified);
 
   return (
     <section

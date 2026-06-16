@@ -12,6 +12,7 @@ vi.mock('../src/lib/mailer.js', () => ({
 const TEST_EMAIL_PREFIX = 'better-auth-foundation';
 const PASSWORD = 'Original-password-123';
 const NEW_PASSWORD = 'New-password-456';
+let usernameCounter = 0;
 
 describe('Better Auth foundation', () => {
   let prisma: PrismaClient;
@@ -46,10 +47,18 @@ describe('Better Auth foundation', () => {
         ],
       },
     });
+    await prisma.inviteCode.deleteMany({
+      where: { code: { startsWith: 'BA_TEST_' } },
+    });
   }
 
   function uniqueEmail(label: string) {
     return `${TEST_EMAIL_PREFIX}-${label}-${Date.now()}@example.com`;
+  }
+
+  function uniqueUsername() {
+    usernameCounter += 1;
+    return `ba_${Date.now().toString(36)}_${usernameCounter}`;
   }
 
   function latestMail() {
@@ -72,7 +81,7 @@ describe('Better Auth foundation', () => {
     return cookies.map((cookie) => cookie.split(';')[0]).join('; ');
   }
 
-  async function signUp(email: string, password = PASSWORD) {
+  async function signUp(email: string, password = PASSWORD, inviteCode?: string, username = uniqueUsername()) {
     return request(betterAuthApp)
       .post('/api/auth/sign-up/email')
       .set('Origin', 'http://localhost:5173')
@@ -80,7 +89,9 @@ describe('Better Auth foundation', () => {
         name: 'Better Auth Test',
         email,
         password,
-        callbackURL: 'http://localhost:5173/auth/verified',
+        username,
+        ...(inviteCode ? { inviteCode } : {}),
+        callbackURL: 'http://localhost:5173/verify-email',
       });
   }
 
@@ -88,7 +99,7 @@ describe('Better Auth foundation', () => {
     const verificationUrl = extractUrl(latestMail().html);
     verificationUrl.searchParams.delete('callbackURL');
     const response = await request(betterAuthApp)
-      .get(`${verificationUrl.pathname}${verificationUrl.search}`)
+      .get(`/api/auth/verify-email${verificationUrl.search}`)
       .set('Origin', 'http://localhost:5173');
 
     expect(response.status).toBe(200);
@@ -99,7 +110,20 @@ describe('Better Auth foundation', () => {
     return request(betterAuthApp)
       .post('/api/auth/sign-in/email')
       .set('Origin', 'http://localhost:5173')
-      .send({ email, password });
+      .send({ email, password, callbackURL: 'http://localhost:5173/verify-email' });
+  }
+
+  async function getSession(cookie: string) {
+    return request(betterAuthApp)
+      .get('/api/auth/get-session')
+      .set('Cookie', cookie);
+  }
+
+  async function resendVerificationEmail(email: string) {
+    return request(betterAuthApp)
+      .post('/api/auth/send-verification-email')
+      .set('Origin', 'http://localhost:5173')
+      .send({ email, callbackURL: 'http://localhost:5173/verify-email' });
   }
 
   beforeAll(async () => {
@@ -136,6 +160,19 @@ describe('Better Auth foundation', () => {
     expect(response.body).toEqual({ ok: true });
   });
 
+  it('lets Better Auth own password endpoints in the compatibility handler', async () => {
+    const response = await request(compatibleApp)
+      .post('/api/auth/request-password-reset')
+      .set('Origin', 'http://localhost:5173')
+      .send({
+        email: uniqueEmail('unknown-reset'),
+        redirectTo: 'http://localhost:5173/reset-password',
+      });
+
+    expect(response.status).toBe(200);
+    expect(response.body.message).toMatch(/If this email exists/i);
+  });
+
   it('signs up with email/password, persists User and BetterAuthAccount, and sends verification email', async () => {
     const email = uniqueEmail('signup');
     const response = await signUp(email);
@@ -151,6 +188,8 @@ describe('Better Auth foundation', () => {
 
     expect(user).toBeTruthy();
     expect(user?.emailVerified).toBe(false);
+    expect(user?.username).toMatch(/^ba_/);
+    expect(user?.passwordHash).toBeNull();
     expect(user?.betterAuthAccounts).toHaveLength(1);
     expect(user?.betterAuthAccounts[0].providerId).toBe('credential');
     expect(user?.betterAuthAccounts[0].password).toBeTruthy();
@@ -159,15 +198,55 @@ describe('Better Auth foundation', () => {
     const mail = latestMail();
     expect(mail.to).toBe(email);
     expect(mail.subject).toMatch(/verify/i);
-    expect(extractUrl(mail.html).pathname).toBe('/api/auth/verify-email');
+    expect(extractUrl(mail.html).pathname).toBe('/verify-email');
+  });
+
+  it('validates and consumes beta invitations atomically during Better Auth sign-up', async () => {
+    const invite = await prisma.inviteCode.create({
+      data: {
+        code: `BA_TEST_${Date.now()}`,
+        maxUses: 1,
+      },
+    });
+    const email = uniqueEmail('invite');
+
+    const response = await signUp(email, PASSWORD, invite.code);
+    expect(response.status).toBe(200);
+
+    const user = await prisma.user.findUniqueOrThrow({
+      where: { email },
+      include: { betterAuthAccounts: true, Session: true },
+    });
+    expect(user.username).toMatch(/^ba_/);
+    expect(user.inviteCodeId).toBe(invite.id);
+    expect(user.passwordHash).toBeNull();
+    expect(user.Session).toHaveLength(0);
+    expect(user.betterAuthAccounts).toHaveLength(1);
+
+    const consumed = await prisma.inviteCode.findUniqueOrThrow({ where: { id: invite.id } });
+    expect(consumed.usedCount).toBe(1);
+
+    const second = await signUp(uniqueEmail('invite-full'), PASSWORD, invite.code);
+    expect(second.status).toBe(400);
+    expect(JSON.stringify(second.body)).toContain('INVITE_CODE_FULL');
+  });
+
+  it('rejects invalid beta invitations when an invite code is provided', async () => {
+    const response = await signUp(uniqueEmail('bad-invite'), PASSWORD, 'BA_TEST_MISSING');
+
+    expect(response.status).toBe(400);
+    expect(JSON.stringify(response.body)).toContain('INVALID_INVITE_CODE');
   });
 
   it('denies login before verification, then creates and invalidates a Better Auth session', async () => {
     const email = uniqueEmail('session');
     await signUp(email);
 
+    sendMailMock.mockClear();
     const deniedLogin = await signIn(email);
     expect(deniedLogin.status).toBe(403);
+    expect(JSON.stringify(deniedLogin.body)).toContain('Email not verified');
+    expect(sendMailMock).toHaveBeenCalledTimes(1);
 
     await verifyLatestEmail();
 
@@ -180,7 +259,7 @@ describe('Better Auth foundation', () => {
       include: { betterAuthSessions: true },
     });
     expect(user.emailVerified).toBe(true);
-    expect(user.betterAuthSessions).toHaveLength(1);
+    expect(user.betterAuthSessions).toHaveLength(2);
 
     const sessionResponse = await request(betterAuthApp)
       .get('/api/auth/get-session')
@@ -197,13 +276,44 @@ describe('Better Auth foundation', () => {
     const sessionsAfterSignOut = await prisma.betterAuthSession.findMany({
       where: { userId: user.id },
     });
-    expect(sessionsAfterSignOut).toHaveLength(0);
+    expect(sessionsAfterSignOut).toHaveLength(1);
 
     const sessionAfterSignOut = await request(betterAuthApp)
       .get('/api/auth/get-session')
       .set('Cookie', cookie);
     expect(sessionAfterSignOut.status).toBe(200);
     expect(sessionAfterSignOut.body).toBeNull();
+  });
+
+  it('manually resends verification email for an existing unverified account without duplicates', async () => {
+    const email = uniqueEmail('manual-resend');
+    await signUp(email);
+
+    const userBefore = await prisma.user.findUniqueOrThrow({
+      where: { email },
+      include: { betterAuthAccounts: true },
+    });
+    expect(userBefore.emailVerified).toBe(false);
+    expect(userBefore.betterAuthAccounts).toHaveLength(1);
+
+    sendMailMock.mockClear();
+    const resend = await resendVerificationEmail(email);
+    expect(resend.status).toBe(200);
+    expect(resend.body.status).toBe(true);
+    expect(sendMailMock).toHaveBeenCalledTimes(1);
+    expect(latestMail().to).toBe(email);
+
+    const userAfter = await prisma.user.findUniqueOrThrow({
+      where: { email },
+      include: { betterAuthAccounts: true },
+    });
+    expect(userAfter.id).toBe(userBefore.id);
+    expect(userAfter.betterAuthAccounts).toHaveLength(1);
+
+    const userCount = await prisma.user.count({ where: { email } });
+    const accountCount = await prisma.betterAuthAccount.count({ where: { userId: userBefore.id } });
+    expect(userCount).toBe(1);
+    expect(accountCount).toBe(1);
   });
 
   it('requests password reset, resets password, and revokes other Better Auth sessions', async () => {
@@ -220,7 +330,7 @@ describe('Better Auth foundation', () => {
       where: { email },
       include: { betterAuthSessions: true },
     });
-    expect(userBeforeReset.betterAuthSessions).toHaveLength(2);
+    expect(userBeforeReset.betterAuthSessions).toHaveLength(3);
 
     sendMailMock.mockClear();
     const resetRequest = await request(betterAuthApp)
@@ -265,6 +375,73 @@ describe('Better Auth foundation', () => {
       .set('Cookie', firstCookie);
     expect(oldSession.status).toBe(200);
     expect(oldSession.body).toBeNull();
+  });
+
+  it('rejects invalid password reset tokens', async () => {
+    const response = await request(betterAuthApp)
+      .post('/api/auth/reset-password')
+      .set('Origin', 'http://localhost:5173')
+      .send({
+        token: 'invalid-reset-token',
+        newPassword: NEW_PASSWORD,
+      });
+
+    expect(response.status).toBe(400);
+  });
+
+  it('changes password for an authenticated user and revokes other sessions', async () => {
+    const email = uniqueEmail('change-password');
+    await signUp(email);
+    await verifyLatestEmail();
+
+    const firstLogin = await signIn(email);
+    expect(firstLogin.status).toBe(200);
+    const firstCookie = extractCookie(firstLogin);
+
+    const secondLogin = await signIn(email);
+    expect(secondLogin.status).toBe(200);
+    const secondCookie = extractCookie(secondLogin);
+
+    const wrongCurrent = await request(betterAuthApp)
+      .post('/api/auth/change-password')
+      .set('Origin', 'http://localhost:5173')
+      .set('Cookie', firstCookie)
+      .send({
+        currentPassword: 'wrong-password',
+        newPassword: NEW_PASSWORD,
+        revokeOtherSessions: true,
+      });
+    expect(wrongCurrent.status).toBe(400);
+
+    const changed = await request(betterAuthApp)
+      .post('/api/auth/change-password')
+      .set('Origin', 'http://localhost:5173')
+      .set('Cookie', firstCookie)
+      .send({
+        currentPassword: PASSWORD,
+        newPassword: NEW_PASSWORD,
+        revokeOtherSessions: true,
+      });
+    expect(changed.status).toBe(200);
+    const refreshedCookie = extractCookie(changed);
+
+    const oldFirstSession = await getSession(firstCookie);
+    expect(oldFirstSession.status).toBe(200);
+    expect(oldFirstSession.body).toBeNull();
+
+    const oldSecondSession = await getSession(secondCookie);
+    expect(oldSecondSession.status).toBe(200);
+    expect(oldSecondSession.body).toBeNull();
+
+    const refreshedSession = await getSession(refreshedCookie);
+    expect(refreshedSession.status).toBe(200);
+    expect(refreshedSession.body.user.email).toBe(email);
+
+    const rejectedOldPassword = await signIn(email, PASSWORD);
+    expect(rejectedOldPassword.status).toBe(401);
+
+    const acceptedNewPassword = await signIn(email, NEW_PASSWORD);
+    expect(acceptedNewPassword.status).toBe(200);
   });
 
   it('uses generic behavior for duplicate sign-up and unknown password reset requests', async () => {

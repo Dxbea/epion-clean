@@ -47,7 +47,7 @@ export default function EditArticlePage() {
 
   const { me, loading: meLoading } = useMe();
   const { requireAuth } = useAuthPrompt();
-  const emailNotVerified = !!me && !me.emailVerifiedAt;
+  const emailNotVerified = !!me && !me.emailVerified;
 
   // UI
   const [loading, setLoading] = React.useState(true);

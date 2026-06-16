@@ -8,6 +8,8 @@ import { useMe } from '@/contexts/MeContext';
 import { Link } from 'react-router-dom';
 import { API_BASE } from '@/config/api';
 import { withCsrf } from '@/lib/csrf';
+import VerifyEmailActions from '@/components/account/VerifyEmailActions';
+import { authClient } from '@/lib/better-auth-client';
 
 /* ----------------------------------
    Helpers communs
@@ -86,6 +88,7 @@ function GuestAuthForm({
   const [pwErr, setPwErr] = React.useState<string | null>(null);
   const [inviteErr, setInviteErr] = React.useState<string | null>(null);
   const [formErr, setFormErr] = React.useState<string | null>(null);
+  const [needsVerificationEmail, setNeedsVerificationEmail] = React.useState<string | null>(null);
 
   // Beta invite code from localStorage (set by the beta gate popup)
   const [inviteCode, setInviteCode] = React.useState(() => {
@@ -112,6 +115,7 @@ function GuestAuthForm({
   React.useEffect(() => {
     setEmailErr(null);
     setFormErr(null);
+    setNeedsVerificationEmail(null);
   }, [email, mode]);
   React.useEffect(() => {
     setPwErr(null);
@@ -145,6 +149,9 @@ function GuestAuthForm({
       const status = httpStatusFromErr(err);
       if (status === 401) {
         setFormErr('Incorrect email or password.');
+      } else if (status === 403 || String(err?.message || '').includes('EMAIL_NOT_VERIFIED')) {
+        setNeedsVerificationEmail(email.trim().toLowerCase());
+        setFormErr('Please verify your email before signing in.');
       } else {
         setFormErr('Something went wrong. Please try again.');
       }
@@ -178,6 +185,8 @@ function GuestAuthForm({
     try {
       setBusy(true);
       await onSignup(email, password, displayName.trim(), inviteCode.trim() || undefined);
+      setNeedsVerificationEmail(email.trim().toLowerCase());
+      setFormErr('Account created. Check your email to verify your account before signing in.');
       // Clear invite code from localStorage on success
       try { localStorage.removeItem('epion_invite_code'); } catch {}
     } catch (err: any) {
@@ -308,6 +317,11 @@ function GuestAuthForm({
         </div>
 
         {formErr && <p className="mt-1 text-sm text-red-600">{formErr}</p>}
+        {needsVerificationEmail && (
+          <div className="flex flex-wrap items-center gap-2">
+            <VerifyEmailActions email={needsVerificationEmail} />
+          </div>
+        )}
 
         <div className="mt-1 flex flex-col gap-2 sm:flex-row sm:items-center">
           <Button type="submit" variant="primary" disabled={busy}>
@@ -443,14 +457,10 @@ function SignedInFull({
     if (!me?.email) return;
     try {
       setLinkBusy(true);
-      await fetch(
-        `${API_BASE}/api/auth/forgot-password`,
-        await withCsrf({
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ email: me.email }),
-        }),
-      );
+      await authClient.requestPasswordReset({
+        email: me.email,
+        redirectTo: typeof window === 'undefined' ? '/reset-password' : `${window.location.origin}/reset-password`,
+      });
       push('If this email exists, a reset link has been generated.', 'success');
     } catch {
       push('If this email exists, a reset link has been generated.', 'success');
@@ -510,8 +520,7 @@ export function AccountAuthBoxCompact() {
           }}
           onSignup={async (email, pw, dn, code) => {
             await signup(email, pw, dn, code);
-            await refresh();
-            push('Account created & connected', 'success');
+            push('Account created. Check your email to verify your account.', 'success');
           }}
         />
       </div>

@@ -11,12 +11,15 @@ vi.mock('../src/lib/mailer.js', () => ({
 
 const TEST_EMAIL_PREFIX = 'better-auth-context';
 const PASSWORD = 'Context-password-123';
+let usernameCounter = 0;
 
 describe('Better Auth current-user context', () => {
   let prisma: PrismaClient;
   let app: express.Express;
   let createJwtForSession: (userId: string, sessionId: string) => string;
   let sendMailMock: ReturnType<typeof vi.fn>;
+  let hashPassword: (password: string) => Promise<string>;
+  let generateId: (options?: { model?: string; size?: number }) => string;
 
   async function cleanupUsers() {
     const users = await prisma.user.findMany({
@@ -46,13 +49,26 @@ describe('Better Auth current-user context', () => {
   }
 
   async function signUp(email: string) {
-    const response = await request(app)
-      .post('/api/auth/sign-up/email')
-      .set('Origin', 'http://localhost:5173')
-      .send({ name: 'Context User', email, password: PASSWORD });
+    usernameCounter += 1;
+    const user = await prisma.user.create({
+      data: {
+        email,
+        name: 'Context User',
+        username: `ctx_${Date.now().toString(36)}_${usernameCounter}`,
+        emailVerified: false,
+      },
+    });
+    await prisma.betterAuthAccount.create({
+      data: {
+        id: generateId({ model: 'account' }),
+        accountId: user.id,
+        providerId: 'credential',
+        userId: user.id,
+        password: await hashPassword(PASSWORD),
+      },
+    });
 
-    expect(response.status).toBe(200);
-    return prisma.user.findUniqueOrThrow({ where: { email } });
+    return user;
   }
 
   async function createVerifiedSession(email: string) {
@@ -82,6 +98,9 @@ describe('Better Auth current-user context', () => {
     prisma = dbModule.prisma;
     createJwtForSession = sessionModule.createJwtForSession;
     sendMailMock = vi.mocked(mailerModule.sendMail);
+    const authContext = await authModule.auth.$context;
+    hashPassword = authContext.password.hash;
+    generateId = authContext.generateId;
 
     app = express();
     app.all('/api/auth/*', toNodeHandler(authModule.auth));

@@ -50,7 +50,7 @@ export default function AccountChangeEmailBox() {
   }
 
   // petit badge vérification
-  const verified = Boolean(me?.emailVerifiedAt);
+  const verified = Boolean(me?.emailVerified);
 
   return (
     <section

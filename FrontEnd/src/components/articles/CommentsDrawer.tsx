@@ -55,7 +55,7 @@ export default function CommentsDrawer({
                 });
                 return false;
             }
-            if (!me.emailVerifiedAt) {
+            if (!me.emailVerified) {
                 requireAuth({
                     message:
                         'You need to verify your email address before using comments. Go to Settings → Account to resend the verification link.',

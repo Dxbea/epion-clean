@@ -1,10 +1,13 @@
 // src/hooks/useMe.ts
 import * as React from 'react';
 import { API_BASE } from '@/config/api';
+import { authClient, getEmailVerificationCallbackURL } from '@/lib/better-auth-client';
+import { clearStoredAuthRedirects } from '@/lib/auth-navigation';
 
 export type Me = {
   id: string
   email: string
+  emailVerified: boolean
   emailVerifiedAt: string | null
   displayName: string
   username: string
@@ -21,7 +24,9 @@ export function useMe() {
   const refresh = React.useCallback(async () => {
     try {
       setLoading(true);
-      const url = `${API_BASE}/api/auth/me?t=${Date.now()}`;
+      const session = await authClient.getSession({ query: { disableCookieCache: true } });
+      if (session.error || !session.data) throw new Error('UNAUTHENTICATED');
+      const url = `${API_BASE}/api/me?t=${Date.now()}`;
       const res = await fetch(url, { cache: 'no-store', credentials: 'include' });
       if (!res.ok) throw new Error(`HTTP ${res.status}`);
       const json = (await res.json()) as Me;
@@ -37,35 +42,36 @@ export function useMe() {
 
   // --- auth actions (gardent ton flux actuel) ---
   async function login(email: string, password: string) {
-    const res = await fetch(`${API_BASE}/api/auth/login`, {
-      method: 'POST',
-      credentials: 'include',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ email, password }),
-    });
-    if (!res.ok) {
-      const text = await res.text().catch(() => `HTTP ${res.status}`);
-      throw new Error(text || `HTTP ${res.status}`);
+    const res = await authClient.signIn.email({ email, password });
+    if (res.error) {
+      const code = String(res.error.message || '');
+      if (res.error.status === 403 || code.includes('EMAIL_NOT_VERIFIED') || code.includes('Email not verified')) {
+        throw new Error('EMAIL_NOT_VERIFIED');
+      }
+      throw new Error(res.error.message || `HTTP ${res.error.status || 401}`);
     }
     await refresh(); // <- s’assure d’avoir la forme /auth/me
+    clearStoredAuthRedirects();
   }
 
-  async function signup(email: string, password: string, displayName: string) {
-    const res = await fetch(`${API_BASE}/api/auth/signup`, {
-      method: 'POST',
-      credentials: 'include',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ email, password, displayName }),
+  async function signup(email: string, password: string, displayName: string, inviteCode?: string) {
+    const username = displayName.trim().toLowerCase().replace(/[^a-z0-9_]+/g, '_').replace(/^_+|_+$/g, '').slice(0, 20);
+    const res = await authClient.signUp.email({
+      email,
+      password,
+      name: displayName,
+      username,
+      callbackURL: getEmailVerificationCallbackURL(),
+      ...(inviteCode ? { inviteCode } : {}),
     });
-    if (!res.ok) {
-      const text = await res.text().catch(() => `HTTP ${res.status}`);
-      throw new Error(text || `HTTP ${res.status}`);
+    if (res.error) {
+      throw new Error(res.error.message || `HTTP ${res.error.status || 400}`);
     }
     await refresh();
   }
 
   async function logout() {
-    await fetch(`${API_BASE}/api/auth/logout`, { method: 'POST', credentials: 'include' })
+    await authClient.signOut()
       .catch(() => {});
     setMe(null);
   }

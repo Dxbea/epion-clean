@@ -192,7 +192,7 @@ export default function ChatSession() {
     }
 
     // 2) connecté mais email non vérifié
-    if (!me.emailVerifiedAt) {
+    if (!me.emailVerified) {
       requireAuth({
         title: 'Verify your email',
         message:

@@ -3,9 +3,9 @@ import { Link } from 'react-router-dom'
 import { Eye, EyeOff } from 'lucide-react'
 
 import Button from '@/components/ui/Button'
-import { API_BASE } from '@/config/api'
 import { useMe } from '@/contexts/MeContext'
 import { useToast } from '@/components/ui/Toast'
+import { authClient } from '@/lib/better-auth-client'
 
 function pwErr(password: string) {
   if (password.length < 8) return 'Password must be at least 8 characters.'
@@ -86,7 +86,7 @@ export default function ChangePasswordForm({
   id?: string
 }) {
   const { push } = useToast()
-  const { me } = useMe()
+  const { me, refresh } = useMe()
 
   const [current, setCurrent] = React.useState('')
   const [next, setNext] = React.useState('')
@@ -140,23 +140,23 @@ export default function ChangePasswordForm({
 
     try {
       setBusy(true)
-      const response = await fetch(`${API_BASE}/api/auth/change-password`, {
-        method: 'POST',
-        credentials: 'include',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ currentPassword: current, newPassword: next }),
+      const response = await authClient.changePassword({
+        currentPassword: current,
+        newPassword: next,
+        revokeOtherSessions: true,
       })
 
-      if (response.status === 401) {
+      if (response.error?.status === 400 || response.error?.status === 401) {
         setCurrErr('Current password is incorrect.')
         return
       }
 
-      if (!response.ok) {
+      if (response.error) {
         setFormErr('Something went wrong. Please try again.')
         return
       }
 
+      await refresh()
       setFormOk('Password updated successfully.')
       push('Password updated', 'success')
       setCurrent('')
@@ -176,11 +176,9 @@ export default function ChangePasswordForm({
 
     try {
       setLinkBusy(true)
-      await fetch(`${API_BASE}/api/auth/forgot-password`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        credentials: 'include',
-        body: JSON.stringify({ email: me.email }),
+      await authClient.requestPasswordReset({
+        email: me.email,
+        redirectTo: typeof window === 'undefined' ? '/reset-password' : `${window.location.origin}/reset-password`,
       })
       push('If this email exists, a reset link has been generated.', 'success')
     } catch {

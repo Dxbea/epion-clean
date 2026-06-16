@@ -2,8 +2,8 @@
 import * as React from 'react';
 import Button from '@/components/ui/Button';
 import { useToast } from '@/components/ui/Toast';
-import { API_BASE } from '@/config/api';
 import { useI18n } from '@/i18n/I18nContext';
+import { authClient, getEmailVerificationCallbackURL } from '@/lib/better-auth-client';
 
 export default function VerifyEmailActions({ email }: { email: string }) {
   const { push } = useToast();
@@ -13,13 +13,13 @@ export default function VerifyEmailActions({ email }: { email: string }) {
   async function resend() {
     try {
       setBusy(true);
-      const res = await fetch(`${API_BASE}/api/auth/email/verification-link`, {
-        method: 'POST',
-        credentials: 'include',
+      const res = await authClient.sendVerificationEmail({
+        email,
+        callbackURL: getEmailVerificationCallbackURL(),
       });
 
-      if (!res.ok) {
-        throw new Error(`HTTP ${res.status}`);
+      if (res.error) {
+        throw new Error(res.error.message || `HTTP ${res.error.status || 400}`);
       }
 
       push('If this email exists, we sent a verification link.', 'success');

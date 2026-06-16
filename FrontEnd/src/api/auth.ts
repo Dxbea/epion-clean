@@ -1,7 +1,8 @@
 // FrontEnd/src/lib/auth.ts
 // DEBUT BLOC (remplace tout ce qui est entre ce commentaire et "FIN BLOC")
 import { API_BASE } from '@/config/api';
-import { authClient } from '@/lib/better-auth-client';
+import { authClient, getEmailVerificationCallbackURL } from '@/lib/better-auth-client';
+import { clearStoredAuthRedirects } from '@/lib/auth-navigation';
 import { withCsrf } from '@/lib/csrf';
 
 type Creds = { email: string; password: string };
@@ -28,20 +29,27 @@ export async function apiMe() {
 export async function apiLogin(body: Creds) {
   const res = await authClient.signIn.email(body);
   if (res.error) throw new Error('HTTP ' + (res.error.status || 401));
+  clearStoredAuthRedirects();
   return res.data;
 }
 
 export async function apiSignup(body: Signup) {
-  const res = await fetch(
-    `${API_BASE}/api/auth/signup`,
-    await withCsrf({
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify(body),
-    }),
-  );
-  if (!res.ok) throw new Error('HTTP ' + res.status);
-  return res.json(); // { user }
+  const username = body.displayName
+    .trim()
+    .toLowerCase()
+    .replace(/[^a-z0-9_]+/g, '_')
+    .replace(/^_+|_+$/g, '')
+    .slice(0, 20);
+  const res = await authClient.signUp.email({
+    email: body.email,
+    password: body.password,
+    name: body.displayName,
+    username,
+    callbackURL: getEmailVerificationCallbackURL(),
+    ...(body.inviteCode ? { inviteCode: body.inviteCode } : {}),
+  });
+  if (res.error) throw new Error('HTTP ' + (res.error.status || 400));
+  return res.data;
 }
 
 export async function apiLogout() {

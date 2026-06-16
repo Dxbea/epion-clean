@@ -2,6 +2,7 @@
 import * as React from 'react';
 import { useNavigate } from 'react-router-dom';
 import { API_BASE } from '@/config/api';
+import { sanitizePostAuthRedirect } from '@/lib/auth-navigation';
 
 type AuthPromptKind = 'signin' | 'verify_email';
 
@@ -99,7 +100,7 @@ export function AuthPromptProvider({ children }: { children: React.ReactNode }) 
 
   const onGoToAuth = () => {
     setOpen(false);
-    navigate(redirectTo);
+    navigate(sanitizePostAuthRedirect(redirectTo));
   };
 
   async function handleVerifyCode() {

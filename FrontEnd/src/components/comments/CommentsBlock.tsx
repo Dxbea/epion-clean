@@ -32,7 +32,7 @@ export default function CommentsBlock({ articleId }: { articleId?: string }) {
       }
 
       // 2) connecté mais email non vérifié → message dédié
-      if (!me.emailVerifiedAt) {
+      if (!me.emailVerified) {
         requireAuth({
           message:
             'You need to verify your email address before using comments. Go to Settings → Account to resend the verification link.',

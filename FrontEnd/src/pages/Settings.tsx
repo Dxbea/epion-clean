@@ -24,7 +24,6 @@ import { useToast } from '@/components/ui/Toast';
 import { useMe } from '@/contexts/MeContext';
 import { API_BASE } from '@/config/api';
 import { useUnsavedChanges } from '@/hooks/useUnsavedChanges';
-import VerifyEmailBanner from '@/components/account/VerifyEmailBanner';
 
 function resolveLabel(
   t: (key: string) => string,
@@ -87,29 +86,7 @@ function EmailAndVerificationBlock(): React.JSX.Element {
     }
   }
 
-  // resend verification email
-  const [busyResend, setBusyResend] = React.useState(false);
-  async function resendVerification() {
-    if (!me?.email) return;
-    try {
-      setBusyResend(true);
-      const res = await fetch(`${API_BASE}/api/auth/request-verify`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        credentials: 'include',
-        body: JSON.stringify({ email: me.email }),
-      });
-      if (!res.ok) throw new Error('HTTP ' + res.status);
-      push('Verification email sent.', 'success');
-    } catch (err: any) {
-      console.error(err);
-      push('Could not send verification email. Try again.', 'error');
-    } finally {
-      setBusyResend(false);
-    }
-  }
-
-  const verified = Boolean(me?.emailVerifiedAt);
+  const verified = Boolean(me?.emailVerified);
 
   return (
     <div className="space-y-4">
@@ -135,17 +112,6 @@ function EmailAndVerificationBlock(): React.JSX.Element {
           {verified ? t('verified') : t('unverified')}
         </span>
 
-        {!verified && (
-          <Button
-            variant="primary"
-            size="auto"
-            onClick={resendVerification}
-            disabled={busyResend}
-            className="px-3 py-1 text-sm font-medium"
-          >
-            {busyResend ? t('sending') : t('resend_email')}
-          </Button>
-        )}
       </div>
 
       {/* Change email */}
@@ -661,9 +627,6 @@ export default function Settings(): React.JSX.Element {
   return (
     <PageContainer className="py-10">
       <Breadcrumbs />
-
-      {/* Bannière "verify your email" globale en haut */}
-      {signedIn && <VerifyEmailBanner />}
 
       {/* Mobile jump */}
       {signedIn && (

@@ -8,7 +8,6 @@ import { useI18n } from '@/i18n/I18nContext'
 import { useToast } from '@/components/ui/Toast'
 import { useMe } from '@/contexts/MeContext'
 import { API_BASE } from '@/config/api'
-import VerifyEmailActions from '@/components/account/VerifyEmailActions'
 
 export default function AccountShortcutSection({ id }: { id?: string }) {
   const { t } = useI18n()
@@ -16,28 +15,7 @@ export default function AccountShortcutSection({ id }: { id?: string }) {
   const { me } = useMe()
   
 
-  async function resend() {
-    try {
-      const res = await fetch(`${API_BASE}/api/auth/request-verify`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        credentials: 'include',
-        body: JSON.stringify({}), // user courant
-      })
-      if (!res.ok) throw new Error('HTTP ' + res.status)
-      const json = await res.json()
-      if (json?.verifyUrl) {
-        await navigator.clipboard.writeText(json.verifyUrl)
-        push(t('resend_sent') || 'Verification link sent (copied to clipboard).', 'success')
-      } else {
-        push(t('resend_sent') || 'Verification link sent.', 'success')
-      }
-    } catch {
-      push(t('error_generic') || 'Something went wrong.', 'error')
-    }
-  }
-
-  const verified = Boolean(me?.emailVerifiedAt)
+  const verified = Boolean(me?.emailVerified)
 
   const [newEmail, setNewEmail] = React.useState('')
 const [chgBusy, setChgBusy] = React.useState(false)
@@ -80,8 +58,6 @@ async function requestEmailChange() {
             {me?.email || '—'}
           </div>
 
-          {/* keep resend right here, next to the email */}
-          {me?.email && <VerifyEmailActions email={me.email} />}
         </div>
 
         {/* Unverified badge BELOW the pill */}

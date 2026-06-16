@@ -8,6 +8,7 @@ import { MeProvider, useMe, type Me } from './MeContext';
 const authMocks = vi.hoisted(() => ({
   getSession: vi.fn(),
   signInEmail: vi.fn(),
+  signUpEmail: vi.fn(),
   signOut: vi.fn(),
 }));
 
@@ -17,8 +18,12 @@ vi.mock('@/lib/better-auth-client', () => ({
     signIn: {
       email: authMocks.signInEmail,
     },
+    signUp: {
+      email: authMocks.signUpEmail,
+    },
     signOut: authMocks.signOut,
   },
+  getEmailVerificationCallbackURL: () => 'http://localhost:5173/verify-email',
 }));
 
 type CapturedContext = ReturnType<typeof useMe>;
@@ -80,6 +85,7 @@ beforeEach(() => {
   vi.clearAllMocks();
   authMocks.getSession.mockResolvedValue({ data: null, error: { status: 401, message: 'Unauthorized' } });
   authMocks.signInEmail.mockResolvedValue({ data: null, error: null });
+  authMocks.signUpEmail.mockResolvedValue({ data: null, error: null });
   authMocks.signOut.mockResolvedValue({ data: { success: true }, error: null });
   vi.stubGlobal('fetch', vi.fn());
 });
@@ -145,8 +151,36 @@ describe('MeProvider Better Auth migration', () => {
       await ctx.login(profile.email, 'password-123');
     });
 
-    expect(authMocks.signInEmail).toHaveBeenCalledWith({ email: profile.email, password: 'password-123' });
+    expect(authMocks.signInEmail).toHaveBeenCalledWith({
+      email: profile.email,
+      password: 'password-123',
+    });
     expect(capturedContext?.me?.email).toBe(profile.email);
+  });
+
+  it('clears stale auth-only redirects after successful sign-in', async () => {
+    localStorage.setItem('returnTo', '/verify-email');
+    sessionStorage.setItem('redirectTo', '/verify-email');
+    const ctx = await renderProvider();
+
+    authMocks.signInEmail.mockResolvedValueOnce({ data: { user: { id: profile.id } }, error: null });
+    authMocks.getSession.mockResolvedValueOnce({
+      data: { user: { id: profile.id, email: profile.email }, session: { id: 'session-1' } },
+      error: null,
+    });
+    vi.mocked(fetch).mockResolvedValueOnce(
+      new Response(JSON.stringify(profile), {
+        status: 200,
+        headers: { 'Content-Type': 'application/json' },
+      }),
+    );
+
+    await act(async () => {
+      await ctx.login(profile.email, 'password-123');
+    });
+
+    expect(localStorage.getItem('returnTo')).toBeNull();
+    expect(sessionStorage.getItem('redirectTo')).toBeNull();
   });
 
   it('surfaces Better Auth login failures', async () => {
@@ -157,6 +191,33 @@ describe('MeProvider Better Auth migration', () => {
     });
 
     await expect(ctx.login(profile.email, 'wrong-password')).rejects.toThrow('HTTP 401');
+  });
+
+  it('surfaces unverified email sign-in separately from generic login errors', async () => {
+    const ctx = await renderProvider();
+    authMocks.signInEmail.mockResolvedValueOnce({
+      data: null,
+      error: { status: 403, message: 'Email not verified', code: 'EMAIL_NOT_VERIFIED' },
+    });
+
+    await expect(ctx.login(profile.email, 'password-123')).rejects.toThrow('EMAIL_NOT_VERIFIED');
+  });
+
+  it('signs up with Better Auth email sign-up and preserves the beta invite code', async () => {
+    const ctx = await renderProvider();
+
+    await act(async () => {
+      await ctx.signup('new@example.com', 'password-123', 'Jane Doe', 'BETA-1234');
+    });
+
+    expect(authMocks.signUpEmail).toHaveBeenCalledWith({
+      email: 'new@example.com',
+      password: 'password-123',
+      name: 'Jane Doe',
+      username: 'jane_doe',
+      callbackURL: 'http://localhost:5173/verify-email',
+      inviteCode: 'BETA-1234',
+    });
   });
 
   it('logs out with Better Auth sign-out and clears local user state', async () => {

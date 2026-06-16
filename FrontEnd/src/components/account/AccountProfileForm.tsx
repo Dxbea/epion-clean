@@ -12,7 +12,6 @@ import AvatarUploader from '@/components/account/AvatarUploader'
 import { useI18n } from '@/i18n/I18nContext'
 import { API_BASE } from '@/config/api'
 import { useToast } from '@/components/ui/Toast'
-import VerifyEmailBanner from './VerifyEmailBanner'
 import { useMe } from '@/contexts/MeContext'
 
 // ─────────────────────────────
@@ -183,7 +182,6 @@ export default function AccountProfileForm() {
   if (loading && !me) {
     return (
       <>
-        <VerifyEmailBanner />
         <FormSection
           title={t('profile_info')}
           description={t('profile_info_desc')}
@@ -215,7 +213,6 @@ export default function AccountProfileForm() {
   if (!me) {
     return (
       <>
-        <VerifyEmailBanner />
         <FormSection
           title={t('profile_info')}
           description={t('profile_info_desc')}
@@ -238,8 +235,6 @@ export default function AccountProfileForm() {
   // état normal connecté
   return (
     <>
-      <VerifyEmailBanner />
-
       <FormSection
         title={t('profile_info')}
         description={t('profile_info_desc')}
@@ -305,7 +300,7 @@ export default function AccountProfileForm() {
                     {me.email}
                   </div>
 
-                  {me.emailVerifiedAt ? (
+                  {me.emailVerified ? (
                     <span className="rounded-full bg-green-100 px-2 py-1 text-xs text-green-700 dark:bg-green-900/30 dark:text-green-300">
                       {t('verified')}
                     </span>
