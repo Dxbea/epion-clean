@@ -765,6 +765,8 @@ export default function Article() {
           {structuredContent ? (
             <StructuredArticleRenderer
               article={structuredContent}
+              content={content}
+              isHighlightActive={isHighlightActive}
               sources={normalizedSources}
               selectedSourceKey={focusedSourceKey}
               selectedClaimId={selectedClaim?.id || null}

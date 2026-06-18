@@ -19,6 +19,30 @@ import { sourceEnrichmentQueue } from '../lib/queue.js';
 import { prisma } from '../lib/db.js';
 import { getWikipediaImage } from '../lib/images/wikipedia-fetcher.js';
 
+const DEFAULT_OPINION_QUESTION = {
+    question: 'Les faits présentés relèvent-ils plutôt d’un problème ponctuel ou d’un problème structurel ?',
+    thesisA: 'Plutôt ponctuel',
+    thesisB: 'Plutôt structurel',
+};
+
+function normalizeGeneratedOpinionQuestion(input: unknown) {
+    if (!input || typeof input !== 'object') return DEFAULT_OPINION_QUESTION;
+    const value = input as Record<string, unknown>;
+    const question = typeof value.question === 'string' ? value.question.trim() : '';
+    const thesisA = typeof value.thesisA === 'string' ? value.thesisA.trim() : '';
+    const thesisB = typeof value.thesisB === 'string' ? value.thesisB.trim() : '';
+
+    if (question.length < 20 || thesisA.length < 3 || thesisB.length < 3) {
+        return DEFAULT_OPINION_QUESTION;
+    }
+
+    return {
+        question: question.slice(0, 240),
+        thesisA: thesisA.slice(0, 80),
+        thesisB: thesisB.slice(0, 80),
+    };
+}
+
 const redisUrl = process.env.REDIS_URL || 'redis://localhost:6379';
 const connection = new IORedis(redisUrl, {
     maxRetriesPerRequest: null,
@@ -64,6 +88,7 @@ export const liveAnalysisWorker = new Worker(
                 if (gc.wikipedia_search_query) {
                     coverImageUrl = await getWikipediaImage(gc.wikipedia_search_query);
                 }
+                const opinionQuestion = normalizeGeneratedOpinionQuestion(gc.opinionQuestion);
 
                 // Build the source objects for factCheckData
                 // Sources come from the Tavily investigation (not Perplexity citations anymore)
@@ -89,6 +114,12 @@ export const liveAnalysisWorker = new Worker(
                         },
                         // Update the slug based on the generated title
                         slug: generateSlug(gc.title),
+                        opinionQuestion: {
+                            upsert: {
+                                create: opinionQuestion,
+                                update: opinionQuestion,
+                            },
+                        },
                     },
                 });
 

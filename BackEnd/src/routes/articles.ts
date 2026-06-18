@@ -18,6 +18,9 @@ import { sanitizeArticleHtml } from '../lib/sanitizeHtml.js';
 import { logger } from '../lib/logger.js';
 import { embeddingQueue } from '../lib/queue.js';
 import { hashAnalysisInput } from '../lib/score-helpers.js';
+import { recalculateBridgingScores } from '../services/bridgingService.js';
+import { moderationService } from '../services/moderationService.js';
+import { enforceContributionRateLimit } from '../lib/contribution-rate-limit.js';
 
 
 import { getArticleImageProposals } from '../lib/images/proposals.js';
@@ -31,6 +34,9 @@ const DEFAULT_OPINION_QUESTION = {
   thesisB: 'Plutôt structurel',
 };
 const SOURCE_ONLY_TEXT = 'A source has been proposed for readers to examine.';
+const PUBLIC_CONTRIBUTION_STATUS = 'ACTIVE';
+const NOTE_ELIGIBLE_STATUS = 'ACTIVE';
+const REPORT_REASONS = ['SPAM', 'ABUSE', 'OFF_TOPIC', 'MISLEADING_SOURCE', 'PERSONAL_DATA', 'OTHER'] as const;
 
 async function hasAuthenticatedUser(req: Parameters<typeof getCurrentUser>[0], res: Parameters<typeof getCurrentUser>[1]): Promise<boolean> {
   try {
@@ -52,13 +58,21 @@ function isValidationType(value: unknown): value is ArticleContributionValidatio
   return typeof value === 'string' && Object.values(ArticleContributionValidationType).includes(value as ArticleContributionValidationType);
 }
 
+function isReportReason(value: unknown): value is typeof REPORT_REASONS[number] {
+  return typeof value === 'string' && REPORT_REASONS.includes(value as typeof REPORT_REASONS[number]);
+}
+
 function normalizeOptionalUrl(value: unknown): string | null {
   if (value === undefined || value === null || value === '') return null;
   if (typeof value !== 'string') return null;
   const trimmed = value.trim();
   if (!trimmed) return null;
   try {
-    return new URL(trimmed).toString();
+    const url = new URL(trimmed);
+    if (url.protocol !== 'http:' && url.protocol !== 'https:') {
+      return null;
+    }
+    return url.toString();
   } catch {
     return null;
   }
@@ -86,12 +100,20 @@ async function findPublishedArticleBySlugOrId(slugOrId: string) {
   });
 }
 
-async function getConfirmedLacksContext(articleId: string, userId: string): Promise<boolean> {
-  const opinion = await prisma.articleOpinionPosition.findUnique({
+async function getUserOpinionPosition(articleId: string, userId: string) {
+  return prisma.articleOpinionPosition.findUnique({
     where: { articleId_userId: { articleId, userId } },
-    select: { lacksContext: true },
+    select: { id: true, lacksContext: true },
   });
-  return opinion?.lacksContext === true;
+}
+
+function triggerBridgingRecalculation() {
+  void recalculateBridgingScores().catch((error) => {
+    logger.warn('Async bridging score recalculation failed', {
+      module: 'ArticleInteractions',
+      error: error instanceof Error ? error.message : String(error),
+    });
+  });
 }
 
 function validationSummary(validations: Array<{ type: ArticleContributionValidationType }>) {
@@ -758,7 +780,7 @@ router.get('/:slug/interactions', async (req, res, next) => {
       ? [{ createdAt: 'desc' as const }]
       : [{ bridgingScore: 'desc' as const }, { createdAt: 'desc' as const }];
 
-    const [opinionQuestion, currentUserOpinionPosition, contributions] = await Promise.all([
+    const [opinionQuestion, currentUserOpinionPosition, contributions, opinionPositions] = await Promise.all([
       prisma.articleOpinionQuestion.upsert({
         where: { articleId: article.id },
         create: {
@@ -789,16 +811,20 @@ router.get('/:slug/interactions', async (req, res, next) => {
           },
         })
         : Promise.resolve(null),
-      prisma.articleContribution.findMany({
-        where: { articleId: article.id },
+      (prisma as any).articleContribution.findMany({
+        where: { articleId: article.id, targetContributionId: null, status: PUBLIC_CONTRIBUTION_STATUS } as any,
         orderBy: contributionOrderBy,
         take: 50,
         select: {
           id: true,
+          targetContributionId: true,
+          status: true,
           type: true,
           text: true,
           sourceUrl: true,
           bridgingScore: true,
+          editedAt: true,
+          editCount: true,
           createdAt: true,
           updatedAt: true,
           user: { select: { id: true, name: true, username: true, avatarUrl: true } },
@@ -808,11 +834,112 @@ router.get('/:slug/interactions', async (req, res, next) => {
               userId: true,
             },
           },
+          children: {
+            where: { status: NOTE_ELIGIBLE_STATUS } as any,
+            orderBy: [{ bridgingScore: 'desc' as const }, { createdAt: 'desc' as const }],
+            select: {
+              id: true,
+              targetContributionId: true,
+              status: true,
+              type: true,
+              text: true,
+              sourceUrl: true,
+              bridgingScore: true,
+              editedAt: true,
+              editCount: true,
+              createdAt: true,
+              updatedAt: true,
+              user: { select: { id: true, name: true, username: true, avatarUrl: true } },
+              validations: {
+                select: {
+                  type: true,
+                  userId: true,
+                },
+              },
+            },
+          },
+        },
+      }),
+      prisma.articleOpinionPosition.findMany({
+        where: { articleId: article.id },
+        select: {
+          selectedPosition: true,
+          lacksContext: true,
         },
       }),
     ]);
 
     const hasInsufficientContext = currentUserOpinionPosition?.lacksContext === true;
+    const positionCounts = Object.fromEntries(
+      ALLOWED_OPINION_POSITIONS.map((position) => [String(position), 0]),
+    ) as Record<string, number>;
+    let lacksContextCount = 0;
+
+    for (const position of opinionPositions) {
+      if (position.lacksContext) {
+        lacksContextCount++;
+        continue;
+      }
+      if (position.selectedPosition !== null && isAllowedOpinionPosition(position.selectedPosition)) {
+        positionCounts[String(position.selectedPosition)] += 1;
+      }
+    }
+    const totalPositionCount = Object.values(positionCounts).reduce((sum, count) => sum + count, 0);
+    const serializeContribution = (contribution: any, children = contribution.children || []) => ({
+      id: contribution.id,
+      targetContributionId: contribution.targetContributionId,
+      status: contribution.status,
+      type: contribution.type,
+      text: contribution.text,
+      sourceUrl: contribution.sourceUrl,
+      bridgingScore: contribution.bridgingScore,
+      editedAt: contribution.editedAt?.toISOString() ?? null,
+      editCount: contribution.editCount,
+      createdAt: contribution.createdAt.toISOString(),
+      updatedAt: contribution.updatedAt.toISOString(),
+      author: contribution.user
+        ? {
+          id: contribution.user.id,
+          name: contribution.user.name,
+          username: contribution.user.username,
+          avatarUrl: contribution.user.avatarUrl,
+        }
+        : null,
+      validationSummary: validationSummary(contribution.validations),
+      currentUserValidations: userId
+        ? contribution.validations
+          .filter((validation: { userId: string }) => validation.userId === userId)
+          .map((validation: { type: ArticleContributionValidationType }) => validation.type)
+        : [],
+      children: children.map((child: any) => ({
+        id: child.id,
+        targetContributionId: child.targetContributionId,
+        status: child.status,
+        type: child.type,
+        text: child.text,
+        sourceUrl: child.sourceUrl,
+        bridgingScore: child.bridgingScore,
+        editedAt: child.editedAt?.toISOString() ?? null,
+        editCount: child.editCount,
+        createdAt: child.createdAt.toISOString(),
+        updatedAt: child.updatedAt.toISOString(),
+        author: child.user
+          ? {
+            id: child.user.id,
+            name: child.user.name,
+            username: child.user.username,
+            avatarUrl: child.user.avatarUrl,
+          }
+          : null,
+        validationSummary: validationSummary(child.validations),
+        currentUserValidations: userId
+          ? child.validations
+            .filter((validation: { userId: string }) => validation.userId === userId)
+            .map((validation: { type: ArticleContributionValidationType }) => validation.type)
+          : [],
+        children: [],
+      })),
+    });
 
     res.json({
       sortMode,
@@ -831,31 +958,14 @@ router.get('/:slug/interactions', async (req, res, next) => {
         }
         : null,
       hasInsufficientContext,
-      canContribute: !!userId && !hasInsufficientContext,
-      canValidateContributions: !!userId && !hasInsufficientContext,
-      contributions: contributions.map((contribution) => ({
-        id: contribution.id,
-        type: contribution.type,
-        text: contribution.text,
-        sourceUrl: contribution.sourceUrl,
-        bridgingScore: contribution.bridgingScore,
-        createdAt: contribution.createdAt.toISOString(),
-        updatedAt: contribution.updatedAt.toISOString(),
-        author: contribution.user
-          ? {
-            id: contribution.user.id,
-            name: contribution.user.name,
-            username: contribution.user.username,
-            avatarUrl: contribution.user.avatarUrl,
-          }
-          : null,
-        validationSummary: validationSummary(contribution.validations),
-        currentUserValidations: userId
-          ? contribution.validations
-            .filter((validation) => validation.userId === userId)
-            .map((validation) => validation.type)
-          : [],
-      })),
+      canContribute: !!currentUserOpinionPosition && !hasInsufficientContext,
+      canValidateContributions: !!currentUserOpinionPosition && !hasInsufficientContext,
+      opinionDistribution: {
+        counts: positionCounts,
+        total: totalPositionCount,
+        lacksContextCount,
+      },
+      contributions: contributions.map((contribution: any) => serializeContribution(contribution)),
     });
   } catch (e) {
     next(e);
@@ -870,7 +980,6 @@ router.post('/:slug/opinion-position', async (req, res, next) => {
     } catch {
       return res.status(401).json({ error: 'NO_SESSION' });
     }
-
     const article = await findPublishedArticleBySlugOrId(String(req.params.slug));
     if (!article) return res.status(404).json({ error: 'Article not found' });
 
@@ -940,11 +1049,17 @@ router.post('/:slug/contributions', async (req, res, next) => {
     } catch {
       return res.status(401).json({ error: 'NO_SESSION' });
     }
+    await enforceContributionRateLimit(req, userId, 'create');
 
     const article = await findPublishedArticleBySlugOrId(String(req.params.slug));
     if (!article) return res.status(404).json({ error: 'Article not found' });
 
-    if (await getConfirmedLacksContext(article.id, userId)) {
+    const userOpinionPosition = await getUserOpinionPosition(article.id, userId);
+    if (!userOpinionPosition) {
+      return res.status(403).json({ error: 'opinion_position_required' });
+    }
+
+    if (userOpinionPosition.lacksContext) {
       return res.status(409).json({ error: 'insufficient_context_confirmed' });
     }
 
@@ -953,16 +1068,35 @@ router.post('/:slug/contributions', async (req, res, next) => {
       return res.status(400).json({ error: 'invalid_contribution_type' });
     }
 
+    const rawTargetContributionId = typeof req.body?.targetContributionId === 'string'
+      ? req.body.targetContributionId.trim()
+      : '';
+    const targetContributionId = rawTargetContributionId || null;
     const rawText = typeof req.body?.text === 'string' ? req.body.text.trim() : '';
     const sourceUrl = normalizeOptionalUrl(req.body?.sourceUrl);
+
+    if (targetContributionId) {
+      const targetContribution = await (prisma as any).articleContribution.findFirst({
+        where: {
+          id: targetContributionId,
+          articleId: article.id,
+          targetContributionId: null,
+          status: PUBLIC_CONTRIBUTION_STATUS,
+        },
+        select: { id: true },
+      });
+      if (!targetContribution) {
+        return res.status(404).json({ error: 'target_contribution_not_found' });
+      }
+    }
 
     if (req.body?.sourceUrl && !sourceUrl) {
       return res.status(400).json({ error: 'invalid_source_url' });
     }
-    if (type === ArticleContributionType.SOURCE && !sourceUrl) {
+    if ((type === ArticleContributionType.SOURCE || targetContributionId) && !sourceUrl) {
       return res.status(400).json({ error: 'source_url_required' });
     }
-    if (type !== ArticleContributionType.SOURCE && !rawText) {
+    if ((type !== ArticleContributionType.SOURCE || targetContributionId) && !rawText) {
       return res.status(400).json({ error: 'contribution_text_required' });
     }
 
@@ -973,20 +1107,31 @@ router.post('/:slug/contributions', async (req, res, next) => {
     if (text.length > 5000) {
       return res.status(400).json({ error: 'contribution_text_too_long' });
     }
+    const isSafe = await moderationService.moderateContent(text);
+    if (!isSafe) {
+      return res.status(400).json({ error: 'contribution_moderation_failed' });
+    }
 
-    const created = await prisma.articleContribution.create({
+    const created = await (prisma as any).articleContribution.create({
       data: {
         articleId: article.id,
         userId,
+        targetContributionId,
+        status: PUBLIC_CONTRIBUTION_STATUS,
         type,
         text,
         sourceUrl,
-      },
+      } as any,
       select: {
         id: true,
+        targetContributionId: true,
+        status: true,
         type: true,
         text: true,
         sourceUrl: true,
+        bridgingScore: true,
+        editedAt: true,
+        editCount: true,
         createdAt: true,
         updatedAt: true,
         user: { select: { id: true, name: true, username: true, avatarUrl: true } },
@@ -995,9 +1140,14 @@ router.post('/:slug/contributions', async (req, res, next) => {
 
     res.status(201).json({
       id: created.id,
+      targetContributionId: created.targetContributionId,
+      status: created.status,
       type: created.type,
       text: created.text,
       sourceUrl: created.sourceUrl,
+      bridgingScore: created.bridgingScore,
+      editedAt: created.editedAt?.toISOString() ?? null,
+      editCount: created.editCount,
       createdAt: created.createdAt.toISOString(),
       updatedAt: created.updatedAt.toISOString(),
       author: created.user
@@ -1014,6 +1164,7 @@ router.post('/:slug/contributions', async (req, res, next) => {
         NEEDS_CHECK: 0,
       },
       currentUserValidations: [],
+      children: [],
     });
   } catch (e) {
     next(e);
@@ -1028,6 +1179,7 @@ router.post('/contributions/:contributionId/validations', async (req, res, next)
     } catch {
       return res.status(401).json({ error: 'NO_SESSION' });
     }
+    await enforceContributionRateLimit(req, userId, 'validate');
 
     const contributionId = String(req.params.contributionId);
     const { type } = req.body ?? {};
@@ -1035,16 +1187,17 @@ router.post('/contributions/:contributionId/validations', async (req, res, next)
       return res.status(400).json({ error: 'invalid_validation_type' });
     }
 
-    const contribution = await prisma.articleContribution.findUnique({
+    const contribution = await (prisma as any).articleContribution.findUnique({
       where: { id: contributionId },
       select: {
         id: true,
         userId: true,
         articleId: true,
+        status: true,
         article: { select: { status: true } },
       },
     });
-    if (!contribution || contribution.article.status !== 'PUBLISHED') {
+    if (!contribution || contribution.article.status !== 'PUBLISHED' || contribution.status !== PUBLIC_CONTRIBUTION_STATUS) {
       return res.status(404).json({ error: 'Contribution not found' });
     }
 
@@ -1052,7 +1205,12 @@ router.post('/contributions/:contributionId/validations', async (req, res, next)
       return res.status(403).json({ error: 'cannot_validate_own_contribution' });
     }
 
-    if (await getConfirmedLacksContext(contribution.articleId, userId)) {
+    const userOpinionPosition = await getUserOpinionPosition(contribution.articleId, userId);
+    if (!userOpinionPosition) {
+      return res.status(403).json({ error: 'opinion_position_required' });
+    }
+
+    if (userOpinionPosition.lacksContext) {
       return res.status(409).json({ error: 'insufficient_context_confirmed' });
     }
 
@@ -1063,10 +1221,11 @@ router.post('/contributions/:contributionId/validations', async (req, res, next)
 
     if (existing) {
       await prisma.articleContributionValidation.delete({ where: { id: existing.id } });
-      await prisma.articleContribution.update({
+      await (prisma as any).articleContribution.update({
         where: { id: contributionId },
         data: { needsRecalc: true },
       });
+      triggerBridgingRecalculation();
 
       const validations = await prisma.articleContributionValidation.findMany({
         where: { contributionId },
@@ -1084,10 +1243,11 @@ router.post('/contributions/:contributionId/validations', async (req, res, next)
       data: { contributionId, userId, type },
       select: { id: true, type: true, createdAt: true },
     });
-    await prisma.articleContribution.update({
+    await (prisma as any).articleContribution.update({
       where: { id: contributionId },
       data: { needsRecalc: true },
     });
+    triggerBridgingRecalculation();
 
     const validations = await prisma.articleContributionValidation.findMany({
       where: { contributionId },
@@ -1100,6 +1260,242 @@ router.post('/contributions/:contributionId/validations', async (req, res, next)
       type: created.type,
       createdAt: created.createdAt.toISOString(),
       validationSummary: validationSummary(validations),
+    });
+  } catch (e) {
+    next(e);
+  }
+});
+
+router.patch('/contributions/:contributionId', async (req, res, next) => {
+  try {
+    const user = await getCurrentUser(req, res);
+    if (!user) return res.status(401).json({ error: 'NO_SESSION' });
+    await enforceContributionRateLimit(req, user.id, 'moderate');
+
+    const contributionId = String(req.params.contributionId);
+    const contribution = await (prisma as any).articleContribution.findUnique({
+      where: { id: contributionId },
+      select: {
+        id: true,
+        userId: true,
+        targetContributionId: true,
+        type: true,
+        status: true,
+        article: { select: { status: true } },
+      } as any,
+    } as any);
+
+    if (!contribution || contribution.article.status !== 'PUBLISHED' || contribution.status !== PUBLIC_CONTRIBUTION_STATUS) {
+      return res.status(404).json({ error: 'Contribution not found' });
+    }
+    if (contribution.userId !== user.id && user.role !== 'ADMIN') {
+      return res.status(403).json({ error: 'FORBIDDEN' });
+    }
+
+    const rawText = typeof req.body?.text === 'string' ? req.body.text.trim() : '';
+    const sourceUrl = normalizeOptionalUrl(req.body?.sourceUrl);
+
+    if (req.body?.sourceUrl && !sourceUrl) {
+      return res.status(400).json({ error: 'invalid_source_url' });
+    }
+    if ((contribution.type === ArticleContributionType.SOURCE || contribution.targetContributionId) && !sourceUrl) {
+      return res.status(400).json({ error: 'source_url_required' });
+    }
+    if ((contribution.type !== ArticleContributionType.SOURCE || contribution.targetContributionId) && !rawText) {
+      return res.status(400).json({ error: 'contribution_text_required' });
+    }
+
+    const text = sanitizeArticleHtml(rawText || SOURCE_ONLY_TEXT).trim();
+    if (!text) return res.status(400).json({ error: 'contribution_text_required' });
+    if (text.length > 5000) return res.status(400).json({ error: 'contribution_text_too_long' });
+
+    const isSafe = await moderationService.moderateContent(text);
+    if (!isSafe) {
+      return res.status(400).json({ error: 'contribution_moderation_failed' });
+    }
+
+    const now = new Date();
+    await prisma.$transaction([
+      prisma.articleContributionValidation.deleteMany({ where: { contributionId } }),
+      (prisma as any).articleContribution.update({
+        where: { id: contributionId },
+        data: {
+          text,
+          sourceUrl,
+          bridgingScore: 0,
+          needsRecalc: false,
+          editedAt: now,
+          editCount: { increment: 1 },
+        } as any,
+      } as any),
+      ...(contribution.targetContributionId
+        ? []
+        : [
+          (prisma as any).articleContribution.updateMany({
+            where: { targetContributionId: contributionId, status: PUBLIC_CONTRIBUTION_STATUS } as any,
+            data: { status: 'STALE' } as any,
+          } as any),
+        ]),
+    ]);
+
+    const updated = await (prisma as any).articleContribution.findUnique({
+      where: { id: contributionId },
+      select: {
+        id: true,
+        targetContributionId: true,
+        status: true,
+        type: true,
+        text: true,
+        sourceUrl: true,
+        bridgingScore: true,
+        editedAt: true,
+        editCount: true,
+        createdAt: true,
+        updatedAt: true,
+        user: { select: { id: true, name: true, username: true, avatarUrl: true } },
+      } as any,
+    } as any);
+
+    if (!updated) {
+      return res.status(404).json({ error: 'Contribution not found' });
+    }
+
+    return res.json({
+      id: updated.id,
+      targetContributionId: updated.targetContributionId,
+      status: updated.status,
+      type: updated.type,
+      text: updated.text,
+      sourceUrl: updated.sourceUrl,
+      bridgingScore: updated.bridgingScore,
+      editedAt: updated.editedAt?.toISOString() ?? null,
+      editCount: updated.editCount,
+      createdAt: updated.createdAt.toISOString(),
+      updatedAt: updated.updatedAt.toISOString(),
+      author: updated.user,
+      validationSummary: { WELL_SOURCED: 0, ADDS_NUANCE: 0, NEEDS_CHECK: 0 },
+      currentUserValidations: [],
+      children: [],
+    });
+  } catch (e) {
+    next(e);
+  }
+});
+
+router.delete('/contributions/:contributionId', async (req, res, next) => {
+  try {
+    const user = await getCurrentUser(req, res);
+    if (!user) return res.status(401).json({ error: 'NO_SESSION' });
+    await enforceContributionRateLimit(req, user.id, 'moderate');
+
+    const contributionId = String(req.params.contributionId);
+    const contribution = await (prisma as any).articleContribution.findUnique({
+      where: { id: contributionId },
+      select: {
+        id: true,
+        userId: true,
+        status: true,
+        article: { select: { status: true } },
+      } as any,
+    } as any);
+
+    if (!contribution || contribution.article.status !== 'PUBLISHED' || contribution.status !== PUBLIC_CONTRIBUTION_STATUS) {
+      return res.status(404).json({ error: 'Contribution not found' });
+    }
+    if (contribution.userId !== user.id && user.role !== 'ADMIN') {
+      return res.status(403).json({ error: 'FORBIDDEN' });
+    }
+
+    await (prisma as any).articleContribution.update({
+      where: { id: contributionId },
+      data: {
+        status: 'DELETED',
+        deletedAt: new Date(),
+        bridgingScore: 0,
+        needsRecalc: false,
+      } as any,
+    } as any);
+
+    return res.json({ ok: true });
+  } catch (e) {
+    next(e);
+  }
+});
+
+router.post('/contributions/:contributionId/reports', async (req, res, next) => {
+  try {
+    let userId: string;
+    try {
+      userId = await getCurrentUserId(req, res);
+    } catch {
+      return res.status(401).json({ error: 'NO_SESSION' });
+    }
+    await enforceContributionRateLimit(req, userId, 'report');
+
+    const contributionId = String(req.params.contributionId);
+    const reason = req.body?.reason;
+    if (!isReportReason(reason)) {
+      return res.status(400).json({ error: 'invalid_report_reason' });
+    }
+
+    const details = typeof req.body?.details === 'string'
+      ? sanitizeArticleHtml(req.body.details.trim()).slice(0, 1000)
+      : null;
+
+    const contribution = await (prisma as any).articleContribution.findUnique({
+      where: { id: contributionId },
+      select: { id: true, userId: true, status: true, article: { select: { status: true } } } as any,
+    } as any);
+
+    if (!contribution || contribution.article.status !== 'PUBLISHED' || contribution.status !== PUBLIC_CONTRIBUTION_STATUS) {
+      return res.status(404).json({ error: 'Contribution not found' });
+    }
+    if (contribution.userId === userId) {
+      return res.status(403).json({ error: 'cannot_report_own_contribution' });
+    }
+
+    const report = await (prisma as any).articleContributionReport.upsert({
+      where: {
+        contributionId_reporterId_reason: {
+          contributionId,
+          reporterId: userId,
+          reason,
+        },
+      },
+      create: {
+        contributionId,
+        reporterId: userId,
+        reason,
+        details,
+      },
+      update: {
+        details,
+        status: 'PENDING',
+        reviewedAt: null,
+        reviewedById: null,
+      },
+      select: {
+        id: true,
+        status: true,
+        reason: true,
+        createdAt: true,
+        updatedAt: true,
+      },
+    });
+
+    logger.info('Article contribution reported', {
+      module: 'ArticleInteractions',
+      contributionId,
+      reporterId: userId,
+      reason,
+    });
+
+    return res.status(201).json({
+      id: report.id,
+      status: report.status,
+      reason: report.reason,
+      createdAt: report.createdAt.toISOString(),
+      updatedAt: report.updatedAt.toISOString(),
     });
   } catch (e) {
     next(e);

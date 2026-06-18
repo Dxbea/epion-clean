@@ -6,6 +6,8 @@ import { useAuthPrompt } from '@/contexts/AuthPromptContext';
 export type ContributionType = 'SOURCE' | 'NUANCE' | 'CONTRADICTION' | 'QUESTION' | 'CORRECTION';
 export type ValidationType = 'WELL_SOURCED' | 'ADDS_NUANCE' | 'NEEDS_CHECK';
 export type SortMode = 'top' | 'recent';
+export type ContributionStatus = 'ACTIVE' | 'DELETED' | 'HIDDEN' | 'STALE';
+export type ContributionReportReason = 'SPAM' | 'ABUSE' | 'OFF_TOPIC' | 'MISLEADING_SOURCE' | 'PERSONAL_DATA' | 'OTHER';
 
 type OpinionPosition = {
   id: string;
@@ -29,17 +31,28 @@ type ValidationSummary = {
   NEEDS_CHECK: number;
 };
 
+export type OpinionDistribution = {
+  counts: Record<string, number>;
+  total: number;
+  lacksContextCount: number;
+};
+
 export type Contribution = {
   id: string;
+  targetContributionId: string | null;
+  status: ContributionStatus;
   type: ContributionType;
   text: string;
   sourceUrl: string | null;
   bridgingScore: number;
+  editedAt: string | null;
+  editCount: number;
   createdAt: string;
   updatedAt: string;
   author: ContributionAuthor | null;
   validationSummary: ValidationSummary;
   currentUserValidations: string[];
+  children: Contribution[];
 };
 
 type InteractionsResponse = {
@@ -55,8 +68,23 @@ type InteractionsResponse = {
   hasInsufficientContext: boolean;
   canContribute: boolean;
   canValidateContributions: boolean;
+  opinionDistribution: OpinionDistribution;
   contributions: Contribution[];
 };
+
+function mapContributionTree(
+  contributions: Contribution[],
+  contributionId: string,
+  updater: (contribution: Contribution) => Contribution,
+): Contribution[] {
+  return contributions.map((contribution) => {
+    const children = contribution.children?.length
+      ? mapContributionTree(contribution.children, contributionId, updater)
+      : contribution.children;
+    const withChildren = children === contribution.children ? contribution : { ...contribution, children };
+    return withChildren.id === contributionId ? updater(withChildren) : withChildren;
+  });
+}
 
 export function useArticleInteractions(articleSlug: string | undefined) {
   const [isLoading, setIsLoading] = React.useState(true);
@@ -70,12 +98,17 @@ export function useArticleInteractions(articleSlug: string | undefined) {
   const [contributions, setContributions] = React.useState<Contribution[]>([]);
   const [canContribute, setCanContribute] = React.useState(false);
   const [canValidate, setCanValidate] = React.useState(false);
+  const [opinionDistribution, setOpinionDistribution] = React.useState<OpinionDistribution>({
+    counts: {},
+    total: 0,
+    lacksContextCount: 0,
+  });
 
   const { requireAuth } = useAuthPrompt();
 
-  const fetchInteractions = React.useCallback(async (sort?: SortMode) => {
+  const fetchInteractions = React.useCallback(async (sort?: SortMode, silent = false) => {
     if (!articleSlug) return;
-    setIsLoading(true);
+    if (!silent) setIsLoading(true);
     setError(null);
     const effectiveSort = sort ?? sortMode;
     try {
@@ -89,6 +122,7 @@ export function useArticleInteractions(articleSlug: string | undefined) {
       setContributions(data.contributions);
       setCanContribute(data.canContribute);
       setCanValidate(data.canValidateContributions);
+      setOpinionDistribution(data.opinionDistribution);
     } catch (e: any) {
       setError(e.message || 'Failed to load interactions');
     } finally {
@@ -96,14 +130,20 @@ export function useArticleInteractions(articleSlug: string | undefined) {
     }
   }, [articleSlug, sortMode]);
 
+  const hasMounted = React.useRef(false);
+
   React.useEffect(() => {
-    fetchInteractions();
+    if (hasMounted.current) {
+      fetchInteractions(sortMode, true);
+    } else {
+      hasMounted.current = true;
+      fetchInteractions();
+    }
   }, [fetchInteractions]);
 
   const changeSort = React.useCallback((mode: SortMode) => {
     setSortMode(mode);
-    fetchInteractions(mode);
-  }, [fetchInteractions]);
+  }, []);
 
   const submitPosition = React.useCallback(async (
     selectedPosition: number | null,
@@ -157,6 +197,7 @@ export function useArticleInteractions(articleSlug: string | undefined) {
     type: ContributionType,
     text: string,
     sourceUrl?: string,
+    targetContributionId?: string,
   ) => {
     if (!articleSlug) return false;
     setIsSubmittingContribution(true);
@@ -167,7 +208,7 @@ export function useArticleInteractions(articleSlug: string | undefined) {
         await withCsrf({
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ type, text, sourceUrl: sourceUrl || undefined }),
+          body: JSON.stringify({ type, text, sourceUrl: sourceUrl || undefined, targetContributionId: targetContributionId || undefined }),
         }),
       );
 
@@ -188,7 +229,16 @@ export function useArticleInteractions(articleSlug: string | undefined) {
       }
 
       const created: Contribution = await r.json();
-      setContributions((prev) => [created, ...prev]);
+      setContributions((prev) => {
+        if (!created.targetContributionId) return [created, ...prev];
+        return prev.map((contribution) => {
+          if (contribution.id !== created.targetContributionId) return contribution;
+          return {
+            ...contribution,
+            children: [...(contribution.children || []), created],
+          };
+        });
+      });
       return true;
     } catch (e: any) {
       setError(e.message || 'Failed to submit contribution');
@@ -198,6 +248,114 @@ export function useArticleInteractions(articleSlug: string | undefined) {
     }
   }, [articleSlug, requireAuth]);
 
+  const editContribution = React.useCallback(async (
+    contributionId: string,
+    data: { text: string; sourceUrl?: string },
+  ) => {
+    setError(null);
+    try {
+      const r = await fetch(
+        `${API_BASE}/api/articles/contributions/${contributionId}`,
+        await withCsrf({
+          method: 'PATCH',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(data),
+        }),
+      );
+
+      if (r.status === 401) {
+        requireAuth({ message: 'Connectez-vous pour modifier.' });
+        return false;
+      }
+
+      if (!r.ok) {
+        const body = await r.json().catch(() => ({}));
+        setError(body.error || `HTTP ${r.status}`);
+        return false;
+      }
+
+      const updated: Contribution = await r.json();
+      setContributions((current) =>
+        mapContributionTree(current, contributionId, (contribution) => ({
+          ...updated,
+          children: updated.targetContributionId ? [] : [],
+        })),
+      );
+      return true;
+    } catch (e: any) {
+      setError(e.message || 'Failed to edit contribution');
+      return false;
+    }
+  }, [requireAuth]);
+
+  const deleteContribution = React.useCallback(async (contributionId: string) => {
+    setError(null);
+    try {
+      const r = await fetch(
+        `${API_BASE}/api/articles/contributions/${contributionId}`,
+        await withCsrf({ method: 'DELETE' }),
+      );
+
+      if (r.status === 401) {
+        requireAuth({ message: 'Connectez-vous pour supprimer.' });
+        return false;
+      }
+
+      if (!r.ok) {
+        const body = await r.json().catch(() => ({}));
+        setError(body.error || `HTTP ${r.status}`);
+        return false;
+      }
+
+      setContributions((current) =>
+        current
+          .filter((contribution) => contribution.id !== contributionId)
+          .map((contribution) => ({
+            ...contribution,
+            children: contribution.children.filter((child) => child.id !== contributionId),
+          })),
+      );
+      return true;
+    } catch (e: any) {
+      setError(e.message || 'Failed to delete contribution');
+      return false;
+    }
+  }, [requireAuth]);
+
+  const reportContribution = React.useCallback(async (
+    contributionId: string,
+    reason: ContributionReportReason,
+    details?: string,
+  ) => {
+    setError(null);
+    try {
+      const r = await fetch(
+        `${API_BASE}/api/articles/contributions/${contributionId}/reports`,
+        await withCsrf({
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ reason, details }),
+        }),
+      );
+
+      if (r.status === 401) {
+        requireAuth({ message: 'Connectez-vous pour signaler.' });
+        return false;
+      }
+
+      if (!r.ok) {
+        const body = await r.json().catch(() => ({}));
+        setError(body.error || `HTTP ${r.status}`);
+        return false;
+      }
+
+      return true;
+    } catch (e: any) {
+      setError(e.message || 'Failed to report contribution');
+      return false;
+    }
+  }, [requireAuth]);
+
   const toggleValidation = React.useCallback(async (
     contributionId: string,
     type: ValidationType,
@@ -206,7 +364,7 @@ export function useArticleInteractions(articleSlug: string | undefined) {
 
     const prev = contributions;
     setContributions((current) =>
-      current.map((c) => {
+      mapContributionTree(current, contributionId, (c) => {
         if (c.id !== contributionId) return c;
         const hadIt = c.currentUserValidations.includes(type);
         return {
@@ -253,7 +411,7 @@ export function useArticleInteractions(articleSlug: string | undefined) {
 
       const data: { action: 'ADDED' | 'REMOVED'; validationSummary: ValidationSummary } = await r.json();
       setContributions((current) =>
-        current.map((c) => {
+        mapContributionTree(current, contributionId, (c) => {
           if (c.id !== contributionId) return c;
           return {
             ...c,
@@ -278,12 +436,16 @@ export function useArticleInteractions(articleSlug: string | undefined) {
     opinionQuestion,
     currentPosition,
     contributions,
+    opinionDistribution,
     canContribute,
     canValidate,
     sortMode,
     changeSort,
     submitPosition,
     submitContribution,
+    editContribution,
+    deleteContribution,
+    reportContribution,
     toggleValidation,
     refresh: fetchInteractions,
   };

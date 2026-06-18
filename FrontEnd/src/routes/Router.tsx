@@ -25,6 +25,7 @@ const Chat = React.lazy(() => import('../pages/Chat'));
 const ChatSession = React.lazy(() => import('../pages/ChatSession'));
 const Activity = React.lazy(() => import('@/pages/user/Activity'));
 const Profile = React.lazy(() => import('@/pages/Profile'));
+const AdminContributionReports = React.lazy(() => import('@/pages/AdminContributionReports'));
 
 // Static pages (Lower priority but light)
 const TermsPage = React.lazy(() => import('@/pages/TermsPage'));
@@ -63,6 +64,23 @@ function RequireAuth({ children }: { children: React.ReactElement }) {
 
   if (loading) return <div className="p-6 text-sm opacity-70">Loading…</div>;
   if (!me) return <Navigate to="/settings#account" replace />;
+
+  return children;
+}
+
+function RequireAdmin({ children }: { children: React.ReactElement }) {
+  const { me, loading } = useMe();
+  const { requireAuth } = useAuthPrompt();
+
+  React.useEffect(() => {
+    if (!loading && !me) {
+      requireAuth({ message: 'You need to sign in to access this page.' });
+    }
+  }, [loading, me, requireAuth]);
+
+  if (loading) return <div className="p-6 text-sm opacity-70">Loading...</div>;
+  if (!me) return <Navigate to="/settings#account" replace />;
+  if (me.role !== 'ADMIN') return <Navigate to="/" replace />;
 
   return children;
 }
@@ -171,6 +189,15 @@ export default function Router(): React.ReactElement {
 
                 {/* --- Public Profile --- */}
                 <Route path="/u/:userId" element={<Profile />} />
+
+                <Route
+                  path="/admin/contribution-reports"
+                  element={
+                    <RequireAdmin>
+                      <AdminContributionReports />
+                    </RequireAdmin>
+                  }
+                />
 
                 {/* --- chat (PLUS DE REQUIREAUTH ICI) --- */}
                 <Route path="/chat" element={<Chat />} />

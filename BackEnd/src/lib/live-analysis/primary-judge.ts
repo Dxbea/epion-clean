@@ -31,6 +31,24 @@ import {
     structuredArticleToMarkdown,
 } from '../structured-article.js';
 
+function normalizeOpinionQuestion(input: unknown): GeneratedContent['opinionQuestion'] {
+    if (!input || typeof input !== 'object') return null;
+    const value = input as Record<string, unknown>;
+    const question = typeof value.question === 'string' ? value.question.trim() : '';
+    const thesisA = typeof value.thesisA === 'string' ? value.thesisA.trim() : '';
+    const thesisB = typeof value.thesisB === 'string' ? value.thesisB.trim() : '';
+
+    if (question.length < 20 || thesisA.length < 3 || thesisB.length < 3) {
+        return null;
+    }
+
+    return {
+        question: question.slice(0, 240),
+        thesisA: thesisA.slice(0, 80),
+        thesisB: thesisB.slice(0, 80),
+    };
+}
+
 const openai = new OpenAI({
     apiKey: process.env.OPENAI_API_KEY,
 });
@@ -89,6 +107,7 @@ Tu as DEUX MISSIONS dans cette réponse unique :
 - Relie les affirmations importantes aux sources via les IDs fournis dans le dossier (ex: "src_abc123"), pas seulement via l'ordre [1], [2].
 - Génère un titre percutant, un résumé accrocheur (2 phrases), et des tags pertinents
 - Génère un concept clé très court (1 à 3 mots, idéalement le nom propre, le lieu géographique ou l'entité principale) en ANGLAIS pour trouver l'article Wikipedia le plus représentatif du sujet (ex: 'Emmanuel Macron', 'Strait of Hormuz', 'Rafale'). Retourne ce concept dans la clé "wikipedia_search_query".
+- Génère aussi "opinionQuestion" pour la carte communautaire : une question d'opinion neutre, ouverte, liée au sujet, avec deux pôles courts opposés. Elle ne doit pas demander si l'article est vrai ou faux.
 
 ## MISSION 2 : ANALYSER L'ARTICLE QUE TU VIENS DE RÉDIGER (FRAMEWORK DISARM)
 ${DISARM_REFERENCE}
@@ -149,6 +168,11 @@ ${sourcesBlock}
       "sources": ${JSON.stringify(sourceRefs.slice(0, 50))}
     },
     "tags": ["tag1", "tag2", "tag3"],
+    "opinionQuestion": {
+      "question": "Question d'opinion neutre et polarisante liée au sujet",
+      "thesisA": "Pôle A court",
+      "thesisB": "Pôle B court"
+    },
     "imagePrompt": "Photorealistic DALL-E prompt in English describing the cover image, or null",
     "wikipedia_search_query": "Concept in English (1-3 words) to fetch a representative Wikipedia image, or null"
   },
@@ -307,6 +331,7 @@ async function executeJudgeCall(
                 summary: typeof parsed.article.summary === 'string' ? parsed.article.summary : '',
                 content: markdownContent,
                 structuredContent,
+                opinionQuestion: normalizeOpinionQuestion(parsed.article.opinionQuestion),
                 tags: Array.isArray(parsed.article.tags) ? parsed.article.tags : [],
                 imagePrompt: typeof parsed.article.imagePrompt === 'string' ? parsed.article.imagePrompt : null,
                 wikipedia_search_query: typeof parsed.article.wikipedia_search_query === 'string' ? parsed.article.wikipedia_search_query : null,

@@ -70,6 +70,11 @@ export interface GeneratedContent {
     summary: string;
     content: string;
     structuredContent?: StructuredArticleContent | null;
+    opinionQuestion?: {
+        question: string;
+        thesisA: string;
+        thesisB: string;
+    } | null;
     tags: string[];
     imagePrompt: string | null;
     wikipedia_search_query: string | null;

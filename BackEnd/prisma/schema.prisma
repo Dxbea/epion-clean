@@ -65,6 +65,8 @@ model User {
   opinionPositions ArticleOpinionPosition[] @relation("UserArticleOpinionPositions")
   contributions    ArticleContribution[]    @relation("UserArticleContributions")
   contributionValidations ArticleContributionValidation[] @relation("UserArticleContributionValidations")
+  contributionReports ArticleContributionReport[] @relation("UserArticleContributionReports")
+  reviewedContributionReports ArticleContributionReport[] @relation("UserReviewedArticleContributionReports")
   ArticleView ArticleView[]
   ChatFolder  ChatFolder[]
 
@@ -339,6 +341,29 @@ enum ArticleContributionValidationType {
   NEEDS_CHECK
 }
 
+enum ArticleContributionStatus {
+  ACTIVE
+  DELETED
+  HIDDEN
+  STALE
+}
+
+enum ArticleContributionReportReason {
+  SPAM
+  ABUSE
+  OFF_TOPIC
+  MISLEADING_SOURCE
+  PERSONAL_DATA
+  OTHER
+}
+
+enum ArticleContributionReportStatus {
+  PENDING
+  DISMISSED
+  REVIEWED
+  ACTIONED
+}
+
 model ArticleOpinionQuestion {
   id        String   @id @default(cuid())
   articleId String   @unique
@@ -369,23 +394,33 @@ model ArticleOpinionPosition {
 }
 
 model ArticleContribution {
-  id            String                  @id @default(cuid())
-  articleId     String
-  userId        String
-  type          ArticleContributionType
-  text          String
-  sourceUrl     String?
-  needsRecalc   Boolean                 @default(false)
-  bridgingScore Float                   @default(0)
-  createdAt     DateTime                @default(now())
-  updatedAt     DateTime                @updatedAt
+  id                   String                  @id @default(cuid())
+  articleId            String
+  userId               String
+  targetContributionId String?
+  type                 ArticleContributionType
+  status               ArticleContributionStatus @default(ACTIVE)
+  text                 String
+  sourceUrl            String?
+  needsRecalc          Boolean                 @default(false)
+  bridgingScore        Float                   @default(0)
+  deletedAt            DateTime?
+  editedAt             DateTime?
+  editCount            Int                     @default(0)
+  createdAt            DateTime                @default(now())
+  updatedAt            DateTime                @updatedAt
 
-  article     Article                         @relation(fields: [articleId], references: [id], onDelete: Cascade)
-  user        User                            @relation("UserArticleContributions", fields: [userId], references: [id], onDelete: Cascade)
-  validations ArticleContributionValidation[]
+  article            Article                         @relation(fields: [articleId], references: [id], onDelete: Cascade)
+  user               User                            @relation("UserArticleContributions", fields: [userId], references: [id], onDelete: Cascade)
+  targetContribution ArticleContribution?             @relation("ArticleContributionNotes", fields: [targetContributionId], references: [id], onDelete: Cascade)
+  children           ArticleContribution[]            @relation("ArticleContributionNotes")
+  validations        ArticleContributionValidation[]
+  reports            ArticleContributionReport[]
 
   @@index([articleId, bridgingScore(sort: Desc), createdAt(sort: Desc)])
   @@index([articleId, createdAt])
+  @@index([articleId, status, createdAt])
+  @@index([targetContributionId, bridgingScore(sort: Desc), createdAt(sort: Desc)])
   @@index([needsRecalc])
   @@index([userId])
 }
@@ -402,6 +437,28 @@ model ArticleContributionValidation {
 
   @@unique([contributionId, userId, type])
   @@index([userId])
+}
+
+model ArticleContributionReport {
+  id             String                           @id @default(cuid())
+  contributionId String
+  reporterId     String
+  reason         ArticleContributionReportReason
+  details        String?
+  status         ArticleContributionReportStatus @default(PENDING)
+  createdAt      DateTime                         @default(now())
+  updatedAt      DateTime                         @updatedAt
+  reviewedAt     DateTime?
+  reviewedById   String?
+
+  contribution ArticleContribution @relation(fields: [contributionId], references: [id], onDelete: Cascade)
+  reporter     User                @relation("UserArticleContributionReports", fields: [reporterId], references: [id], onDelete: Cascade)
+  reviewedBy   User?               @relation("UserReviewedArticleContributionReports", fields: [reviewedById], references: [id], onDelete: SetNull)
+
+  @@unique([contributionId, reporterId, reason])
+  @@index([status, createdAt])
+  @@index([reporterId])
+  @@index([reviewedById])
 }
 
 model Comment {

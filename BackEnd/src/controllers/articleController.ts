@@ -10,6 +10,30 @@ import { runLiveAnalysisWithGeneration } from '../lib/live-analysis/index.js';
 import { getArticleImageProposals } from '../lib/images/proposals.js';
 import { stableSourceId } from '../lib/structured-article.js';
 
+const DEFAULT_OPINION_QUESTION = {
+    question: 'Les faits présentés relèvent-ils plutôt d’un problème ponctuel ou d’un problème structurel ?',
+    thesisA: 'Plutôt ponctuel',
+    thesisB: 'Plutôt structurel',
+};
+
+function normalizeGeneratedOpinionQuestion(input: unknown) {
+    if (!input || typeof input !== 'object') return DEFAULT_OPINION_QUESTION;
+    const value = input as Record<string, unknown>;
+    const question = typeof value.question === 'string' ? value.question.trim() : '';
+    const thesisA = typeof value.thesisA === 'string' ? value.thesisA.trim() : '';
+    const thesisB = typeof value.thesisB === 'string' ? value.thesisB.trim() : '';
+
+    if (question.length < 20 || thesisA.length < 3 || thesisB.length < 3) {
+        return DEFAULT_OPINION_QUESTION;
+    }
+
+    return {
+        question: question.slice(0, 240),
+        thesisA: thesisA.slice(0, 80),
+        thesisB: thesisB.slice(0, 80),
+    };
+}
+
 export async function createAIArticle(req: Request, res: Response, next: NextFunction) {
     try {
         const userId = await getCurrentUserId(req, res);
@@ -54,6 +78,7 @@ export async function createAIArticle(req: Request, res: Response, next: NextFun
         }
 
         const generatedData = result.generatedContent;
+        const opinionQuestion = normalizeGeneratedOpinionQuestion(generatedData.opinionQuestion);
 
         let coverImageUrl: string | null = imageUrl || null;
         if (generateImage) {
@@ -159,7 +184,10 @@ export async function createAIArticle(req: Request, res: Response, next: NextFun
                 // Connection de la catégorie si fournie
                 category: req.body.categoryId ? {
                     connect: { id: req.body.categoryId }
-                } : undefined
+                } : undefined,
+                opinionQuestion: {
+                    create: opinionQuestion,
+                },
             }
         });
         logger.info('[ArticleGenerate] Article created', {

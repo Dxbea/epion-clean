@@ -11,7 +11,9 @@ import { getSourceKey } from '@/lib/structured-article';
 
 type StructuredArticleRendererProps = {
   article: StructuredArticleContent;
+  content?: string | null;
   sources?: any[];
+  isHighlightActive?: boolean;
   selectedSourceKey?: string | null;
   selectedClaimId?: string | null;
   onSourceClick?: (sourceKey: string) => void;
@@ -137,7 +139,9 @@ function SectionBlock({
 
 export default function StructuredArticleRenderer({
   article,
+  content,
   sources = [],
+  isHighlightActive = false,
   selectedSourceKey,
   selectedClaimId,
   onSourceClick,
@@ -170,6 +174,15 @@ export default function StructuredArticleRenderer({
             </ul>
           ) : null}
         </section>
+      )}
+
+      {content && (
+        <MarkdownRenderer
+          content={content}
+          isHighlightActive={isHighlightActive}
+          sources={sources}
+          onSourceClick={(id) => onSourceClick?.(String(id))}
+        />
       )}
 
       {sections.map((section) => (

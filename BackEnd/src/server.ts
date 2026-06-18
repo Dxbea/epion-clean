@@ -32,6 +32,7 @@ import { newsIngestionQueue } from './lib/queue.js';
 import { prisma } from './lib/db.js';
 import { redis } from './lib/redis.js';
 import { betterAuthExpressHandler } from './lib/better-auth-handler.js';
+import { recalculateBridgingScores } from './services/bridgingService.js';
 import './workers/embedding.worker.js'; // 🧠 Initialize Embedding Worker
 import './workers/source-enrichment.worker.js'; // 🔍 Initialize Source Enrichment Worker
 import './workers/live-analysis.worker.js'; // ⚖️ Initialize Live Analysis Worker (Epion 2.0)
@@ -282,6 +283,20 @@ async function scheduleRecurringJobs(): Promise<void> {
     //         pattern: '15 3 * * *',
     //     },
     // });
+
+    setInterval(() => {
+        recalculateBridgingScores()
+            .then((processed) => {
+                if (processed > 0) {
+                    schedulerLog.info('Periodic bridging score recalculation complete', { processed });
+                }
+            })
+            .catch((err: any) => {
+                schedulerLog.warn('Periodic bridging score recalculation failed', {
+                    error: err.message,
+                });
+            });
+    }, 5 * 60 * 1000).unref();
 }
 
 // Auto-seed categories
