@@ -41,16 +41,20 @@ jobs:
     - name: Install dependencies
       run: npm ci
 
-    # --- NOUVELLES ÉTAPES PRISMA ---
+    # Prisma runs against the disposable PostgreSQL service for this CI job.
+    # Staging and production must use the same deploy command against their real DATABASE_URL.
     - name: Generate Prisma Client
-      run: npx prisma generate
+      run: npm run db:gen
 
-    - name: Setup Test Database
-      # On force Prisma à utiliser notre base de données temporaire pour créer les tables
+    - name: Apply Prisma migrations to disposable CI database
       env:
         DATABASE_URL: "postgresql://postgres:postgres@localhost:5432/epion_test"
-      run: npx prisma db push
-    # -------------------------------
+      run: npm run db:deploy
+
+    - name: Check Prisma migration status
+      env:
+        DATABASE_URL: "postgresql://postgres:postgres@localhost:5432/epion_test"
+      run: npm run db:status
 
     - name: Run Tests
       env:

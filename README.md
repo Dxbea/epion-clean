@@ -268,9 +268,20 @@ Then configure the required values for:
 ### 4. Prepare the database
 
 ```bash
-npx prisma generate
-npx prisma migrate dev
+npm run db:gen
+npm run db:migrate:dev
 ```
+
+`npm run db:migrate:dev` uses `prisma migrate dev` and is only for local development databases. Do not use it for staging or production.
+
+### Database migration commands
+
+- Local development: `cd BackEnd && npm run db:gen && npm run db:migrate:dev`.
+- CI tests: GitHub Actions uses a disposable PostgreSQL service database and runs `npm run db:deploy` before backend tests. The optional `npm run db:push:ci` script is reserved for throwaway CI databases only and must not be used against persistent staging or production data.
+- Staging and production: set `DATABASE_URL` to the target persistent database, then run `cd BackEnd && npm run db:deploy`. This runs `prisma migrate deploy`, applies only committed migration files, and exits non-zero if a migration cannot be applied.
+- Migration status: set `DATABASE_URL` to the database to inspect, then run `cd BackEnd && npm run db:status`.
+
+Never deploy a persistent database with `prisma migrate dev` or `prisma db push`. Create and review migration files locally, commit them, then apply them to staging and production with `npm run db:deploy`.
 
 ### 5. Start the backend
 
