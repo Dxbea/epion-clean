@@ -24,6 +24,7 @@ import { useToast } from '@/components/ui/Toast';
 import { useMe } from '@/contexts/MeContext';
 import { useUnsavedChanges } from '@/hooks/useUnsavedChanges';
 import { authClient, getEmailVerificationCallbackURL } from '@/lib/better-auth-client';
+import { getTrackingConsent, setTrackingConsent, useTrackingConsent } from '@/lib/tracking-consent';
 
 function resolveLabel(
   t: (key: string) => string,
@@ -316,10 +317,31 @@ function NotificationsSection({ id }: { id?: string }): React.JSX.Element {
 // PrivacySection (inchangé)
 // ─────────────────────────────────────────────
 //
-function PrivacySection({ id }: { id?: string }): React.JSX.Element {
+function readPrivacyState(storageKey: string): { profileVisibility: 'public' | 'private'; tracking: boolean } {
+  const fallback = {
+    profileVisibility: 'public' as const,
+    tracking: getTrackingConsent() === 'granted',
+  };
+
+  try {
+    const raw = localStorage.getItem(storageKey);
+    if (!raw) return fallback;
+
+    const parsed = JSON.parse(raw) as Partial<typeof fallback>;
+    return {
+      profileVisibility: parsed.profileVisibility === 'private' ? 'private' : 'public',
+      tracking: getTrackingConsent() === 'granted',
+    };
+  } catch {
+    return fallback;
+  }
+}
+
+export function PrivacySection({ id }: { id?: string }): React.JSX.Element {
   const { t } = useI18n();
   const { push } = useToast();
   const { me } = useMe();
+  const consent = useTrackingConsent();
 
   type Visibility = 'public' | 'private';
   type PrivacyState = { profileVisibility: Visibility; tracking: boolean };
@@ -329,29 +351,22 @@ function PrivacySection({ id }: { id?: string }): React.JSX.Element {
     [me?.id]
   );
 
-  const [state, setState] = React.useState<PrivacyState>(() => {
-    const raw = localStorage.getItem(storageKey);
-    return raw
-      ? (JSON.parse(raw) as PrivacyState)
-      : { profileVisibility: 'public', tracking: false };
-  });
+  const [state, setState] = React.useState<PrivacyState>(() => readPrivacyState(storageKey));
+  const [initial, setInitial] = React.useState<PrivacyState>(() => readPrivacyState(storageKey));
 
   React.useEffect(() => {
-    const raw = localStorage.getItem(storageKey);
-    setState(
-      raw
-        ? (JSON.parse(raw) as PrivacyState)
-        : { profileVisibility: 'public', tracking: false }
-    );
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [storageKey]);
+    const next = readPrivacyState(storageKey);
+    setState(next);
+    setInitial(next);
+  }, [storageKey, consent]);
 
-  const [initial, setInitial] = React.useState<PrivacyState>(state);
   const dirty = JSON.stringify(state) !== JSON.stringify(initial);
   useUnsavedChanges(dirty);
   const [saved, setSaved] = React.useState(false);
 
   function onSave() {
+    const nextConsent = state.tracking ? 'granted' : 'denied';
+    setTrackingConsent(nextConsent);
     localStorage.setItem(storageKey, JSON.stringify(state));
     setInitial(state);
     setSaved(true);
@@ -435,6 +450,7 @@ function PrivacySection({ id }: { id?: string }): React.JSX.Element {
           </Body>
           <ToggleRow
             label={t('analytics_allow')}
+            sublabel={t('analytics_allow_desc')}
             value={state.tracking}
             onChange={(v: boolean) =>
               setState((s) => ({ ...s, tracking: v }))
@@ -445,12 +461,6 @@ function PrivacySection({ id }: { id?: string }): React.JSX.Element {
     </FormSection>
   );
 }
-
-//
-// ─────────────────────────────────────────────
-// GeneralSection (inchangé visuellement)
-// ─────────────────────────────────────────────
-//
 function GeneralSection({ id }: { id?: string }): React.JSX.Element {
   const { t } = useI18n();
   return (

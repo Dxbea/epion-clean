@@ -1,23 +1,8 @@
 // src/main.tsx
 import React from 'react'
 import ReactDOM from 'react-dom/client'
-import { inject } from '@vercel/analytics';
-import * as Sentry from "@sentry/react";
-
-inject();
-
-Sentry.init({
-  dsn: import.meta.env.VITE_SENTRY_DSN,
-  integrations: [
-    Sentry.browserTracingIntegration(),
-    Sentry.replayIntegration(),
-  ],
-  // Performance Monitoring
-  tracesSampleRate: 0.1, // Capture 10% of the transactions
-  // Session Replay
-  replaysSessionSampleRate: 0.1, // This sets the sample rate at 10%. You may want to change it to 100% while in development and then sample at a lower rate in production.
-  replaysOnErrorSampleRate: 1.0, // If you're not already sampling the entire session, change the sample rate to 100% when an error occurs.
-});
+import { getTrackingConsent } from '@/lib/tracking-consent'
+import { applyTrackingConsent, initSentryErrorMonitoring } from '@/lib/tracking-services'
 
 import '@/styles/theme.css'
 import './i18n/i18n'
@@ -27,6 +12,9 @@ import { BrowserRouter } from 'react-router-dom'
 import App from '@/App'
 
 import { MeProvider } from '@/contexts/MeContext'
+
+initSentryErrorMonitoring()
+applyTrackingConsent(getTrackingConsent())
 
 const container = document.getElementById('root')
 if (!container) {

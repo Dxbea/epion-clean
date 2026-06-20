@@ -9,6 +9,7 @@ import logoDark from '@/assets/LG_Text_Noir.png';
 import { ToasterProvider } from '@/components/ui/Toast';
 import { AuthPromptProvider } from '@/contexts/AuthPromptContext';
 import BetaNotificationPopup from '@/components/BetaNotificationPopup';
+import TrackingConsentBanner from '@/components/TrackingConsentBanner';
 
 
 function useExposeChromeHeights(): void {
@@ -71,6 +72,7 @@ export default function MainLayout(): React.JSX.Element {
             logoLight={logoLight}
             logoDark={logoDark}
           />
+          <TrackingConsentBanner />
         </div>
       </ToasterProvider>
     </AuthPromptProvider>

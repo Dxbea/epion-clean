@@ -1,4 +1,4 @@
-import React from 'react';
+﻿import React from 'react';
 
 import PageContainer from '@/components/ui/PageContainer';
 import { Body, Button, H2, Lead } from '@/components/ui';
@@ -19,54 +19,78 @@ export default function Cookies() {
     {
       name: 'better-auth.session_token',
       type: 'cookie',
-      purpose: "Session d'authentification strictement necessaire.",
-      duration: '7 jours',
-      notes: 'HttpOnly, SameSite=Lax, path=/, secure en production.',
+      purpose: t('cookies_auth_purpose'),
+      duration: t('cookies_duration_7_days'),
+      notes: t('cookies_auth_detail'),
+    },
+    {
+      name: '_ga, _ga_*',
+      type: 'cookie',
+      purpose: t('cookies_ga_purpose'),
+      duration: t('cookies_duration_persistent'),
+      notes: t('cookies_ga_detail'),
+    },
+    {
+      name: '/_vercel/insights/script.js',
+      type: 'cookie',
+      purpose: t('cookies_vercel_purpose'),
+      duration: t('cookies_duration_session_or_persistent'),
+      notes: t('cookies_vercel_detail'),
+    },
+    {
+      name: 'Sentry Replay / tracing',
+      type: 'storage',
+      purpose: t('cookies_sentry_purpose'),
+      duration: t('cookies_duration_session_or_persistent'),
+      notes: t('cookies_sentry_detail'),
     },
   ];
 
   const storage: Row[] = [
-    { name: 'theme', type: 'storage', purpose: "Preference de theme (clair/sombre).", duration: 'Persistant', notes: 'localStorage' },
-    { name: 'lang', type: 'storage', purpose: "Langue de l'interface.", duration: 'Persistant', notes: 'localStorage' },
-    { name: 'a11y', type: 'storage', purpose: 'Accessibilite (texte plus grand, contraste).', duration: 'Persistant', notes: 'localStorage' },
-    { name: 'privacy', type: 'storage', purpose: 'Preferences de confidentialite.', duration: 'Persistant', notes: 'localStorage' },
-    { name: 'notif', type: 'storage', purpose: 'Preferences de notifications.', duration: 'Persistant', notes: 'localStorage' },
-    { name: 'sessions', type: 'storage', purpose: 'Liste des sessions affichee dans les reglages.', duration: 'Persistant', notes: 'localStorage' },
-    { name: 'account', type: 'storage', purpose: 'Donnees visibles dans Mon compte (demo locale).', duration: 'Persistant', notes: 'localStorage' },
+    { name: 'theme', type: 'storage', purpose: t('cookies_theme_purpose'), duration: t('cookies_duration_persistent'), notes: 'localStorage' },
+    { name: 'lang', type: 'storage', purpose: t('cookies_lang_purpose'), duration: t('cookies_duration_persistent'), notes: 'localStorage' },
+    { name: 'a11y', type: 'storage', purpose: t('cookies_a11y_purpose'), duration: t('cookies_duration_persistent'), notes: 'localStorage' },
+    { name: 'privacy', type: 'storage', purpose: t('cookies_privacy_purpose'), duration: t('cookies_duration_persistent'), notes: 'localStorage' },
+    { name: 'epion:tracking-consent', type: 'storage', purpose: t('cookies_consent_purpose'), duration: t('cookies_duration_persistent'), notes: 'localStorage' },
+    { name: 'notif', type: 'storage', purpose: t('cookies_notif_purpose'), duration: t('cookies_duration_persistent'), notes: 'localStorage' },
+    { name: 'sessions', type: 'storage', purpose: t('cookies_sessions_purpose'), duration: t('cookies_duration_persistent'), notes: 'localStorage' },
+    { name: 'account', type: 'storage', purpose: t('cookies_account_purpose'), duration: t('cookies_duration_persistent'), notes: 'localStorage' },
   ];
 
   function clearLocalData() {
-    const keys = ['theme', 'lang', 'a11y', 'privacy', 'notif', 'sessions', 'account'];
+    const keys = ['theme', 'lang', 'a11y', 'privacy', 'epion:tracking-consent', 'notif', 'sessions', 'account'];
     keys.forEach((key) => localStorage.removeItem(key));
-    alert("Les donnees locales ont ete supprimees (les cookies httpOnly de session ne sont pas touches).");
+    alert(t('cookies_cleared'));
   }
 
   return (
     <PageContainer className="space-y-6 py-8 sm:py-10">
-      <H2>{t('cookies') || 'Cookies'}</H2>
-      <Lead>Comment et pourquoi nous utilisons des cookies et du stockage local.</Lead>
+      <H2>{t('cookies_title')}</H2>
+      <Lead>{t('cookies_lead')}</Lead>
 
       <div className="rounded-3xl border border-black/10 p-5 dark:border-white/10 sm:p-6">
         <Body className="mb-4">
-          Nous utilisons uniquement les elements necessaires au fonctionnement du produit et a vos preferences d'interface. Aucun tracking tiers ni publicite comportementale.
+          {t('cookies_intro')}
         </Body>
+
+        <Body className="mb-4 font-semibold">{t('cookies_table_title')}</Body>
 
         <div className="overflow-x-auto">
           <table className="min-w-[680px] w-full text-left text-xs sm:text-sm">
             <thead>
               <tr className="border-b border-black/10 dark:border-white/10">
-                <th className="py-3 pr-4 font-medium">Nom</th>
-                <th className="py-3 pr-4 font-medium">Type</th>
-                <th className="py-3 pr-4 font-medium">Finalite</th>
-                <th className="py-3 pr-4 font-medium">Duree</th>
-                <th className="py-3 pr-4 font-medium">Detail</th>
+                <th className="py-3 pr-4 font-medium">{t('cookies_name')}</th>
+                <th className="py-3 pr-4 font-medium">{t('cookies_type')}</th>
+                <th className="py-3 pr-4 font-medium">{t('cookies_purpose')}</th>
+                <th className="py-3 pr-4 font-medium">{t('cookies_duration')}</th>
+                <th className="py-3 pr-4 font-medium">{t('cookies_detail')}</th>
               </tr>
             </thead>
             <tbody>
               {cookies.map((row) => (
                 <tr key={row.name} className="border-b border-black/5 align-top dark:border-white/5">
                   <td className="py-3 pr-4 font-mono">{row.name}</td>
-                  <td className="py-3 pr-4 capitalize">{row.type}</td>
+                  <td className="py-3 pr-4">{row.type === 'cookie' ? t('cookies_type_cookie') : t('cookies_type_storage')}</td>
                   <td className="py-3 pr-4">{row.purpose}</td>
                   <td className="py-3 pr-4">{row.duration}</td>
                   <td className="py-3 pr-4">{row.notes}</td>
@@ -78,7 +102,7 @@ export default function Cookies() {
       </div>
 
       <div className="rounded-3xl border border-black/10 p-5 dark:border-white/10 sm:p-6">
-        <Body className="mb-4 font-semibold">Stockage local</Body>
+        <Body className="mb-4 font-semibold">{t('cookies_local_title')}</Body>
 
         <div className="space-y-3">
           {storage.map((row) => (
@@ -94,7 +118,7 @@ export default function Cookies() {
         </div>
 
         <Body className="mt-6">
-          Vous pouvez supprimer ces donnees dans <strong>Settings - Data & compliance</strong>, ou vider localement les preferences d'interface ci-dessous.
+          {t('cookies_clear_help')}
         </Body>
 
         <div className="mt-4">
@@ -105,7 +129,7 @@ export default function Cookies() {
             onClick={clearLocalData}
             className="min-h-[44px] rounded-full px-5 py-2.5 text-sm"
           >
-            Clear local preferences
+            {t('cookies_clear_button')}
           </Button>
         </div>
       </div>

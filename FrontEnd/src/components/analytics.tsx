@@ -1,27 +1,20 @@
 import { useEffect } from 'react';
 import { useLocation } from 'react-router-dom';
 
-// Déclaration de type pour Google Analytics gtag
-declare global {
-  interface Window {
-    gtag: (...args: unknown[]) => void;
-    dataLayer: unknown[];
-  }
-}
+import { useTrackingConsent } from '@/lib/tracking-consent';
+import { sendGoogleAnalyticsPageView } from '@/lib/tracking-services';
 
 const Analytics = () => {
     const location = useLocation();
+    const consent = useTrackingConsent();
 
     useEffect(() => {
-        // On envoie la vue à Google à chaque changement de 'location'
-        if (typeof window.gtag === 'function') {
-            window.gtag('config', 'G-NX59W4PKLR', {
-                page_path: location.pathname + location.search,
-            });
+        if (consent === 'granted') {
+            sendGoogleAnalyticsPageView(location.pathname + location.search);
         }
-    }, [location]);
+    }, [consent, location]);
 
-    return null; // Ce composant ne rend rien visuellement
+    return null;
 };
 
 export default Analytics;
