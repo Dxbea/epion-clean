@@ -347,6 +347,114 @@ describe('Better Auth foundation', () => {
     expect(after.body.sessions.every((session: { current: boolean }) => session.current)).toBe(true);
   });
 
+  it('exports only the authenticated user data without auth secrets', async () => {
+    const unauthenticated = await request(meApp).get('/api/me/export');
+    expect(unauthenticated.status).toBe(401);
+
+    const email = uniqueEmail('export');
+    await signUp(email);
+    await verifyLatestEmail();
+
+    const login = await signIn(email);
+    expect(login.status).toBe(200);
+    const cookie = extractCookie(login);
+
+    const user = await prisma.user.findUniqueOrThrow({
+      where: { email },
+      include: { betterAuthSessions: true, betterAuthAccounts: true },
+    });
+    const otherUser = await prisma.user.create({
+      data: {
+        email: uniqueEmail('export-other'),
+        name: 'Other Export User',
+      },
+    });
+
+    const ownArticle = await prisma.article.create({
+      data: {
+        slug: `export-own-${Date.now()}`,
+        title: 'Owned export article',
+        content: 'Owned private content',
+        authorId: user.id,
+      },
+    });
+    const savedArticle = await prisma.article.create({
+      data: {
+        slug: `export-saved-${Date.now()}`,
+        title: 'Saved public article',
+        content: 'Saved article content',
+        authorId: otherUser.id,
+      },
+    });
+    await prisma.article.create({
+      data: {
+        slug: `export-other-private-${Date.now()}`,
+        title: 'Other user private article marker',
+        content: 'Other user private content marker',
+        authorId: otherUser.id,
+      },
+    });
+    await prisma.savedArticle.create({ data: { userId: user.id, articleId: savedArticle.id } });
+    await prisma.savedArticle.create({ data: { userId: otherUser.id, articleId: ownArticle.id } });
+    await prisma.articleView.create({
+      data: { userId: user.id, articleId: ownArticle.id, viewerHash: 'viewer-hash-secret-marker' },
+    });
+    const folder = await prisma.chatFolder.create({ data: { userId: user.id, name: 'Export folder' } });
+    const chat = await prisma.chatSession.create({
+      data: { userId: user.id, topic: 'Export chat', folderId: folder.id },
+    });
+    await prisma.chatMessage.create({
+      data: { sessionId: chat.id, userId: user.id, role: 'user', content: 'My export chat message' },
+    });
+    await prisma.chatMessage.create({
+      data: { sessionId: chat.id, role: 'assistant', content: 'Assistant answer in my session' },
+    });
+    await prisma.comment.create({
+      data: { userId: user.id, articleId: ownArticle.id, content: 'My export comment' },
+    });
+    await prisma.articleReaction.create({
+      data: { userId: user.id, articleId: ownArticle.id, type: 'HEART' },
+    });
+    const contribution = await prisma.articleContribution.create({
+      data: { userId: user.id, articleId: ownArticle.id, type: 'SOURCE', text: 'My source contribution' },
+    });
+    await prisma.articleContributionValidation.create({
+      data: { userId: user.id, contributionId: contribution.id, type: 'WELL_SOURCED' },
+    });
+    await prisma.articleContributionReport.create({
+      data: { reporterId: user.id, contributionId: contribution.id, reason: 'OTHER', details: 'My report details' },
+    });
+
+    const response = await request(meApp).get('/api/me/export').set('Cookie', cookie);
+    expect(response.status).toBe(200);
+    expect(response.headers['content-type']).toContain('application/json');
+    expect(response.headers['content-disposition']).toContain('attachment;');
+
+    const exported = JSON.parse(response.text);
+    const serialized = JSON.stringify(exported);
+
+    expect(exported.account.email).toBe(email);
+    expect(exported.content.authoredArticles.map((article: { id: string }) => article.id)).toContain(ownArticle.id);
+    expect(exported.content.savedArticles.map((saved: { articleId: string }) => saved.articleId)).toEqual([savedArticle.id]);
+    expect(exported.chat.sessions[0].messages.map((message: { content: string }) => message.content)).toEqual([
+      'My export chat message',
+      'Assistant answer in my session',
+    ]);
+    expect(exported.interactions.comments[0].content).toBe('My export comment');
+    expect(exported.interactions.reactions[0].type).toBe('HEART');
+    expect(exported.interactions.contributions[0].text).toBe('My source contribution');
+    expect(exported.interactions.contributionReports[0].details).toBe('My report details');
+
+    expect(serialized).not.toContain('Other user private article marker');
+    expect(serialized).not.toContain('Other user private content marker');
+    expect(serialized).not.toContain(user.betterAuthSessions[0].token);
+    expect(serialized).not.toContain(user.betterAuthAccounts[0].password as string);
+    expect(serialized.toLowerCase()).not.toContain('token');
+    expect(serialized.toLowerCase()).not.toContain('password');
+    expect(serialized.toLowerCase()).not.toContain('secret');
+    expect(serialized.toLowerCase()).not.toContain('hash');
+    expect(serialized).not.toContain('viewer-hash-secret-marker');
+  });
   it('changes email through Better Auth verification and refreshes Epion profile data', async () => {
     const email = uniqueEmail('change-email');
     const newEmail = uniqueEmail('changed-email');

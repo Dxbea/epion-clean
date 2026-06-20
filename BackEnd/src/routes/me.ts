@@ -6,6 +6,7 @@ import { getCurrentUser, getCurrentUserId } from '../lib/currentUser.js';
 import { checkAndIncrement } from '../lib/rateLimiter.js';
 import { logger } from '../lib/logger.js';
 import { auth } from '../lib/better-auth.js';
+import { buildUserDataExport } from '../lib/user-data-export.js';
 
 export const router = Router();
 
@@ -168,6 +169,23 @@ router.get('/sessions', async (req, res, next) => {
   }
 });
 
+router.get('/export', async (req, res, next) => {
+  try {
+    const user = await getCurrentUser(req, res);
+    if (!user) return res.status(401).json({ error: 'NO_SESSION' });
+
+    const data = await buildUserDataExport(user.id, user.sessionId);
+    if (!data) return res.status(404).json({ error: 'USER_NOT_FOUND' });
+
+    const exportedAt = data.exportedAt.replace(/[:.]/g, '-');
+    res.setHeader('Content-Type', 'application/json; charset=utf-8');
+    res.setHeader('Content-Disposition', 'attachment; filename="epion-export-' + exportedAt + '.json"');
+    res.setHeader('Cache-Control', 'no-store');
+    return res.status(200).send(JSON.stringify(data, null, 2));
+  } catch (error) {
+    next(error);
+  }
+});
 router.delete('/sessions/others', async (req, res, next) => {
   try {
     const user = await getCurrentUser(req, res);

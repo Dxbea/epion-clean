@@ -269,8 +269,10 @@ export const DICT = {
     enable_2fa_soon: "Enable 2FA (soon)",
 
     // ───────────────── DATA / COMPLIANCE
-    data_desc: "Export your local data or delete your account from this device.",
+    data_desc: "Export your Epion account data or delete local data from this device.",
     export_json: "Export my data (JSON)",
+    export_done: "JSON export ready.",
+    export_failed: "Unable to export your data. Please sign in and try again.",
     delete_account: "Delete my account",
     delete_confirm: "Delete your local data? This cannot be undone.",
     deleted_local: "Local data deleted. (No server call performed.)",
@@ -646,8 +648,10 @@ export const DICT = {
     enable_2fa_soon: "Activer la 2FA (bientôt)",
 
     // ───────────────── DATA / COMPLIANCE
-    data_desc: "Exportez vos données locales ou supprimez votre compte sur cet appareil.",
-    export_json: "Exporter mes données (JSON)",
+    data_desc: "Exportez vos donnees de compte Epion ou supprimez les donnees locales de cet appareil.",
+    export_json: "Exporter mes donnees (JSON)",
+    export_done: "Export JSON pret.",
+    export_failed: "Impossible d'exporter vos donnees. Connectez-vous puis reessayez.",
     delete_account: "Supprimer mon compte",
     delete_confirm: "Supprimer vos données locales ? Cette action est irréversible.",
     deleted_local: "Données locales supprimées. (Aucun appel serveur.)",

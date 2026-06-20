@@ -3,30 +3,21 @@ import FormSection from '@/components/settings/FormSection'
 import Button from '@/components/ui/Button'
 import { useI18n } from '@/i18n/I18nContext'
 import { THEME_STORAGE_KEY } from '@/hooks/useTheme'
+import { downloadUserDataExport } from '@/api/userDataExport'
+import { useToast } from '@/components/ui/Toast'
 
-function download(filename: string, text: string){
-  const blob = new Blob([text], { type: 'application/json' })
-  const url = URL.createObjectURL(blob)
-  const a = document.createElement('a')
-  a.href = url; a.download = filename; a.click()
-  URL.revokeObjectURL(url)
-}
 
 export default function DangerZone(){
   const { t } = useI18n()
+  const { push } = useToast()
 
-  function exportData(){
-    const data = {
-      account: JSON.parse(localStorage.getItem('account') || 'null'),
-      notif: JSON.parse(localStorage.getItem('notif') || 'null'),
-      privacy: JSON.parse(localStorage.getItem('privacy') || 'null'),
-      lang: localStorage.getItem('epion_lang_pref') || null,
-      sessions: JSON.parse(localStorage.getItem('sessions') || 'null'),
-      theme: localStorage.getItem(THEME_STORAGE_KEY) || null,
-      a11y: JSON.parse(localStorage.getItem('a11y') || 'null'),
-      exportedAt: new Date().toISOString(),
+  async function exportData(){
+    try {
+      await downloadUserDataExport()
+      push(t?.('export_done') ?? 'JSON export ready.', 'success')
+    } catch {
+      push(t?.('export_failed') ?? 'Export failed.', 'error')
     }
-    download('epion-export.json', JSON.stringify(data, null, 2))
   }
 
   function deleteAccount(){
