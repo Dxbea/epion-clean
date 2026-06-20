@@ -19,6 +19,7 @@ import { normalizeSourceForUi, parsePotentialSources } from '@/lib/source-ui';
 import { deriveSupportLevelFromScore } from '@/lib/score-labels';
 import { claimsForSource, getSourceKey, isStructuredArticleContent } from '@/lib/structured-article';
 import { useI18n } from '@/i18n/I18nContext';
+import { withCsrf } from '@/lib/csrf';
 
 type LoadedArticle = {
   id: string;
@@ -381,12 +382,12 @@ export default function Article() {
     if (!summaryText && article?.id) {
       setSummaryLoading(true);
       try {
-        const res = await fetch(`${API_BASE}/api/ai/summarize`, {
+        const res = await fetch(`${API_BASE}/api/ai/summarize`, await withCsrf({
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({ articleId: article.id }),
           credentials: 'include'
-        });
+        }));
         const data = await res.json();
         if (data.summary) {
           setSummaryText(data.summary);
@@ -413,12 +414,12 @@ export default function Article() {
     clearFactCheckPolling();
 
     try {
-      const res = await fetch(`${API_BASE}/api/ai/fact-check`, {
+      const res = await fetch(`${API_BASE}/api/ai/fact-check`, await withCsrf({
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ articleId: article.id }),
         credentials: 'include'
-      });
+      }));
 
       const data = await res.json().catch(() => ({}));
 
@@ -683,7 +684,7 @@ export default function Article() {
                       onClick={async () => {
                         setIsEditOpen(false);
                         if (!confirm('Delete this article?')) return;
-                        await fetch(`${API_BASE}/api/articles/${article.id}`, { method: 'DELETE', credentials: 'include' });
+                        await fetch(`${API_BASE}/api/articles/${article.id}`, await withCsrf({ method: 'DELETE', credentials: 'include' }));
                         navigate('/news');
                       }}
                     >

@@ -17,6 +17,14 @@ const csrfExemptAuthPaths = new Set([
   '/auth/verify-invite',
 ]);
 
+export function isCsrfExemptRequest(method: string, path: string): boolean {
+  const normalizedMethod = method.toUpperCase();
+  if (normalizedMethod === 'POST' && /^\/articles\/[^/]+\/view$/.test(path)) {
+    return true;
+  }
+  return csrfExemptAuthPaths.has(path);
+}
+
 function safeEqual(a: string, b: string): boolean {
   const ba = Buffer.from(a);
   const bb = Buffer.from(b);
@@ -70,7 +78,7 @@ export async function csrfRequired(req: Request, res: Response, next: NextFuncti
   const safe = method === 'GET' || method === 'HEAD' || method === 'OPTIONS';
   const path = req.path || '';
 
-  if (safe || path === '/csrf' || csrfExemptAuthPaths.has(path)) {
+  if (safe || path === '/csrf' || isCsrfExemptRequest(method, path)) {
     return next();
   }
 
