@@ -19,6 +19,7 @@ import { normalizeSourceForUi, parsePotentialSources } from '@/lib/source-ui';
 import { deriveSupportLevelFromScore } from '@/lib/score-labels';
 import { claimsForSource, getSourceKey, isStructuredArticleContent } from '@/lib/structured-article';
 import { useI18n } from '@/i18n/I18nContext';
+import { getFactCheckFailureMessage, isFactCheckFailedPollResponse } from '@/lib/fact-check-polling';
 
 type LoadedArticle = {
   id: string;
@@ -457,11 +458,11 @@ export default function Article() {
               return;
             }
 
-            if (pollData.status === 'failed') {
+            if (isFactCheckFailedPollResponse(pollData)) {
               shouldStartPolling = false;
               clearFactCheckPolling();
               setFactCheckLoading(false);
-              setFactCheckError(pollData.error || 'Fact-check failed');
+              setFactCheckError(getFactCheckFailureMessage(pollData));
             }
           } catch (err: any) {
             shouldStartPolling = false;

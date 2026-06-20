@@ -18,6 +18,7 @@ import { runLiveAnalysis, runLiveAnalysisWithGeneration } from '../lib/live-anal
 import { sourceEnrichmentQueue } from '../lib/queue.js';
 import { prisma } from '../lib/db.js';
 import { getWikipediaImage } from '../lib/images/wikipedia-fetcher.js';
+import { markFactCheckFailed } from '../lib/fact-check-lifecycle.js';
 
 const DEFAULT_OPINION_QUESTION = {
     question: 'Les faits présentés relèvent-ils plutôt d’un problème ponctuel ou d’un problème structurel ?',
@@ -193,14 +194,26 @@ liveAnalysisWorker.on('completed', async (job, result) => {
             articleId: result.articleId,
             error: err.message,
         });
+        await markFactCheckFailed(result.articleId, 'source-enrichment-dispatch');
     }
 });
 
-liveAnalysisWorker.on('failed', (job, err) => {
+liveAnalysisWorker.on('failed', async (job, err) => {
     logger.error(`[LiveAnalysis Worker] Job ${job?.id} failed`, {
         error: err.message,
         articleId: job?.data?.articleId,
     });
+
+    if (job?.data?.articleId) {
+        try {
+            await markFactCheckFailed(job.data.articleId, 'live-analysis-worker');
+        } catch (dbErr: any) {
+            logger.error('[LiveAnalysis Worker] Failed to persist FAILED status to DB', {
+                articleId: job.data.articleId,
+                error: dbErr?.message,
+            });
+        }
+    }
 });
 
 logger.info('Live Analysis Worker started', { module: 'Worker', concurrency: 3 });

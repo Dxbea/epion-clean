@@ -6,6 +6,7 @@ import { buildArticleScorePayload, hashAnalysisInput } from '../lib/score-helper
 import { stableSourceId } from '../lib/structured-article.js';
 import type { SourceScoreEntry } from '../lib/score-types.js';
 import { Redis as IORedis } from 'ioredis';
+import { markFactCheckFailed } from '../lib/fact-check-lifecycle.js';
 
 const redisUrl = process.env.REDIS_URL || 'redis://localhost:6379';
 const connection = new IORedis(redisUrl, {
@@ -208,13 +209,7 @@ sourceEnrichmentWorker.on('failed', async (job, err) => {
     // Persist failure state in DB so it's visible without querying BullMQ
     if (job?.data?.articleId) {
         try {
-            await prisma.article.update({
-                where: { id: job.data.articleId },
-                data: {
-                    factCheckStatus: 'FAILED',
-                    factCheckError: err.message?.slice(0, 500) || 'Unknown error',
-                },
-            });
+            await markFactCheckFailed(job.data.articleId, 'source-enrichment-worker');
         } catch (dbErr: any) {
             logger.error('[Worker] Failed to persist FAILED status to DB', {
                 articleId: job.data.articleId,

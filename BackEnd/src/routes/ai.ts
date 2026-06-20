@@ -9,6 +9,7 @@ import { z } from 'zod';
 import { logger } from '../lib/logger.js';
 import { normalizeArticleScorePayload } from '../lib/score-helpers.js';
 import { redis } from '../lib/redis.js';
+import { buildFactCheckFailedPollResponse } from '../lib/fact-check-lifecycle.js';
 
 export const router = Router();
 
@@ -226,6 +227,7 @@ router.get('/fact-check/:jobId', async (req, res) => {
                 factCheckData: true,
                 factCheckStatus: true,
                 factCheckError: true,
+                factCheckCompletedAt: true,
             },
         });
 
@@ -276,10 +278,7 @@ router.get('/fact-check/:jobId', async (req, res) => {
         }
 
         if (article?.factCheckStatus === 'FAILED') {
-            return res.json({
-                status: 'failed',
-                error: article.factCheckError || 'Unknown error',
-            });
+            return res.json(buildFactCheckFailedPollResponse(article));
         }
 
         // Still processing (live-analysis or source-enrichment in progress)
