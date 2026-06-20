@@ -58,6 +58,28 @@ export async function apiLogout() {
   return res.data;
 }
 
+
+export async function apiDeleteAccount(body: { confirmationEmail: string; password?: string }) {
+  const res = await fetch(
+    `${API_BASE}/api/me/account`,
+    await withCsrf({
+      method: 'DELETE',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(body),
+    }),
+  );
+  if (!res.ok) {
+    let error = 'HTTP ' + res.status;
+    try {
+      const data = await res.json();
+      if (data?.error) error = String(data.error);
+    } catch {
+      // keep HTTP status
+    }
+    throw new Error(error);
+  }
+  return res.json();
+}
 // --- Sessions API ---
 export type SessionItem = {
   id: string;

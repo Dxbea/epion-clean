@@ -626,14 +626,16 @@ export default function Article() {
           )}
 
           {/* Author */}
-          {author && (
-            <>
-              <span className="opacity-50">•</span>
+          <>
+            <span className="opacity-50">•</span>
+            {author ? (
               <Link to={`/u/${author.username || author.id}`} className="hover:underline hover:text-black dark:hover:text-white transition-colors">
                 {author.name || author.username || 'Unknown'}
               </Link>
-            </>
-          )}
+            ) : (
+              <span className="text-black/55 dark:text-white/55">{t('deleted_user')}</span>
+            )}
+          </>
 
           {/* Edit (dropdown inline) */}
           {isAuthor && (

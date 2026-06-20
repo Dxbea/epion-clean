@@ -4,6 +4,7 @@ import { withCsrf } from '@/lib/csrf';
 import Button from '@/components/ui/Button';
 import PageContainer from '@/components/ui/PageContainer';
 import { useMe } from '@/contexts/MeContext';
+import { useI18n } from '@/i18n/I18nContext';
 
 type ReportItem = {
   id: string;
@@ -17,13 +18,14 @@ type ReportItem = {
     sourceUrl: string | null;
     status: string;
     article: { id: string; slug: string; title: string };
-    user: { id: string; name: string | null; username: string | null; email: string };
+    user: { id: string; name: string | null; username: string | null; email: string } | null;
   };
-  reporter: { id: string; name: string | null; username: string | null; email: string };
+  reporter: { id: string; name: string | null; username: string | null; email: string } | null;
 };
 
 export default function AdminContributionReports() {
   const { me, loading } = useMe();
+  const { t } = useI18n();
   const [reports, setReports] = React.useState<ReportItem[]>([]);
   const [isLoading, setIsLoading] = React.useState(true);
   const [error, setError] = React.useState<string | null>(null);
@@ -113,7 +115,7 @@ export default function AdminContributionReports() {
                       </p>
                     )}
                     <p className="mt-2 text-xs text-black/45 dark:text-white/45">
-                      Reported by {report.reporter.email} on {new Date(report.createdAt).toLocaleString()}
+                      Reported by {report.reporter?.email || t('deleted_user')} on {new Date(report.createdAt).toLocaleString()}
                     </p>
                   </div>
                   <div className="flex shrink-0 flex-wrap gap-2">

@@ -273,6 +273,13 @@ export const DICT = {
     export_json: "Export my data (JSON)",
     delete_account: "Delete my account",
     delete_confirm: "Delete your local data? This cannot be undone.",
+    delete_confirm_server: "This will permanently delete your private account data and anonymize your public content. Continue?",
+    delete_confirm_email_prompt: "Type your account email to confirm deletion.",
+    delete_password_prompt: "If this account uses a password, type it now. OAuth-only accounts can leave this blank.",
+    delete_account_failed: "Account deletion failed.",
+    delete_account_oauth_blocked: "OAuth-only account deletion is temporarily unavailable. Please contact support so we can verify the request by email.",
+    deleted_user: "Deleted user",
+    account_deleted: "Account deleted.",
     deleted_local: "Local data deleted. (No server call performed.)",
 
     // ───────────────── ACCESSIBILITY
@@ -650,6 +657,13 @@ export const DICT = {
     export_json: "Exporter mes données (JSON)",
     delete_account: "Supprimer mon compte",
     delete_confirm: "Supprimer vos données locales ? Cette action est irréversible.",
+    delete_confirm_server: "Cette action supprimera définitivement vos données privées et anonymisera vos contenus publics. Continuer ?",
+    delete_confirm_email_prompt: "Saisissez l'e-mail du compte pour confirmer la suppression.",
+    delete_password_prompt: "Si ce compte utilise un mot de passe, saisissez-le maintenant. Les comptes OAuth peuvent laisser ce champ vide.",
+    delete_account_failed: "Échec de la suppression du compte.",
+    delete_account_oauth_blocked: "La suppression automatique des comptes OAuth est temporairement indisponible. Contactez le support afin que nous vérifiions la demande par e-mail.",
+    deleted_user: "Utilisateur supprimé",
+    account_deleted: "Compte supprimé.",
     deleted_local: "Données locales supprimées. (Aucun appel serveur.)",
 
     // ───────────────── ACCESSIBILITY

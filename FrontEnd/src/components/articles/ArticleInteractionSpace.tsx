@@ -72,10 +72,15 @@ type Props = {
   articleSlug: string;
 };
 
+function getAuthorDisplayName(author: ApiContribution['author'], deletedUserLabel: string): string {
+  if (!author) return deletedUserLabel;
+  return author.name || author.username || deletedUserLabel;
+}
+
 function getAuthorInitials(author: ApiContribution['author']): string {
-  if (!author) return '??';
+  if (!author) return 'US';
   const name = author.name || author.username || '';
-  if (!name) return '??';
+  if (!name) return 'US';
   const parts = name.split(/\s+/);
   if (parts.length >= 2) return (parts[0][0] + parts[1][0]).toUpperCase();
   return name.slice(0, 2).toUpperCase();
@@ -794,6 +799,7 @@ export default function ArticleInteractionSpace({ articleSlug }: Props) {
                 })
                 .sort((a, b) => b.bridgingScore - a.bridgingScore)[0] ?? null;
               const canManageContribution = me?.role === 'ADMIN' || me?.id === contribution.author?.id;
+              const authorDisplayName = getAuthorDisplayName(contribution.author, t('deleted_user'));
               return (
                 <article
                   key={contribution.id}
@@ -824,6 +830,9 @@ export default function ArticleInteractionSpace({ articleSlug }: Props) {
                         <span className={`inline-flex items-center gap-1.5 rounded-full border px-2.5 py-1 text-xs font-semibold ${typeTone[uiType]}`}>
                           <Icon className="h-3.5 w-3.5" />
                           {contributionTypes.find((type) => type.value === uiType)?.label}
+                        </span>
+                        <span className="text-xs font-medium text-black/45 dark:text-white/45">
+                          {authorDisplayName}
                         </span>
                         {contribution.editCount > 0 && (
                           <span className="text-xs font-medium text-black/40 dark:text-white/40">
@@ -967,7 +976,7 @@ export default function ArticleInteractionSpace({ articleSlug }: Props) {
                         <ShieldQuestion className="mt-0.5 h-4 w-4 shrink-0 text-sky-700 dark:text-sky-300" />
                         <div className="min-w-0 flex-1">
                           <p className="text-xs font-semibold uppercase text-sky-700 dark:text-sky-300">
-                            {t('article_interactions_best_note_label')}
+                            {t('article_interactions_best_note_label')} · {getAuthorDisplayName(bestCommunityNote.author, t('deleted_user'))}
                           </p>
                           <p className="mt-1 text-sm leading-6 text-neutral-800 dark:text-neutral-100">
                             {bestCommunityNote.text}

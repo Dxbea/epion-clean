@@ -6,6 +6,7 @@ import { getCurrentUser, getCurrentUserId } from '../lib/currentUser.js';
 import { checkAndIncrement } from '../lib/rateLimiter.js';
 import { logger } from '../lib/logger.js';
 import { auth } from '../lib/better-auth.js';
+import { AccountDeletionError, deleteUserAccount } from '../lib/account-deletion-service.js';
 
 export const router = Router();
 
@@ -218,6 +219,53 @@ router.delete('/sessions/:id', async (req, res, next) => {
 
     return res.json({ ok: true, current: target.id === user.sessionId });
   } catch (error) {
+    next(error);
+  }
+});
+
+
+function expireBetterAuthCookies(res: any) {
+  const baseOptions = {
+    path: '/',
+    httpOnly: true,
+    sameSite: 'lax' as const,
+    secure: process.env.NODE_ENV === 'production',
+  };
+  for (const name of [
+    'better-auth.session_token',
+    '__Secure-better-auth.session_token',
+    'better-auth.session_data',
+    '__Secure-better-auth.session_data',
+  ]) {
+    res.clearCookie(name, baseOptions);
+  }
+}
+
+router.delete('/account', async (req, res, next) => {
+  try {
+    const user = await getCurrentUser(req, res);
+    if (!user) return res.status(401).json({ error: 'NO_SESSION' });
+
+    const result = await deleteUserAccount({
+      userId: user.id,
+      confirmationEmail: typeof req.body?.confirmationEmail === 'string' ? req.body.confirmationEmail : undefined,
+      password: typeof req.body?.password === 'string' ? req.body.password : undefined,
+    });
+
+    expireBetterAuthCookies(res);
+
+    if (result.bannerDeleteError) {
+      logger.warn('[ME] Account deleted but banner cleanup failed', {
+        userId: result.deletedUserId,
+        error: result.bannerDeleteError,
+      });
+    }
+
+    return res.json({ ok: true, bannerCleanup: result.bannerDeleteError ? 'failed' : 'ok' });
+  } catch (error) {
+    if (error instanceof AccountDeletionError) {
+      return res.status(error.status).json({ error: error.code });
+    }
     next(error);
   }
 });

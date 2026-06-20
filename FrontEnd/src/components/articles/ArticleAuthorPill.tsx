@@ -3,6 +3,7 @@ import React from 'react';
 import { Link } from 'react-router-dom';
 import { PiUser } from 'react-icons/pi';
 import { API_BASE } from '@/config/api';
+import { useI18n } from '@/i18n/I18nContext';
 
 interface ArticleAuthorPillProps {
     author: {
@@ -16,7 +17,20 @@ interface ArticleAuthorPillProps {
 }
 
 export default function ArticleAuthorPill({ author, className = '' }: ArticleAuthorPillProps) {
-    if (!author) return null;
+    const { t } = useI18n();
+
+    if (!author) {
+        return (
+            <span className={`inline-flex max-w-[200px] items-center gap-3 rounded-full border border-black/10 bg-white py-1 pr-4 pl-1 dark:border-white/10 dark:bg-transparent ${className}`}>
+                <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-neutral-100 text-neutral-400 dark:bg-neutral-800">
+                    <PiUser className="h-4 w-4" />
+                </div>
+                <span className="truncate text-sm font-semibold text-neutral-600 dark:text-neutral-300">
+                    {t('deleted_user')}
+                </span>
+            </span>
+        );
+    }
 
     const displayName = author.name || author.email?.split('@')[0] || 'Unknown';
     const handle = author.username ? `@${author.username}` : null;
