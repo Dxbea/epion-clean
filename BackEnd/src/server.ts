@@ -6,9 +6,13 @@ import express from 'express';
 import cors from 'cors';
 import morgan from 'morgan';
 import cookieParser from 'cookie-parser';
-import helmet from 'helmet';
 import { router as csrfRouter } from './routes/csrf.js';
 import { csrfRequired } from './lib/csrf.js';
+import {
+  createCorsOptions,
+  createSecurityHeadersMiddleware,
+  permissionsPolicyMiddleware,
+} from './lib/security-config.js';
 
 import { env } from './env.js';
 import type { Request, Response, NextFunction } from 'express';
@@ -61,35 +65,12 @@ app.set('trust proxy', 1);
 // Retirer X-Powered-By: Express
 app.disable('x-powered-by');
 
-// Helmet (sécurité headers)
-app.use(
-  helmet({
-    crossOriginResourcePolicy: { policy: 'cross-origin' },
-  }),
-);
+// Security headers
+app.use(createSecurityHeadersMiddleware());
+app.use(permissionsPolicyMiddleware());
 
-// ----------------------------
-//  🌍 CORS CORRECT (une seule fois !)
-// ----------------------------
-const allowedOrigin = [
-  'http://localhost:5173',
-  'https://epion-clean.vercel.app',
-  'https://epion.app',
-  'https://www.epion.app',
-];
-
-app.use(
-  cors({
-    origin(origin, callback) {
-      if (!origin) return callback(null, true);
-      if (allowedOrigin.includes(origin)) {
-        return callback(null, true);
-      }
-      return callback(new Error('Not allowed by CORS'));
-    },
-    credentials: true,
-  }),
-);
+// CORS: browser credential origins are resolved from env and shared with Better Auth.
+app.use(cors(createCorsOptions()));
 
 // Better Auth must receive the raw Node request before Express body parsing.
 // Legacy /api/auth routes are explicitly passed through by the handler.

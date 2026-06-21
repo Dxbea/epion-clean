@@ -413,3 +413,21 @@ Contribution guidelines will be added when external contributions are opened.
 No public license has been defined yet.
 
 All rights reserved unless stated otherwise.
+
+---
+
+## Security and origin configuration
+
+Epion uses one browser-origin allowlist for credentialed browser traffic:
+
+- `FRONTEND_ORIGIN` is the primary public frontend origin.
+- `CORS_ALLOWED_ORIGINS` adds extra browser origins that may call the API with cookies.
+- `BETTER_AUTH_TRUSTED_ORIGINS` is folded into the same allowlist so Better Auth and CORS stay aligned.
+
+Development and tests keep `http://localhost:5173` and `http://127.0.0.1:5173` usable. Staging and production require HTTPS public origins and reject localhost, wildcards, empty configured origin lists, paths, query strings, and hashes.
+
+The frontend must set `VITE_API_URL` for production builds. There is no production fallback to localhost or an old hosted API. Local development may omit it and will use `http://localhost:5175`.
+
+Security headers are applied by the API with Helmet plus `Permissions-Policy`. The CSP is report-only by default through `CSP_REPORT_ONLY=true` so staging/beta can collect violations before enforcement. It allows the current app needs: API/SSE connections, Sentry, Google Analytics/Tag Manager, Vercel Analytics, external HTTPS images, fonts, uploads, and local bundled assets. Set `CSP_REPORT_URI` and provider-specific `CSP_EXTRA_CONNECT_SRC` values in the host when needed.
+
+Frontend hosting note: when React is served separately from the API, for example by Vercel, backend Helmet headers do not protect `index.html` or frontend assets. `FrontEnd/vercel.json` therefore defines equivalent report-only security headers for the frontend host. Its CSP intentionally keeps `script-src` free of `'unsafe-inline'`; `style-src 'unsafe-inline'` remains for the current React inline style usage; `data:` and `blob:` are limited to images/workers needed by historical avatars, SVG/CSS images, and local previews. The frontend CSP uses broad `connect-src https:` while report-only so the beta does not break across Sentry, analytics, and the configured API host; before enforcing it, replace that with the exact production API and telemetry origins.

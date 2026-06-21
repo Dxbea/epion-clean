@@ -6,6 +6,32 @@ import * as Sentry from "@sentry/react";
 
 inject();
 
+const GA_MEASUREMENT_ID = 'G-NX59W4PKLR'
+
+function initGoogleAnalytics() {
+  if (typeof window === 'undefined') return
+
+  const win = window as typeof window & {
+    dataLayer?: unknown[]
+    gtag?: (...args: unknown[]) => void
+  }
+
+  win.dataLayer = win.dataLayer || []
+  win.gtag = (...args: unknown[]) => {
+    win.dataLayer!.push(args)
+  }
+
+  const script = document.createElement('script')
+  script.async = true
+  script.src = `https://www.googletagmanager.com/gtag/js?id=${GA_MEASUREMENT_ID}`
+  document.head.appendChild(script)
+
+  win.gtag('js', new Date())
+  win.gtag('config', GA_MEASUREMENT_ID)
+}
+
+initGoogleAnalytics()
+
 Sentry.init({
   dsn: import.meta.env.VITE_SENTRY_DSN,
   integrations: [

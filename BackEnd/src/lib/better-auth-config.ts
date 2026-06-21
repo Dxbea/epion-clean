@@ -1,20 +1,7 @@
 import { env } from '../env.js';
+import { getAllowedBrowserOrigins } from './security-config.js';
 
 const DEFAULT_BACKEND_ORIGIN = `http://localhost:${env.PORT}`;
-const DEFAULT_TRUSTED_ORIGINS = [
-  env.FRONTEND_ORIGIN,
-  'http://localhost:5173',
-  'https://epion-clean.vercel.app',
-  'https://epion.app',
-  'https://www.epion.app',
-];
-
-function splitOrigins(value?: string): string[] {
-  return (value ?? '')
-    .split(',')
-    .map((origin) => origin.trim())
-    .filter(Boolean);
-}
 
 function validateOrigin(origin: string): string {
   let parsed: URL;
@@ -41,12 +28,7 @@ export function getBetterAuthBaseUrl(): string {
 }
 
 export function getBetterAuthTrustedOrigins(): string[] {
-  return Array.from(
-    new Set([
-      ...DEFAULT_TRUSTED_ORIGINS,
-      ...splitOrigins(env.BETTER_AUTH_TRUSTED_ORIGINS),
-    ].map(validateOrigin)),
-  );
+  return Array.from(new Set(getAllowedBrowserOrigins().map(validateOrigin)));
 }
 
 export function getBetterAuthSecret(): string {
