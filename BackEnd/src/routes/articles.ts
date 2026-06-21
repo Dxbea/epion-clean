@@ -12,7 +12,7 @@ import { getCurrentUserId, getCurrentUser } from '../lib/currentUser.js';
 import { getViewerHash } from '../lib/viewer.js';
 import { ARTICLE_LIMITS } from '../config/articleLimits.js';
 import { checkAndIncrement } from '../lib/rateLimiter.js';
-import { checkArticleQuota } from '../lib/billing-service.js';
+import { reserveArticleQuota, releaseArticleQuota, type ArticleQuotaReservation } from '../lib/billing-service.js';
 import { ingestArticle } from '../lib/rag-service.js';
 import { sanitizeArticleHtml } from '../lib/sanitizeHtml.js';
 import { logger } from '../lib/logger.js';
@@ -28,6 +28,21 @@ import { getArticleImageProposals } from '../lib/images/proposals.js';
 export const router = Router();
 
 const ALLOWED_OPINION_POSITIONS = [-1, -0.6, -0.2, 0.2, 0.6, 1] as const;
+async function releaseReservedArticleQuota(
+  reservation: ArticleQuotaReservation | null,
+  context: Record<string, unknown>
+) {
+  if (!reservation?.consumed) return;
+
+  try {
+    await releaseArticleQuota(reservation);
+  } catch (error: any) {
+    logger.error('Failed to release article quota reservation', {
+      ...context,
+      error: error?.message,
+    });
+  }
+}
 const DEFAULT_OPINION_QUESTION = {
   question: 'Les faits présentés relèvent-ils plutôt d’un problème ponctuel ou d’un problème structurel ?',
   thesisA: 'Plutôt ponctuel',
@@ -1855,6 +1870,9 @@ router.post('/:id/edit-ai', editAIArticle);
 
 // --- POST /api/articles ---------------------------------------------------
 router.post('/', async (req, res, next) => {
+  let articleQuotaReservation: ArticleQuotaReservation | null = null;
+  let articlePersisted = false;
+
   try {
     const {
       title,
@@ -1882,19 +1900,6 @@ router.post('/', async (req, res, next) => {
 
     // 0) rate-limit création d’articles (DB)
     await checkAndIncrement(currentUserId);
-
-    // 🔒 BILLING CHECK: Weekly Article Quota (Epion Energy)
-    try {
-      await checkArticleQuota(currentUserId);
-    } catch (error: any) {
-      if (error.message === 'WEEKLY_QUOTA_EXCEEDED') {
-        return res.status(403).json({
-          error: "Quota hebdomadaire d'articles atteint.",
-          code: "QUOTA_ARTICLE_EXCEEDED"
-        });
-      }
-      throw error;
-    }
 
     // 1) validations de base
     if (!title || typeof title !== 'string' || title.trim().length < 3) {
@@ -1972,6 +1977,18 @@ router.post('/', async (req, res, next) => {
     const safeContent =
       typeof content === 'string' ? sanitizeArticleHtml(content) : null;
 
+    // Weekly article quota is reserved only after validations and released if persistence fails.
+    try {
+      articleQuotaReservation = await reserveArticleQuota(currentUserId);
+    } catch (error: any) {
+      if (error.message === 'WEEKLY_QUOTA_EXCEEDED') {
+        return res.status(403).json({
+          error: "Quota hebdomadaire d'articles atteint.",
+          code: "QUOTA_ARTICLE_EXCEEDED"
+        });
+      }
+      throw error;
+    }
     const created = await prisma.article.create({
       data: {
         title: sanitizeArticleHtml(title),
@@ -1996,6 +2013,8 @@ router.post('/', async (req, res, next) => {
       },
     });
 
+    articlePersisted = true;
+
     if (statusValue === 'PUBLISHED') {
       embeddingQueue.add('generate-vector', {
         articleId: created.id,
@@ -2008,6 +2027,13 @@ router.post('/', async (req, res, next) => {
 
     res.status(201).json(created);
   } catch (err) {
+    if (articleQuotaReservation && !articlePersisted) {
+      await releaseReservedArticleQuota(articleQuotaReservation, {
+        userId: articleQuotaReservation.userId,
+        reason: 'article_create_failed',
+      });
+      articleQuotaReservation = null;
+    }
     next(err);
   }
 });

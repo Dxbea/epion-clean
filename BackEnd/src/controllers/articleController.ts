@@ -1,7 +1,7 @@
 import { type Request, type Response, type NextFunction } from 'express';
 import { Prisma } from '@prisma/client';
 import { prisma } from '../lib/db.js';
-import { checkArticleQuota, hasSufficientFunds, chargeUser, COSTS } from '../lib/billing-service.js';
+import { reserveArticleQuota, releaseArticleQuota, hasSufficientFunds, chargeUser, COSTS, type ArticleQuotaReservation } from '../lib/billing-service.js';
 import { getCurrentUserId } from '../lib/currentUser.js';
 import { logger } from '../lib/logger.js';
 import { sourceEnrichmentQueue } from '../lib/queue.js';
@@ -16,6 +16,21 @@ const DEFAULT_OPINION_QUESTION = {
     thesisB: 'Plutôt structurel',
 };
 
+async function releaseReservedArticleQuota(
+    reservation: ArticleQuotaReservation | null,
+    context: Record<string, unknown>
+) {
+    if (!reservation?.consumed) return;
+
+    try {
+        await releaseArticleQuota(reservation);
+    } catch (error: any) {
+        logger.error('[ArticleGenerate] Failed to release article quota reservation', {
+            ...context,
+            error: error?.message,
+        });
+    }
+}
 function normalizeGeneratedOpinionQuestion(input: unknown) {
     if (!input || typeof input !== 'object') return DEFAULT_OPINION_QUESTION;
     const value = input as Record<string, unknown>;
@@ -35,6 +50,9 @@ function normalizeGeneratedOpinionQuestion(input: unknown) {
 }
 
 export async function createAIArticle(req: Request, res: Response, next: NextFunction) {
+    let articleQuotaReservation: ArticleQuotaReservation | null = null;
+    let articlePersisted = false;
+
     try {
         const userId = await getCurrentUserId(req, res);
         const { topic, language, style, category, generateImage, imageUrl } = req.body;
@@ -55,7 +73,7 @@ export async function createAIArticle(req: Request, res: Response, next: NextFun
 
         // 2. Weekly quota / billing gate
         try {
-            await checkArticleQuota(userId);
+            articleQuotaReservation = await reserveArticleQuota(userId);
             logger.info('[ArticleGenerate] Weekly quota accepted', { userId });
         } catch (error: any) {
             if (error.message === 'WEEKLY_QUOTA_EXCEEDED') {
@@ -74,6 +92,8 @@ export async function createAIArticle(req: Request, res: Response, next: NextFun
         });
 
         if (!result.generatedContent) {
+            await releaseReservedArticleQuota(articleQuotaReservation, { userId, reason: 'missing_generated_content' });
+            articleQuotaReservation = null;
             return res.status(500).json({ error: "L'IA n'a pas pu générer l'article." });
         }
 
@@ -190,6 +210,7 @@ export async function createAIArticle(req: Request, res: Response, next: NextFun
                 },
             }
         });
+        articlePersisted = true;
         logger.info('[ArticleGenerate] Article created', {
             articleId: newArticle.id,
             userId,
@@ -234,6 +255,13 @@ export async function createAIArticle(req: Request, res: Response, next: NextFun
         });
 
     } catch (error) {
+        if (articleQuotaReservation && !articlePersisted) {
+            await releaseReservedArticleQuota(articleQuotaReservation, {
+                userId: articleQuotaReservation.userId,
+                reason: 'article_generation_failed',
+            });
+            articleQuotaReservation = null;
+        }
         next(error);
     }
 

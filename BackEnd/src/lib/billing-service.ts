@@ -1,4 +1,4 @@
-import { PlanType, Role } from "@prisma/client";
+import { PlanType, Prisma, Role } from "@prisma/client";
 import { prisma } from "./db.js";
 import { logger } from "./logger.js";
 
@@ -20,6 +20,12 @@ export const WEEKLY_ARTICLE_LIMITS: Record<PlanType, number> = {
     [PlanType.FREE]: 0,
     [PlanType.READER]: 1,
     [PlanType.PREMIUM]: 10,
+};
+
+export type ArticleQuotaReservation = {
+    userId: string;
+    consumed: boolean;
+    articleQuotaResetAt: Date | null;
 };
 
 /**
@@ -238,31 +244,52 @@ export async function checkAndChargeUser(
     return updatedUsage;
 }
 
-/**
- * Vérifie le quota hebdomadaire de création d'articles.
- * Gère aussi le reset hebdomadaire.
- */
-export async function checkArticleQuota(userId: string) {
+async function getOrCreateUsage(userId: string) {
     let usage = await prisma.userUsage.findUnique({
         where: { userId },
         include: { user: { select: { role: true } } },
     });
 
     if (!usage) {
-        const newUsage = await prisma.userUsage.create({
-            data: {
-                userId,
-                plan: PlanType.FREE,
-                dailyCredits: DAILY_LIMITS[PlanType.FREE],
-            },
-            include: { user: { select: { role: true } } },
-        });
-        usage = newUsage;
+        try {
+            usage = await prisma.userUsage.create({
+                data: {
+                    userId,
+                    plan: PlanType.FREE,
+                    dailyCredits: DAILY_LIMITS[PlanType.FREE],
+                },
+                include: { user: { select: { role: true } } },
+            });
+        } catch (error) {
+            if (error instanceof Prisma.PrismaClientKnownRequestError && error.code === 'P2002') {
+                usage = await prisma.userUsage.findUnique({
+                    where: { userId },
+                    include: { user: { select: { role: true } } },
+                });
+            }
+            if (!usage) {
+                throw error;
+            }
+        }
     }
+
+    return usage;
+}
+
+/**
+ * Réserve atomiquement une place dans le quota hebdomadaire d'articles.
+ * La réservation doit être relâchée si aucun article n'est finalement créé.
+ */
+export async function reserveArticleQuota(userId: string): Promise<ArticleQuotaReservation> {
+    let usage = await getOrCreateUsage(userId);
 
     // 🔥 ADMIN BYPASS
     if (usage.user.role === Role.ADMIN) {
-        return usage; // No quota check
+        return {
+            userId,
+            consumed: false,
+            articleQuotaResetAt: null,
+        };
     }
 
     // 1. Lazy Reset (Quota Hebdo)
@@ -271,33 +298,74 @@ export async function checkArticleQuota(userId: string) {
     nextReset.setDate(nextReset.getDate() + 7);
 
     if (now > nextReset) {
-        usage = await prisma.userUsage.update({
-            where: { userId },
+        await prisma.userUsage.updateMany({
+            where: {
+                userId,
+                articleQuotaResetAt: usage.articleQuotaResetAt,
+            },
             data: {
                 articlesCreated: 0,
                 articleQuotaResetAt: now, // New cycle starts now
             },
-            include: { user: { select: { role: true } } },
         });
+
+        usage = await getOrCreateUsage(userId);
     }
 
     // 2. Vérification
     const limit = WEEKLY_ARTICLE_LIMITS[usage.plan];
 
-    if (usage.articlesCreated >= limit) {
+    if (limit <= 0) {
         throw new Error("WEEKLY_QUOTA_EXCEEDED");
     }
 
-    // 3. Incrémentation
-    const updatedUsage = await prisma.userUsage.update({
-        where: { userId },
+    // 3. Incrémentation atomique avec condition de quota.
+    const reservation = await prisma.userUsage.updateMany({
+        where: {
+            userId,
+            articleQuotaResetAt: usage.articleQuotaResetAt,
+            articlesCreated: { lt: limit },
+        },
         data: {
             articlesCreated: {
                 increment: 1,
             },
         },
-        include: { user: { select: { role: true } } },
     });
 
-    return updatedUsage;
+    if (reservation.count !== 1) {
+        const latestUsage = await getOrCreateUsage(userId);
+        if (latestUsage.articleQuotaResetAt.getTime() !== usage.articleQuotaResetAt.getTime()) {
+            return reserveArticleQuota(userId);
+        }
+
+        throw new Error("WEEKLY_QUOTA_EXCEEDED");
+    }
+
+    return {
+        userId,
+        consumed: true,
+        articleQuotaResetAt: usage.articleQuotaResetAt,
+    };
+}
+
+export const checkArticleQuota = reserveArticleQuota;
+
+export async function releaseArticleQuota(reservation: ArticleQuotaReservation | null | undefined) {
+    if (!reservation?.consumed || !reservation.articleQuotaResetAt) {
+        return;
+    }
+
+    await prisma.userUsage.updateMany({
+        where: {
+            userId: reservation.userId,
+            articleQuotaResetAt: reservation.articleQuotaResetAt,
+            articlesCreated: { gt: 0 },
+        },
+        data: {
+            articlesCreated: {
+                decrement: 1,
+            },
+        },
+    });
 }
