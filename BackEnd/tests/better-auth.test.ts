@@ -1,4 +1,6 @@
 import { afterAll, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest';
+import fs from 'fs';
+import path from 'path';
 import express from 'express';
 import request from 'supertest';
 import type { PrismaClient } from '@prisma/client';
@@ -20,6 +22,7 @@ describe('Better Auth foundation', () => {
   let betterAuthApp: express.Express;
   let meApp: express.Express;
   let sendMailMock: ReturnType<typeof vi.fn>;
+  let authRateLimit: typeof import('../src/lib/auth-rate-limit.js');
 
   async function cleanupUsers() {
     const users = await prisma.user.findMany({
@@ -130,6 +133,7 @@ describe('Better Auth foundation', () => {
     const authModule = await import('../src/lib/better-auth.js');
     const meModule = await import('../src/routes/me.js');
     const mailerModule = await import('../src/lib/mailer.js');
+    authRateLimit = await import('../src/lib/auth-rate-limit.js');
 
     prisma = dbModule.prisma;
     sendMailMock = vi.mocked(mailerModule.sendMail);
@@ -150,11 +154,184 @@ describe('Better Auth foundation', () => {
 
   beforeEach(() => {
     sendMailMock.mockClear();
+    authRateLimit?.resetAuthRateLimitForTests();
   });
 
   afterAll(async () => {
     await cleanupUsers();
     await prisma.$disconnect();
+  });
+
+
+  it('rate limits login by both IP and email identifier without storing raw identifiers', async () => {
+    authRateLimit.setAuthRateLimitMaxForTests('login', 2);
+    const email = uniqueEmail('limited-login');
+
+    await request(betterAuthApp)
+      .post('/api/auth/sign-in/email')
+      .set('Origin', 'http://localhost:5173')
+      .set('X-Forwarded-For', '198.51.100.10')
+      .send({ email, password: 'wrong-password' });
+    await request(betterAuthApp)
+      .post('/api/auth/sign-in/email')
+      .set('Origin', 'http://localhost:5173')
+      .set('X-Forwarded-For', '198.51.100.11')
+      .send({ email, password: 'wrong-password' });
+
+    const identifierLimited = await request(betterAuthApp)
+      .post('/api/auth/sign-in/email')
+      .set('Origin', 'http://localhost:5173')
+      .set('X-Forwarded-For', '198.51.100.12')
+      .send({ email, password: 'wrong-password' });
+    expect(identifierLimited.status).toBe(429);
+    expect(identifierLimited.body.error).toBe('RATE_LIMITED');
+    expect(JSON.stringify(identifierLimited.body)).not.toContain(email);
+
+    authRateLimit.resetAuthRateLimitForTests();
+    authRateLimit.setAuthRateLimitMaxForTests('login', 2);
+
+    await request(betterAuthApp)
+      .post('/api/auth/sign-in/email')
+      .set('Origin', 'http://localhost:5173')
+      .set('X-Forwarded-For', '203.0.113.20')
+      .send({ email: uniqueEmail('ip-limit-a'), password: 'wrong-password' });
+    await request(betterAuthApp)
+      .post('/api/auth/sign-in/email')
+      .set('Origin', 'http://localhost:5173')
+      .set('X-Forwarded-For', '203.0.113.20')
+      .send({ email: uniqueEmail('ip-limit-b'), password: 'wrong-password' });
+
+    const ipLimited = await request(betterAuthApp)
+      .post('/api/auth/sign-in/email')
+      .set('Origin', 'http://localhost:5173')
+      .set('X-Forwarded-For', '203.0.113.20')
+      .send({ email: uniqueEmail('ip-limit-c'), password: 'wrong-password' });
+    expect(ipLimited.status).toBe(429);
+    expect(ipLimited.headers['retry-after']).toBeDefined();
+
+    const keys = authRateLimit.getAuthRateLimitKeysForTests();
+    expect(keys.some((key) => key.includes(':login:ip:'))).toBe(true);
+    expect(keys.some((key) => key.includes(':login:identifier:'))).toBe(true);
+    expect(keys.some((key) => key.includes(':login:combo:'))).toBe(true);
+    expect(keys.join('\n')).not.toContain(email);
+  });
+
+  it('keeps password reset request responses generic when rate limited', async () => {
+    authRateLimit.setAuthRateLimitMaxForTests('reset-password-request', 1);
+    const email = uniqueEmail('reset-limited');
+
+    const first = await request(betterAuthApp)
+      .post('/api/auth/request-password-reset')
+      .set('Origin', 'http://localhost:5173')
+      .set('X-Forwarded-For', '198.51.100.30')
+      .send({ email, redirectTo: 'http://localhost:5173/reset-password' });
+    expect(first.status).toBe(200);
+    expect(first.body.message).toMatch(/If this email exists/i);
+
+    const limited = await request(betterAuthApp)
+      .post('/api/auth/request-password-reset')
+      .set('Origin', 'http://localhost:5173')
+      .set('X-Forwarded-For', '198.51.100.30')
+      .send({ email, redirectTo: 'http://localhost:5173/reset-password' });
+    expect(limited.status).toBe(429);
+    expect(limited.body.error).toBe('RATE_LIMITED');
+    expect(JSON.stringify(limited.body)).not.toContain(email);
+    expect(JSON.stringify(limited.body)).not.toMatch(/exists|account/i);
+  });
+
+  it('rate limits sign-up attempts across changing emails from the same IP', async () => {
+    authRateLimit.setAuthRateLimitMaxForTests('signup', 1);
+
+    const first = await request(betterAuthApp)
+      .post('/api/auth/sign-up/email')
+      .set('Origin', 'http://localhost:5173')
+      .set('X-Forwarded-For', '198.51.100.40')
+      .send({
+        name: 'Better Auth Test',
+        email: uniqueEmail('signup-limit-a'),
+        password: PASSWORD,
+        username: uniqueUsername(),
+        callbackURL: 'http://localhost:5173/verify-email',
+      });
+    expect(first.status).toBe(200);
+
+    const limited = await request(betterAuthApp)
+      .post('/api/auth/sign-up/email')
+      .set('Origin', 'http://localhost:5173')
+      .set('X-Forwarded-For', '198.51.100.40')
+      .send({
+        name: 'Better Auth Test',
+        email: uniqueEmail('signup-limit-b'),
+        password: PASSWORD,
+        username: uniqueUsername(),
+        callbackURL: 'http://localhost:5173/verify-email',
+      });
+    expect(limited.status).toBe(429);
+    expect(limited.body.error).toBe('RATE_LIMITED');
+  });
+
+  it('rate limits manual verification email resends by address and IP', async () => {
+    const email = uniqueEmail('resend-limited');
+    await signUp(email);
+    sendMailMock.mockClear();
+    authRateLimit.resetAuthRateLimitForTests();
+    authRateLimit.setAuthRateLimitMaxForTests('resend-verification', 1);
+
+    const first = await request(betterAuthApp)
+      .post('/api/auth/send-verification-email')
+      .set('Origin', 'http://localhost:5173')
+      .set('X-Forwarded-For', '198.51.100.50')
+      .send({ email, callbackURL: 'http://localhost:5173/verify-email' });
+    expect(first.status).toBe(200);
+
+    const limited = await request(betterAuthApp)
+      .post('/api/auth/send-verification-email')
+      .set('Origin', 'http://localhost:5173')
+      .set('X-Forwarded-For', '198.51.100.50')
+      .send({ email, callbackURL: 'http://localhost:5173/verify-email' });
+    expect(limited.status).toBe(429);
+    expect(limited.body.error).toBe('RATE_LIMITED');
+    expect(sendMailMock).toHaveBeenCalledTimes(1);
+  });
+
+  it('rate limits authenticated password changes by session', async () => {
+    const email = uniqueEmail('password-limited');
+    await signUp(email);
+    await verifyLatestEmail();
+    const login = await signIn(email);
+    expect(login.status).toBe(200);
+    const cookie = extractCookie(login);
+
+    authRateLimit.resetAuthRateLimitForTests();
+    authRateLimit.setAuthRateLimitMaxForTests('change-password', 1);
+
+    const first = await request(betterAuthApp)
+      .post('/api/auth/change-password')
+      .set('Origin', 'http://localhost:5173')
+      .set('Cookie', cookie)
+      .set('X-Forwarded-For', '198.51.100.60')
+      .send({ currentPassword: 'wrong-password', newPassword: NEW_PASSWORD });
+    expect(first.status).toBe(400);
+
+    const limited = await request(betterAuthApp)
+      .post('/api/auth/change-password')
+      .set('Origin', 'http://localhost:5173')
+      .set('Cookie', cookie)
+      .set('X-Forwarded-For', '198.51.100.60')
+      .send({ currentPassword: 'wrong-password', newPassword: NEW_PASSWORD });
+    expect(limited.status).toBe(429);
+    expect(limited.body.error).toBe('RATE_LIMITED');
+  });
+
+  it('does not reintroduce legacy JWT or cookie auth configuration', () => {
+    const files = [
+      path.join(process.cwd(), 'src/lib/better-auth.ts'),
+      path.join(process.cwd(), 'src/lib/auth-rate-limit.ts'),
+      path.join(process.cwd(), 'src/routes/auth.ts'),
+    ];
+    const source = files.map((file) => fs.readFileSync(file, 'utf8')).join('\n');
+
+    expect(source).not.toMatch(/JWT_SECRET|SESSION_SECRET|COOKIE_SECRET|epion_session/);
   });
 
   it('responds on /api/auth/ok', async () => {

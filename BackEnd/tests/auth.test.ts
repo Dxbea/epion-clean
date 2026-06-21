@@ -1,14 +1,19 @@
-import { describe, it, expect, afterAll } from 'vitest';
+import { describe, it, expect, afterAll, beforeEach } from 'vitest';
 import request from 'supertest';
 import express from 'express';
 import { router as authRouter } from '../src/routes/auth.js';
 import { prisma } from '../src/lib/db.js';
+import { resetAuthRateLimitForTests, setAuthRateLimitMaxForTests } from '../src/lib/auth-rate-limit.js';
 
 const app = express();
 app.use(express.json());
 app.use('/api', authRouter);
 
 describe('Remaining auth compatibility routes', () => {
+  beforeEach(() => {
+    resetAuthRateLimitForTests();
+  });
+
   afterAll(async () => {
     await prisma.$disconnect();
   });
@@ -27,6 +32,24 @@ describe('Remaining auth compatibility routes', () => {
 
     expect(response.status).toBe(400);
     expect(response.body.error).toBe('MISSING_CODE');
+  });
+
+
+  it('rate limits beta invitation validation by IP and code', async () => {
+    setAuthRateLimitMaxForTests('beta-invite', 1);
+
+    const first = await request(app)
+      .post('/api/auth/verify-invite')
+      .set('X-Forwarded-For', '198.51.100.70')
+      .send({ code: 'missing-code' });
+    expect(first.status).toBe(400);
+
+    const limited = await request(app)
+      .post('/api/auth/verify-invite')
+      .set('X-Forwarded-For', '198.51.100.70')
+      .send({ code: 'another-code' });
+    expect(limited.status).toBe(429);
+    expect(limited.body.error).toBe('RATE_LIMITED');
   });
 
   it('does not expose removed legacy auth endpoints', async () => {

@@ -1,5 +1,6 @@
 import { Router } from 'express';
 import { prisma } from '../lib/db.js';
+import { betaInviteRateLimit } from '../lib/auth-rate-limit.js';
 
 export const router = Router();
 
@@ -9,7 +10,7 @@ router.get('/auth/beta-status', (_req, res) => {
   res.json({ betaMode: BETA_MODE });
 });
 
-router.post('/auth/verify-invite', async (req, res, next) => {
+router.post('/auth/verify-invite', betaInviteRateLimit(), async (req, res, next) => {
   try {
     const code = String(req.body?.code || '').trim().toUpperCase();
     if (!code) return res.status(400).json({ error: 'MISSING_CODE' });

@@ -6,6 +6,7 @@ import { getCurrentUser, getCurrentUserId } from '../lib/currentUser.js';
 import { checkAndIncrement } from '../lib/rateLimiter.js';
 import { logger } from '../lib/logger.js';
 import { auth } from '../lib/better-auth.js';
+import { enforceExpressAuthRateLimit } from '../lib/auth-rate-limit.js';
 
 export const router = Router();
 
@@ -139,6 +140,11 @@ router.get('/sessions', async (req, res, next) => {
   try {
     const user = await getCurrentUser(req, res);
     if (!user) return res.status(401).json({ error: 'NO_SESSION' });
+    const rateLimitOk = await enforceExpressAuthRateLimit(req, res, 'session-read', {
+      userId: user.id,
+      sessionId: user.sessionId,
+    });
+    if (!rateLimitOk) return;
 
     const sessions = await prisma.betterAuthSession.findMany({
       where: {
@@ -172,6 +178,11 @@ router.delete('/sessions/others', async (req, res, next) => {
   try {
     const user = await getCurrentUser(req, res);
     if (!user) return res.status(401).json({ error: 'NO_SESSION' });
+    const rateLimitOk = await enforceExpressAuthRateLimit(req, res, 'session-mutation', {
+      userId: user.id,
+      sessionId: user.sessionId,
+    });
+    if (!rateLimitOk) return;
 
     const deleted = await prisma.betterAuthSession.count({
       where: {
@@ -195,6 +206,11 @@ router.delete('/sessions/:id', async (req, res, next) => {
   try {
     const user = await getCurrentUser(req, res);
     if (!user) return res.status(401).json({ error: 'NO_SESSION' });
+    const rateLimitOk = await enforceExpressAuthRateLimit(req, res, 'session-mutation', {
+      userId: user.id,
+      sessionId: user.sessionId,
+    });
+    if (!rateLimitOk) return;
 
     const target = await prisma.betterAuthSession.findFirst({
       where: {

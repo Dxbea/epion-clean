@@ -11,6 +11,10 @@ import {
   getBetterAuthSecret,
   getBetterAuthTrustedOrigins,
 } from './better-auth-config.js';
+import {
+  authRateLimitPlugin,
+  betterAuthRedisRateLimitStorage,
+} from './auth-rate-limit.js';
 
 async function sendBetterAuthEmail(opts: {
   to: string;
@@ -78,6 +82,11 @@ export const auth = betterAuth({
   advanced: {
     useSecureCookies: env.NODE_ENV === 'production',
   },
+  rateLimit: {
+    enabled: env.NODE_ENV === 'production',
+    customStorage: betterAuthRedisRateLimitStorage,
+  },
+  plugins: [authRateLimitPlugin],
   user: {
     modelName: 'User',
     fields: {
