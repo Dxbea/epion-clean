@@ -3,16 +3,18 @@ import { Redis as IORedis } from 'ioredis';
 import { ArticleStatus, type Prisma } from '@prisma/client';
 import { prisma } from '../lib/db.js';
 import logger from '../lib/logger.js';
-import { newsIngestionQueue, embeddingQueue } from '../lib/queue.js';
+import { getNewsIngestionQueue, getEmbeddingQueue } from '../lib/queue.js';
 import { extractArticle, DomainCircuitOpenError, isOperationalExtractionError } from '../lib/extractor.js';
 import { claimDiscoveredUrl, DEDUP_URLS_KEY, fetchGdeltArticleList, fetchSitemapUrls, type DiscoveredArticle } from '../lib/discovery.js';
 
 const redisUrl = process.env.REDIS_URL || 'redis://localhost:6379';
-const connection = new IORedis(redisUrl, { maxRetriesPerRequest: null });
 const log = logger.child({ module: 'NewsWorker' });
-
-// ─── Inter-job delay for GDELT articles to avoid 429 bans ───────────────────
 const GDELT_INTER_JOB_DELAY_MS = 2_000;
+
+export type WorkerRuntime = {
+  worker: Worker;
+  close: () => Promise<void>;
+};
 
 type DiscoverSitemapJob = {
   sitemapUrl: string;
@@ -99,11 +101,6 @@ function buildSummary(content: string): string {
   return normalized.slice(0, 280);
 }
 
-/**
- * Enqueues discovered articles for individual ingestion.
- * GDELT-sourced articles get a staggered delay (2s per job) to prevent 429 bans
- * when the worker later fetches their content via extractor.ts.
- */
 async function enqueueDiscoveredArticles(
   articles: DiscoveredArticle[],
   discoveryJobId?: string,
@@ -128,7 +125,7 @@ async function enqueueDiscoveredArticles(
     const isGdelt = article.source === 'gdelt';
     const delay = isGdelt ? GDELT_INTER_JOB_DELAY_MS * gdeltIndex : 0;
 
-    const queuedJob = await newsIngestionQueue.add(
+    const queuedJob = await getNewsIngestionQueue().add(
       'ingest-url',
       {
         url: article.url,
@@ -166,10 +163,6 @@ async function enqueueDiscoveredArticles(
   });
 }
 
-/**
- * Ingests a single URL: extract full content via extractor.ts, save to DB, chain to embedding.
- * No empty DRAFTs — if extraction fails, the job fails and BullMQ retries.
- */
 async function ingestUrl(job: Job<DiscoverSitemapJob | DiscoverGdeltJob | IngestUrlJob>, data: IngestUrlJob): Promise<void> {
   const startMs = Date.now();
 
@@ -177,7 +170,6 @@ async function ingestUrl(job: Job<DiscoverSitemapJob | DiscoverGdeltJob | Ingest
     source: data.source,
   }));
 
-  // ALL articles must go through extractor.ts — no bypass
   const extracted = await extractArticle(data.url, { jobId: job.id });
   const title = extracted.title || data.title || new URL(data.url).hostname;
   const slug = await buildUniqueSlug(title);
@@ -213,9 +205,8 @@ async function ingestUrl(job: Job<DiscoverSitemapJob | DiscoverGdeltJob | Ingest
     elapsedMs,
   }));
 
-  // ─── Chain to Embedding Queue for RAG indexing ──────────────────────────────
   try {
-    await embeddingQueue.add('embed-ingested', {
+    await getEmbeddingQueue().add('embed-ingested', {
       articleId: article.id,
       content: extracted.content,
     }, {
@@ -229,7 +220,6 @@ async function ingestUrl(job: Job<DiscoverSitemapJob | DiscoverGdeltJob | Ingest
       slug,
     }));
   } catch (embeddingError: any) {
-    // Non-fatal: article is saved, embedding can be retried later
     log.warn('Embedding enqueue failed', buildWorkerMeta(job.id, data.url, {
       articleId: article.id,
       error: embeddingError.message,
@@ -237,83 +227,96 @@ async function ingestUrl(job: Job<DiscoverSitemapJob | DiscoverGdeltJob | Ingest
   }
 }
 
-// ─── Worker Instance ──────────────────────────────────────────────────────────
-// concurrency: 1 — sequential processing to protect local RAM
-// (jsdom + Readability can use 50-100MB per DOM parse)
-export const newsWorker = new Worker(
-  'news-ingestion-queue',
-  async (job: Job<DiscoverSitemapJob | DiscoverGdeltJob | IngestUrlJob>) => {
-    if (job.name === 'discover-sitemap') {
-      const data = job.data as DiscoverSitemapJob;
-      log.info('Discovery started from sitemap', buildWorkerMeta(job.id, data.sitemapUrl, {
-        maxUrls: data.maxUrls,
-      }));
-      const discovered = await fetchSitemapUrls(data.sitemapUrl, {
-        maxUrls: data.maxUrls,
-      });
-      log.info('Sitemap discovery completed', buildWorkerMeta(job.id, data.sitemapUrl, {
-        discoveredCount: discovered.length,
-      }));
-      await enqueueDiscoveredArticles(discovered, job.id);
-      return;
-    }
+export function createNewsWorker(): WorkerRuntime {
+  const connection = new IORedis(redisUrl, { maxRetriesPerRequest: null });
 
-    if (job.name === 'discover-gdelt') {
-      const data = job.data as DiscoverGdeltJob;
-      log.info('Discovery started from GDELT', buildWorkerMeta(job.id, 'https://api.gdeltproject.org/api/v2/doc/doc', {
-        query: data.query,
-        maxRecords: data.maxRecords,
-      }));
-      const discovered = await fetchGdeltArticleList(data.query, data.maxRecords);
-      log.info('GDELT discovery completed', buildWorkerMeta(job.id, 'https://api.gdeltproject.org/api/v2/doc/doc', {
-        query: data.query,
-        discoveredCount: discovered.length,
-      }));
-      await enqueueDiscoveredArticles(discovered, job.id);
-      return;
-    }
-
-    if (job.name === 'ingest-url') {
-      const data = job.data as IngestUrlJob;
-      try {
-        await ingestUrl(job, data);
-      } catch (error) {
-        if (error instanceof DomainCircuitOpenError) {
-          await recycleCircuitOpenJob(job, data, error);
-        }
-
-        throw error;
+  const worker = new Worker(
+    'news-ingestion-queue',
+    async (job: Job<DiscoverSitemapJob | DiscoverGdeltJob | IngestUrlJob>) => {
+      if (job.name === 'discover-sitemap') {
+        const data = job.data as DiscoverSitemapJob;
+        log.info('Discovery started from sitemap', buildWorkerMeta(job.id, data.sitemapUrl, {
+          maxUrls: data.maxUrls,
+        }));
+        const discovered = await fetchSitemapUrls(data.sitemapUrl, {
+          maxUrls: data.maxUrls,
+        });
+        log.info('Sitemap discovery completed', buildWorkerMeta(job.id, data.sitemapUrl, {
+          discoveredCount: discovered.length,
+        }));
+        await enqueueDiscoveredArticles(discovered, job.id);
+        return;
       }
-    }
-  },
-  {
-    connection: connection as any,
-    concurrency: 1, // Sequential: protect RAM from concurrent jsdom/Readability parses
-  },
-);
 
-newsWorker.on('completed', (job) => {
-  log.debug('News worker job completed', {
-    ...buildWorkerMeta(job?.id, (job?.data as IngestUrlJob | undefined)?.url ?? null, {
+      if (job.name === 'discover-gdelt') {
+        const data = job.data as DiscoverGdeltJob;
+        log.info('Discovery started from GDELT', buildWorkerMeta(job.id, 'https://api.gdeltproject.org/api/v2/doc/doc', {
+          query: data.query,
+          maxRecords: data.maxRecords,
+        }));
+        const discovered = await fetchGdeltArticleList(data.query, data.maxRecords);
+        log.info('GDELT discovery completed', buildWorkerMeta(job.id, 'https://api.gdeltproject.org/api/v2/doc/doc', {
+          query: data.query,
+          discoveredCount: discovered.length,
+        }));
+        await enqueueDiscoveredArticles(discovered, job.id);
+        return;
+      }
+
+      if (job.name === 'ingest-url') {
+        const data = job.data as IngestUrlJob;
+        try {
+          await ingestUrl(job, data);
+        } catch (error) {
+          if (error instanceof DomainCircuitOpenError) {
+            await recycleCircuitOpenJob(job, data, error);
+          }
+
+          throw error;
+        }
+      }
+    },
+    {
+      connection: connection as any,
+      concurrency: 1,
+    },
+  );
+
+  worker.on('completed', (job) => {
+    log.debug('News worker job completed', {
+      ...buildWorkerMeta(job?.id, (job?.data as IngestUrlJob | undefined)?.url ?? null, {
+        name: job?.name,
+      }),
+    });
+  });
+
+  worker.on('failed', (job, error) => {
+    const meta = buildWorkerMeta(job?.id, (job?.data as IngestUrlJob | undefined)?.url ?? null, {
       name: job?.name,
-    }),
+      error: error.message,
+    });
+
+    if (isOperationalExtractionError(error)) {
+      log.warn('News worker job failed with operational error', meta);
+    } else {
+      log.error('News worker job failed unexpectedly', meta);
+    }
   });
-});
 
-newsWorker.on('failed', (job, error) => {
-  const meta = buildWorkerMeta(job?.id, (job?.data as IngestUrlJob | undefined)?.url ?? null, {
-    name: job?.name,
-    error: error.message,
-  });
+  log.info('News ingestion worker started', buildWorkerMeta(undefined, null, {
+    concurrency: 1,
+    gdeltDelay: `${GDELT_INTER_JOB_DELAY_MS}ms`,
+  }));
 
-  if (isOperationalExtractionError(error)) {
-    log.warn('News worker job failed with operational error', meta);
-  } else {
-    log.error('News worker job failed unexpectedly', meta);
-  }
-});
-
-log.info('News ingestion worker started', buildWorkerMeta(undefined, null, {
-  concurrency: 1,
-  gdeltDelay: `${GDELT_INTER_JOB_DELAY_MS}ms`,
-}));
+  return {
+    worker,
+    close: async () => {
+      await worker.close();
+      try {
+        await connection.quit();
+      } catch {
+        connection.disconnect();
+      }
+    },
+  };
+}

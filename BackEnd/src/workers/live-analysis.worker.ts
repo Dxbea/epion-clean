@@ -1,29 +1,35 @@
-/**
- * Live Analysis Worker (Epion 3.0)
- * 
- * Queue: live-analysis-queue
- * 
- * Two modes:
- * - 'article-analysis': Analyzes an existing article (DISARM only)
- * - 'article-generation': Generates article content from a topic + DISARM analysis
- * 
- * On completion:
- * - In GENERATE mode: writes the generated title/summary/content to DB
- * - Then chains to source-enrichment-queue
- */
 import { Worker, Job } from 'bullmq';
 import { Redis as IORedis } from 'ioredis';
 import { logger } from '../lib/logger.js';
 import { runLiveAnalysis, runLiveAnalysisWithGeneration } from '../lib/live-analysis/index.js';
-import { sourceEnrichmentQueue } from '../lib/queue.js';
+import { getSourceEnrichmentQueue } from '../lib/queue.js';
 import { prisma } from '../lib/db.js';
 import { getWikipediaImage } from '../lib/images/wikipedia-fetcher.js';
 
+const redisUrl = process.env.REDIS_URL || 'redis://localhost:6379';
+const LIVE_ANALYSIS_WORKER_CONCURRENCY = 3;
+
 const DEFAULT_OPINION_QUESTION = {
-    question: 'Les faits présentés relèvent-ils plutôt d’un problème ponctuel ou d’un problème structurel ?',
-    thesisA: 'Plutôt ponctuel',
-    thesisB: 'Plutôt structurel',
+    question: 'Les faits presentes relevent-ils plutot d\'un probleme ponctuel ou d\'un probleme structurel ?',
+    thesisA: 'Plutot ponctuel',
+    thesisB: 'Plutot structurel',
 };
+
+export type WorkerRuntime = {
+    worker: Worker;
+    close: () => Promise<void>;
+};
+
+export interface LiveAnalysisJobData {
+    articleId: string;
+    title: string;
+    content: string;
+    citationUrls: string[];
+    mode?: 'article-analysis' | 'article-generation';
+    topic?: string;
+    language?: string;
+    style?: string;
+}
 
 function normalizeGeneratedOpinionQuestion(input: unknown) {
     if (!input || typeof input !== 'object') return DEFAULT_OPINION_QUESTION;
@@ -43,169 +49,161 @@ function normalizeGeneratedOpinionQuestion(input: unknown) {
     };
 }
 
-const redisUrl = process.env.REDIS_URL || 'redis://localhost:6379';
-const connection = new IORedis(redisUrl, {
-    maxRetriesPerRequest: null,
-});
+export function createLiveAnalysisWorker(): WorkerRuntime {
+    const connection = new IORedis(redisUrl, {
+        maxRetriesPerRequest: null,
+    });
 
-export interface LiveAnalysisJobData {
-    articleId: string;
-    title: string;
-    content: string;
-    citationUrls: string[];
-    // Generation mode fields
-    mode?: 'article-analysis' | 'article-generation';
-    topic?: string;
-    language?: string;
-    style?: string;
-}
+    const worker = new Worker(
+        'live-analysis-queue',
+        async (job: Job<LiveAnalysisJobData>) => {
+            const { articleId, title, content, mode, topic, language, style } = job.data;
+            const isGenerate = mode === 'article-generation';
 
-export const liveAnalysisWorker = new Worker(
-    'live-analysis-queue',
-    async (job: Job<LiveAnalysisJobData>) => {
-        const { articleId, title, content, mode, topic, language, style } = job.data;
-        const isGenerate = mode === 'article-generation';
+            logger.info('[LiveAnalysis Worker] Starting', {
+                articleId,
+                jobId: job.id,
+                mode: isGenerate ? 'GENERATE' : 'ANALYZE',
+                title: (isGenerate ? topic : title)?.slice(0, 60),
+            });
 
-        logger.info(`[LiveAnalysis Worker] Starting for article ${articleId}`, {
-            jobId: job.id,
-            mode: isGenerate ? 'GENERATE' : 'ANALYZE',
-            title: (isGenerate ? topic : title)?.slice(0, 60),
-        });
+            let result;
 
-        let result;
+            if (isGenerate && topic) {
+                result = await runLiveAnalysisWithGeneration(topic, { language, style });
 
-        if (isGenerate && topic) {
-            // === GENERATE MODE ===
-            // The pipeline generates the article content AND scores it
-            result = await runLiveAnalysisWithGeneration(topic, { language, style });
+                if (result.generatedContent) {
+                    const gc = result.generatedContent;
+                    let coverImageUrl: string | null = null;
+                    if (gc.wikipedia_search_query) {
+                        coverImageUrl = await getWikipediaImage(gc.wikipedia_search_query);
+                    }
+                    const opinionQuestion = normalizeGeneratedOpinionQuestion(gc.opinionQuestion);
 
-            // Write the generated article text + scores to DB
-            if (result.generatedContent) {
-                const gc = result.generatedContent;
+                    await prisma.article.update({
+                        where: { id: articleId },
+                        data: {
+                            title: gc.title,
+                            summary: gc.summary,
+                            content: gc.content,
+                            structuredContent: gc.structuredContent as any,
+                            aiSummary: gc.summary,
+                            factCheckScore: Math.round(result.globalScore),
+                            imageUrl: coverImageUrl,
+                            generationConfig: {
+                                style: style || 'neutral',
+                                language: language || 'fr',
+                                imagePrompt: gc.imagePrompt || null,
+                                tags: gc.tags || [],
+                            },
+                            slug: generateSlug(gc.title),
+                            opinionQuestion: {
+                                upsert: {
+                                    create: opinionQuestion,
+                                    update: opinionQuestion,
+                                },
+                            },
+                        },
+                    });
 
-                // Attempt to fetch a Wikipedia image if a query was generated
-                let coverImageUrl: string | null = null;
-                if (gc.wikipedia_search_query) {
-                    coverImageUrl = await getWikipediaImage(gc.wikipedia_search_query);
+                    logger.info('[LiveAnalysis Worker] Article updated with generated content', {
+                        articleId,
+                        title: gc.title.slice(0, 60),
+                        contentLength: gc.content.length,
+                        score: result.globalScore,
+                    });
                 }
-                const opinionQuestion = normalizeGeneratedOpinionQuestion(gc.opinionQuestion);
-
-                // Build the source objects for factCheckData
-                // Sources come from the Tavily investigation (not Perplexity citations anymore)
-                const sourceObjects = (result.judges.primary as any).generatedContent
-                    ? [] // Sources will be populated from citationUrls by source-enrichment
-                    : [];
+            } else {
+                result = await runLiveAnalysis(title, content);
 
                 await prisma.article.update({
                     where: { id: articleId },
                     data: {
-                        title: gc.title,
-                        summary: gc.summary,
-                        content: gc.content,
-                        structuredContent: gc.structuredContent as any,
-                        aiSummary: gc.summary,
                         factCheckScore: Math.round(result.globalScore),
-                        imageUrl: coverImageUrl,
-                        generationConfig: {
-                            style: style || 'neutral',
-                            language: language || 'fr',
-                            imagePrompt: gc.imagePrompt || null,
-                            tags: gc.tags || [],
-                        },
-                        // Update the slug based on the generated title
-                        slug: generateSlug(gc.title),
-                        opinionQuestion: {
-                            upsert: {
-                                create: opinionQuestion,
-                                update: opinionQuestion,
-                            },
-                        },
                     },
                 });
-
-                logger.info(`✏️ [LiveAnalysis Worker] Article ${articleId} updated with generated content`, {
-                    title: gc.title.slice(0, 60),
-                    contentLength: gc.content.length,
-                    score: result.globalScore,
-                });
             }
-        } else {
-            // === ANALYZE MODE ===
-            result = await runLiveAnalysis(title, content);
 
-            // Update the score in DB
-            await prisma.article.update({
-                where: { id: articleId },
-                data: {
-                    factCheckScore: Math.round(result.globalScore),
-                },
+            logger.info('[LiveAnalysis Worker] Complete', {
+                articleId,
+                jobId: job.id,
+                score: result.globalScore,
+                intent: result.contentIntent,
             });
-        }
 
-        logger.info(`[LiveAnalysis Worker] Complete for article ${articleId}`, {
-            jobId: job.id,
-            score: result.globalScore,
-            intent: result.contentIntent,
-        });
-
-        return {
-            articleId,
-            globalScore: result.globalScore,
-            contentIntent: result.contentIntent,
-            pillarScores: result.pillarScores,
-            judges: result.judges,
-            generatedContent: result.generatedContent,
-        };
-    },
-    {
-        connection: connection as any,
-        concurrency: 3,
-    }
-);
-
-// CHAINAGE: On completion, enqueue source enrichment
-liveAnalysisWorker.on('completed', async (job, result) => {
-    if (!job || !result) return;
-
-    const { citationUrls } = job.data;
-
-    logger.info(`[LiveAnalysis Worker] Chaining to source-enrichment for article ${result.articleId}`, {
-        sourceCount: citationUrls?.length || 0,
-        scoreLiveBrut: result.globalScore,
-    });
-
-    try {
-        await sourceEnrichmentQueue.add('enrich', {
-            articleId: result.articleId,
-            sources: citationUrls || [],
-            scoreLiveBrut: result.globalScore,
-            liveAnalysis: {
+            return {
+                articleId,
+                globalScore: result.globalScore,
                 contentIntent: result.contentIntent,
                 pillarScores: result.pillarScores,
                 judges: result.judges,
-            },
-        }, {
-            removeOnComplete: true,
-            attempts: 2,
-        });
-    } catch (err: any) {
-        logger.error(`[LiveAnalysis Worker] Failed to chain to enrichment queue`, {
+                generatedContent: result.generatedContent,
+            };
+        },
+        {
+            connection: connection as any,
+            concurrency: LIVE_ANALYSIS_WORKER_CONCURRENCY,
+        },
+    );
+
+    worker.on('completed', async (job, result) => {
+        if (!job || !result) return;
+
+        const { citationUrls } = job.data;
+
+        logger.info('[LiveAnalysis Worker] Chaining to source enrichment', {
             articleId: result.articleId,
-            error: err.message,
+            sourceCount: citationUrls?.length || 0,
+            scoreLiveBrut: result.globalScore,
         });
-    }
-});
 
-liveAnalysisWorker.on('failed', (job, err) => {
-    logger.error(`[LiveAnalysis Worker] Job ${job?.id} failed`, {
-        error: err.message,
-        articleId: job?.data?.articleId,
+        try {
+            await getSourceEnrichmentQueue().add('enrich', {
+                articleId: result.articleId,
+                sources: citationUrls || [],
+                scoreLiveBrut: result.globalScore,
+                liveAnalysis: {
+                    contentIntent: result.contentIntent,
+                    pillarScores: result.pillarScores,
+                    judges: result.judges,
+                },
+            }, {
+                removeOnComplete: true,
+                attempts: 2,
+            });
+        } catch (err: any) {
+            logger.error('[LiveAnalysis Worker] Failed to chain to enrichment queue', {
+                articleId: result.articleId,
+                error: err.message,
+            });
+        }
     });
-});
 
-logger.info('Live Analysis Worker started', { module: 'Worker', concurrency: 3 });
+    worker.on('failed', (job, err) => {
+        logger.error('[LiveAnalysis Worker] Job failed', {
+            error: err.message,
+            articleId: job?.data?.articleId,
+            jobId: job?.id,
+        });
+    });
 
-// ─── Helper ──────────────────────────────────────────────────────────────────
+    logger.info('Live Analysis Worker started', {
+        module: 'Worker',
+        concurrency: LIVE_ANALYSIS_WORKER_CONCURRENCY,
+    });
+
+    return {
+        worker,
+        close: async () => {
+            await worker.close();
+            try {
+                await connection.quit();
+            } catch {
+                connection.disconnect();
+            }
+        },
+    };
+}
 
 function generateSlug(title: string): string {
     const slugBase = title

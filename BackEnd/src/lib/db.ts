@@ -10,3 +10,13 @@ export const prisma =
   });
 
 if (process.env.NODE_ENV !== 'production') globalForPrisma.prisma = prisma;
+
+let disconnectPromise: Promise<void> | null = null;
+
+export function closePrisma(): Promise<void> {
+  if (!disconnectPromise) {
+    disconnectPromise = prisma.$disconnect();
+  }
+
+  return disconnectPromise;
+}

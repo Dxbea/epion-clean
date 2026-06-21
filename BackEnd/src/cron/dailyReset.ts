@@ -1,20 +1,25 @@
-import cron from 'node-cron';
+import cron, { type ScheduledTask } from 'node-cron';
 import { prisma } from '../lib/db.js';
+import logger from '../lib/logger.js';
 
-export const initializeCron = () => {
-    // Schedule task to run at midnight every day
-    cron.schedule('0 0 * * *', async () => {
-        console.log('Running daily quota reset...');
+export function initializeCron(): ScheduledTask {
+    const task = cron.schedule('0 0 * * *', async () => {
+        logger.info('Running daily quota reset', { module: 'DailyReset' });
         try {
             const { count } = await prisma.user.updateMany({
                 data: {
                     dailyQueryCount: 0,
                 },
             });
-            console.log(`Daily quota reset completed. Updated ${count} users.`);
-        } catch (error) {
-            console.error('Error resetting daily quotas:', error);
+            logger.info('Daily quota reset completed', { module: 'DailyReset', count });
+        } catch (error: any) {
+            logger.error('Error resetting daily quotas', {
+                module: 'DailyReset',
+                error: error?.message,
+            });
         }
     });
-    console.log('Daily cron job initialized (0 0 * * *)');
-};
+
+    logger.info('Daily cron job initialized', { module: 'DailyReset', schedule: '0 0 * * *' });
+    return task;
+}

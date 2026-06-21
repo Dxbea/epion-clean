@@ -2,7 +2,7 @@ import { getSerperConfig } from '../lib/serper.js';
 import { Router } from 'express';
 import { analyzeOutputQuality } from '../lib/semantic-scanner.js';
 import { checkMediaReputation } from '../lib/google-fact-check.js';
-import { newsIngestionQueue } from '../lib/queue.js';
+import { getNewsIngestionQueue } from '../lib/queue.js';
 import { logger } from '../lib/logger.js';
 import { getCurrentUser } from '../lib/currentUser.js';
 import {
@@ -128,7 +128,7 @@ router.post('/trigger-ingestion', async (req, res) => {
         const jobs: Array<{ name: string; id: string | undefined }> = [];
 
         if (type === 'sitemap' || type === 'both') {
-            const sitemapJob = await newsIngestionQueue.add('discover-sitemap', {
+            const sitemapJob = await getNewsIngestionQueue().add('discover-sitemap', {
                 sitemapUrl: resolvedSitemapUrl,
                 maxUrls: maxRecords,
             }, {
@@ -149,7 +149,7 @@ router.post('/trigger-ingestion', async (req, res) => {
         }
 
         if (type === 'gdelt' || type === 'both') {
-            const gdeltJob = await newsIngestionQueue.add('discover-gdelt', {
+            const gdeltJob = await getNewsIngestionQueue().add('discover-gdelt', {
                 query: gdeltQuery,
                 maxRecords,
             }, {

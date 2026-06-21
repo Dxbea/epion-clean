@@ -1,0 +1,26 @@
+import '../env.js';
+import logger from '../lib/logger.js';
+import { closePrisma } from '../lib/db.js';
+import { closeRedis } from '../lib/redis.js';
+import { closeOpenedQueues } from '../lib/queue.js';
+import { closeSentry, createShutdownManager } from '../lib/shutdown.js';
+import { createNewsWorker } from '../workers/news-worker.js';
+
+const log = logger.child({ module: 'NewsWorkerProcess' });
+
+async function start(): Promise<void> {
+  const runtime = createNewsWorker();
+  const shutdown = createShutdownManager({ name: 'news-worker', logger: log });
+
+  shutdown.add({ name: 'news-worker', close: runtime.close });
+  shutdown.add({ name: 'bullmq-queues', close: closeOpenedQueues });
+  shutdown.add({ name: 'redis', close: closeRedis });
+  shutdown.add({ name: 'prisma', close: closePrisma });
+  shutdown.add({ name: 'sentry', close: () => closeSentry() });
+  shutdown.installSignalHandlers();
+}
+
+start().catch((error: any) => {
+  log.error('News worker startup failed', { error: error?.message, stack: error?.stack });
+  process.exit(1);
+});

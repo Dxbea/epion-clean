@@ -1,92 +1,153 @@
 import { Queue } from 'bullmq';
-import { env } from '../env.js';
+import { Redis as IORedis } from 'ioredis';
 import { logger } from './logger.js';
 
 const redisUrl = process.env.REDIS_URL || 'redis://localhost:6379';
 
-// Parse redis URL to fit BullMQ connection options if needed, 
-// strictly speaking BullMQ accepts a connection object or URL, but ioredis instance is preferred for reuse
-// Here we will use the connection object approach for simplicity and robustness
-import { Redis as IORedis } from 'ioredis';
+let connection: IORedis | null = null;
+let closePromise: Promise<void> | null = null;
+const openedQueues = new Map<string, Queue>();
 
-const connection = new IORedis(redisUrl, {
-    maxRetriesPerRequest: null, // Required by BullMQ
-});
+function getConnection(): IORedis {
+    if (!connection) {
+        connection = new IORedis(redisUrl, {
+            maxRetriesPerRequest: null,
+        });
+    }
 
-export const embeddingQueue = new Queue('embedding-queue', {
-    connection: connection as any,
-    defaultJobOptions: {
-        attempts: 3,
-        backoff: {
-            type: 'exponential',
-            delay: 1000,
-        },
-        removeOnComplete: true, // Keep redis clean
-        removeOnFail: 100,      // Keep last 100 failed jobs for debugging
-    },
-});
+    return connection;
+}
 
-embeddingQueue.on('error', (err) => {
-    logger.error('Queue connection error', { module: 'Queue', error: err.message });
-});
+function getQueue(name: string, create: () => Queue): Queue {
+    const existing = openedQueues.get(name);
+    if (existing) return existing;
 
-logger.info('Embedding Queue initialized', { module: 'Queue' });
+    const queue = create();
+    openedQueues.set(name, queue);
+    return queue;
+}
 
-// Source Enrichment Queue (TrustScore Analysis)
-export const sourceEnrichmentQueue = new Queue('source-enrichment-queue', {
-    connection: connection as any,
-    defaultJobOptions: {
-        attempts: 3,
-        backoff: {
-            type: 'exponential',
-            delay: 2000, // 2s, 4s, 8s
-        },
-        removeOnComplete: true,
-        removeOnFail: 100,
-    },
-});
+export function getBullConnection(): IORedis {
+    return getConnection();
+}
 
-sourceEnrichmentQueue.on('error', (err) => {
-    logger.error('Source Enrichment Queue error', { module: 'Queue', error: err.message });
-});
+export function getEmbeddingQueue(): Queue {
+    return getQueue('embedding-queue', () => {
+        const queue = new Queue('embedding-queue', {
+            connection: getConnection() as any,
+            defaultJobOptions: {
+                attempts: 3,
+                backoff: {
+                    type: 'exponential',
+                    delay: 1000,
+                },
+                removeOnComplete: true,
+                removeOnFail: 100,
+            },
+        });
 
-logger.info('Source Enrichment Queue initialized', { module: 'Queue' });
+        queue.on('error', (err) => {
+            logger.error('Queue connection error', { module: 'Queue', error: err.message });
+        });
 
-// Live Analysis Queue (Epion 2.0 — Article Fact-Check Pipeline)
-export const liveAnalysisQueue = new Queue('live-analysis-queue', {
-    connection: connection as any,
-    defaultJobOptions: {
-        attempts: 2,
-        backoff: {
-            type: 'exponential',
-            delay: 3000, // 3s, 6s (longer due to 3 API calls)
-        },
-        removeOnComplete: 50,  // Keep last 50 for result polling
-        removeOnFail: 100,
-    },
-});
+        logger.info('Embedding Queue initialized', { module: 'Queue' });
+        return queue;
+    });
+}
 
-liveAnalysisQueue.on('error', (err) => {
-    logger.error('Live Analysis Queue error', { module: 'Queue', error: err.message });
-});
+export function getSourceEnrichmentQueue(): Queue {
+    return getQueue('source-enrichment-queue', () => {
+        const queue = new Queue('source-enrichment-queue', {
+            connection: getConnection() as any,
+            defaultJobOptions: {
+                attempts: 3,
+                backoff: {
+                    type: 'exponential',
+                    delay: 2000,
+                },
+                removeOnComplete: true,
+                removeOnFail: 100,
+            },
+        });
 
-logger.info('Live Analysis Queue initialized', { module: 'Queue' });
+        queue.on('error', (err) => {
+            logger.error('Source Enrichment Queue error', { module: 'Queue', error: err.message });
+        });
 
-export const newsIngestionQueue = new Queue('news-ingestion-queue', {
-    connection: connection as any,
-    defaultJobOptions: {
-        attempts: 3,
-        backoff: {
-            type: 'exponential',
-            delay: 60_000, // 60s → 120s → 240s — GDELT needs long pauses on 429
-        },
-        removeOnComplete: 25,
-        removeOnFail: 50,
-    },
-});
+        logger.info('Source Enrichment Queue initialized', { module: 'Queue' });
+        return queue;
+    });
+}
 
-newsIngestionQueue.on('error', (err) => {
-    logger.error('News Ingestion Queue error', { module: 'Queue', error: err.message });
-});
+export function getLiveAnalysisQueue(): Queue {
+    return getQueue('live-analysis-queue', () => {
+        const queue = new Queue('live-analysis-queue', {
+            connection: getConnection() as any,
+            defaultJobOptions: {
+                attempts: 2,
+                backoff: {
+                    type: 'exponential',
+                    delay: 3000,
+                },
+                removeOnComplete: 50,
+                removeOnFail: 100,
+            },
+        });
 
-logger.info('News Ingestion Queue initialized', { module: 'Queue' });
+        queue.on('error', (err) => {
+            logger.error('Live Analysis Queue error', { module: 'Queue', error: err.message });
+        });
+
+        logger.info('Live Analysis Queue initialized', { module: 'Queue' });
+        return queue;
+    });
+}
+
+export function getNewsIngestionQueue(): Queue {
+    return getQueue('news-ingestion-queue', () => {
+        const queue = new Queue('news-ingestion-queue', {
+            connection: getConnection() as any,
+            defaultJobOptions: {
+                attempts: 3,
+                backoff: {
+                    type: 'exponential',
+                    delay: 60_000,
+                },
+                removeOnComplete: 25,
+                removeOnFail: 50,
+            },
+        });
+
+        queue.on('error', (err) => {
+            logger.error('News Ingestion Queue error', { module: 'Queue', error: err.message });
+        });
+
+        logger.info('News Ingestion Queue initialized', { module: 'Queue' });
+        return queue;
+    });
+}
+
+export async function closeOpenedQueues(): Promise<void> {
+    if (closePromise) return closePromise;
+
+    closePromise = (async () => {
+        const queues = Array.from(openedQueues.values());
+        openedQueues.clear();
+
+        for (const queue of queues) {
+            await queue.close();
+        }
+
+        if (connection) {
+            const redisConnection = connection;
+            connection = null;
+            try {
+                await redisConnection.quit();
+            } catch {
+                redisConnection.disconnect();
+            }
+        }
+    })();
+
+    return closePromise;
+}

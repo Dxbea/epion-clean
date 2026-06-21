@@ -4,7 +4,7 @@ import { prisma } from '../lib/db.js';
 import { checkArticleQuota, hasSufficientFunds, chargeUser, COSTS } from '../lib/billing-service.js';
 import { getCurrentUserId } from '../lib/currentUser.js';
 import { logger } from '../lib/logger.js';
-import { sourceEnrichmentQueue } from '../lib/queue.js';
+import { getSourceEnrichmentQueue } from '../lib/queue.js';
 import { transformTextWithAI } from '../services/articleGenerator.js';
 import { runLiveAnalysisWithGeneration } from '../lib/live-analysis/index.js';
 import { getArticleImageProposals } from '../lib/images/proposals.js';
@@ -204,7 +204,7 @@ export async function createAIArticle(req: Request, res: Response, next: NextFun
             articleId: newArticle.id,
             citationUrlCount: citationUrls.length
         });
-        sourceEnrichmentQueue.add('enrich', {
+        getSourceEnrichmentQueue().add('enrich', {
             articleId: newArticle.id,
             sources: citationUrls,
             scoreLiveBrut: result.globalScore,

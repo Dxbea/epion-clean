@@ -1,5 +1,4 @@
 import { Redis } from 'ioredis';
-import { env } from '../env.js';
 import { logger } from './logger.js';
 
 const redisUrl = process.env.REDIS_URL || 'redis://localhost:6379';
@@ -22,3 +21,21 @@ redis.on('error', (err) => {
 redis.on('connect', () => {
     logger.info('Redis connected', { module: 'Redis' });
 });
+
+let closePromise: Promise<void> | null = null;
+
+export async function closeRedis(): Promise<void> {
+    if (closePromise) return closePromise;
+
+    closePromise = (async () => {
+        if (redis.status === 'end') return;
+
+        try {
+            await redis.quit();
+        } catch {
+            redis.disconnect();
+        }
+    })();
+
+    return closePromise;
+}

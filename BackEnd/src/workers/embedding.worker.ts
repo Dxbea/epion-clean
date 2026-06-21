@@ -1,50 +1,68 @@
 import { Worker, Job } from 'bullmq';
+import { Redis as IORedis } from 'ioredis';
 import { ingestArticle } from '../lib/rag-service.js';
 import { logger } from '../lib/logger.js';
-import { env } from '../env.js';
-import { Redis as IORedis } from 'ioredis';
 
 const redisUrl = process.env.REDIS_URL || 'redis://localhost:6379';
+const EMBEDDING_WORKER_CONCURRENCY = 5;
 
-const connection = new IORedis(redisUrl, {
-    maxRetriesPerRequest: null,
-});
+export type WorkerRuntime = {
+    worker: Worker;
+    close: () => Promise<void>;
+};
 
-/**
- * Worker: embedding-queue
- * Processus dédié à la génération de vecteurs pour le RAG.
- */
-export const embeddingWorker = new Worker(
-    'embedding-queue',
-    async (job: Job) => {
-        const { articleId, content } = job.data;
+export function createEmbeddingWorker(): WorkerRuntime {
+    const connection = new IORedis(redisUrl, {
+        maxRetriesPerRequest: null,
+    });
 
-        logger.info(`[Worker] Starting embedding job for article ${articleId}`, { jobId: job.id });
+    const worker = new Worker(
+        'embedding-queue',
+        async (job: Job) => {
+            const { articleId } = job.data;
 
-        try {
-            // On appelle le service "pur". 
-            // Note: ingestArticle refetch l'article depuis la DB (source de vérité).
-            // L'argument 'content' n'est pas utilisé par ingestArticle actuel mais pourrait servir d'optimisation future.
-            await ingestArticle(articleId);
+            logger.info('[Worker] Starting embedding job', { articleId, jobId: job.id });
 
-            logger.info(`[Worker] Embedding generated successfully for article ${articleId}`);
-            return true;
-        } catch (error: any) {
-            logger.error(`[Worker] Job failed for article ${articleId}`, { error: error.message });
-            throw error; // Permet à BullMQ de gérer les retries (attempts: 3)
-        }
-    },
-    {
-        connection: connection as any,
-        concurrency: 5, // Traite jusqu'à 5 articles en parallèle
-    }
-);
+            try {
+                await ingestArticle(articleId);
+                logger.info('[Worker] Embedding generated successfully', { articleId });
+                return true;
+            } catch (error: any) {
+                logger.error('[Worker] Embedding job failed', { articleId, error: error.message });
+                throw error;
+            }
+        },
+        {
+            connection: connection as any,
+            concurrency: EMBEDDING_WORKER_CONCURRENCY,
+        },
+    );
 
-// Gestion propre de l'arrêt
-embeddingWorker.on('completed', (job) => {
-    logger.debug(`[Worker] Job ${job.id} completed`);
-});
+    worker.on('completed', (job) => {
+        logger.debug('[Worker] Embedding job completed', { jobId: job.id });
+    });
 
-embeddingWorker.on('failed', (job, err) => {
-    logger.error(`[Worker] Job ${job?.id} failed after attempts`, { error: err.message });
-});
+    worker.on('failed', (job, err) => {
+        logger.error('[Worker] Embedding job failed after attempts', {
+            jobId: job?.id,
+            error: err.message,
+        });
+    });
+
+    logger.info('Embedding Worker started', {
+        module: 'Worker',
+        concurrency: EMBEDDING_WORKER_CONCURRENCY,
+    });
+
+    return {
+        worker,
+        close: async () => {
+            await worker.close();
+            try {
+                await connection.quit();
+            } catch {
+                connection.disconnect();
+            }
+        },
+    };
+}

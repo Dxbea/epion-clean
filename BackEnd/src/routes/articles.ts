@@ -16,7 +16,7 @@ import { checkArticleQuota } from '../lib/billing-service.js';
 import { ingestArticle } from '../lib/rag-service.js';
 import { sanitizeArticleHtml } from '../lib/sanitizeHtml.js';
 import { logger } from '../lib/logger.js';
-import { embeddingQueue } from '../lib/queue.js';
+import { getEmbeddingQueue } from '../lib/queue.js';
 import { hashAnalysisInput } from '../lib/score-helpers.js';
 import { recalculateBridgingScores } from '../services/bridgingService.js';
 import { moderationService } from '../services/moderationService.js';
@@ -306,7 +306,7 @@ router.put('/:id', async (req, res, next) => {
     });
 
     if (shouldQueueEmbedding) {
-      embeddingQueue.add('generate-vector', { articleId: updated.id }).catch(err =>
+      getEmbeddingQueue().add('generate-vector', { articleId: updated.id }).catch(err =>
         logger.error('Queue Add Failed', { error: err.message, articleId: updated.id })
       );
     }
@@ -1997,7 +1997,7 @@ router.post('/', async (req, res, next) => {
     });
 
     if (statusValue === 'PUBLISHED') {
-      embeddingQueue.add('generate-vector', {
+      getEmbeddingQueue().add('generate-vector', {
         articleId: created.id,
         // Le content est passé pour info/debug dans le job, mais le worker refetchera la DB pour être sûr
         contentSize: safeContent?.length

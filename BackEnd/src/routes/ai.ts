@@ -3,7 +3,7 @@ import { prisma } from '../lib/db.js';
 import { getCurrentUserId } from '../lib/currentUser.js';
 import { callWebSearchLLM, type WebChatMessage } from '../lib/web-chat.js';
 import { hasSufficientFunds, chargeUser, COSTS } from '../lib/billing-service.js';
-import { liveAnalysisQueue } from '../lib/queue.js';
+import { getLiveAnalysisQueue } from '../lib/queue.js';
 import type { Prisma } from '@prisma/client';
 import { z } from 'zod';
 import { logger } from '../lib/logger.js';
@@ -151,7 +151,7 @@ router.post('/fact-check', async (req, res) => {
         const citationUrls = (article.content?.match(urlRegex) || []).slice(0, 20);
 
         // 5. Enqueue live-analysis job
-        const job = await liveAnalysisQueue.add('fact-check', {
+        const job = await getLiveAnalysisQueue().add('fact-check', {
             articleId: article.id,
             requestedByUserId: userId,
             title: article.title,
@@ -200,7 +200,7 @@ router.get('/fact-check/:jobId', async (req, res) => {
         const { jobId } = req.params;
 
         // First, try to find the job in the queue
-        const job = await liveAnalysisQueue.getJob(jobId);
+        const job = await getLiveAnalysisQueue().getJob(jobId);
 
         if (!job) {
             return res.status(404).json({ error: 'Job not found', jobId });
