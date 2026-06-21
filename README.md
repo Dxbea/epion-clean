@@ -252,18 +252,15 @@ Create a local environment file based on the example provided in the repository:
 cp .env.example .env
 ```
 
-Then configure the required values for:
+Then configure the required values for the environment you are running:
 
-- PostgreSQL
-- Redis
-- JWT and session secrets
-- CSRF secret
-- OpenAI
-- Mistral
-- Serper
-- Tavily
-- email delivery
-- Sentry, when enabled
+- All environments: `DATABASE_URL`.
+- Development/test: Redis, auth URLs, Better Auth secret, and CSRF secret have local defaults when omitted.
+- Runtime mode: keep `NODE_ENV` to `development`, `test`, or `production`. For staging deployments, run with `NODE_ENV=production` and set `APP_ENV=staging` or `DEPLOY_ENV=staging`.
+- Staging/production deployments: `REDIS_URL`, `FRONTEND_ORIGIN` or `FRONTEND_URL`, `BETTER_AUTH_URL`, `BETTER_AUTH_SECRET`, `BETTER_AUTH_TRUSTED_ORIGINS`, `CSRF_SECRET`, `OPENAI_API_KEY`, `SERPER_API_KEY`, `BREVO_API_KEY`, and `MAIL_FROM` are required and validated at startup.
+- Optional integrations: `SENTRY_DSN`, `TAVILY_API_KEY`, `GOOGLE_FACT_CHECK_KEY`, `MISTRAL_API_KEY`, `PERPLEXITY_API_KEY`, `BETA_MODE`, `LOG_LEVEL`, `ENABLE_DEBUG_ROUTES`, and `SEED_ADMIN_EMAIL`.
+
+Frontend production deployments must set `VITE_API_URL`. `VITE_SENTRY_DSN` and `VITE_GA_ID` are optional.
 
 ### 4. Prepare the database
 
