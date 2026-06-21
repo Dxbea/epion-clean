@@ -1,7 +1,8 @@
 // BackEnd/src/lib/logger.ts
 import winston from 'winston';
+import { env } from '../env.js';
 
-const isDevelopment = process.env.NODE_ENV !== 'production';
+const isDevelopment = env.NODE_ENV !== 'production';
 
 // Format for development: colorized and human-readable
 const devFormat = winston.format.combine(
@@ -21,7 +22,7 @@ const prodFormat = winston.format.combine(
 );
 
 export const logger = winston.createLogger({
-    level: process.env.LOG_LEVEL || (isDevelopment ? 'debug' : 'info'),
+    level: env.LOG_LEVEL,
     format: isDevelopment ? devFormat : prodFormat,
     defaultMeta: { service: 'epion-api' },
     transports: [

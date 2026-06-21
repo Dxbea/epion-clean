@@ -2,7 +2,7 @@ import { Redis } from 'ioredis';
 import { env } from '../env.js';
 import { logger } from './logger.js';
 
-const redisUrl = process.env.REDIS_URL || 'redis://localhost:6379';
+const redisUrl = env.REDIS_URL;
 
 export const redis = new Redis(redisUrl, {
     maxRetriesPerRequest: null,

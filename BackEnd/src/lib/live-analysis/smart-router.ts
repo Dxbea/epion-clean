@@ -1,9 +1,10 @@
 import OpenAI from 'openai';
+import { env } from '../../env.js';
 import { logger } from '../logger.js';
 import { RoutingDecision } from './types.js';
 
 const openai = new OpenAI({
-    apiKey: process.env.OPENAI_API_KEY,
+    apiKey: env.OPENAI_API_KEY,
 });
 
 const SYSTEM_PROMPT = `Tu es un moteur de recherche expert. Pour la question posée, génère exactement

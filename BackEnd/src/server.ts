@@ -51,6 +51,13 @@ const httpLogStream = {
   },
 };
 
+function splitConfiguredOrigins(value?: string): string[] {
+  return (value ?? '')
+    .split(',')
+    .map((origin) => origin.trim())
+    .filter(Boolean);
+}
+
 // ----------------------------
 //  🔐  Sécurité globale
 // ----------------------------
@@ -71,12 +78,10 @@ app.use(
 // ----------------------------
 //  🌍 CORS CORRECT (une seule fois !)
 // ----------------------------
-const allowedOrigin = [
-  'http://localhost:5173',
-  'https://epion-clean.vercel.app',
-  'https://epion.app',
-  'https://www.epion.app',
-];
+const allowedOrigin = Array.from(new Set([
+  env.FRONTEND_ORIGIN,
+  ...splitConfiguredOrigins(env.BETTER_AUTH_TRUSTED_ORIGINS),
+]));
 
 app.use(
   cors({
@@ -117,7 +122,7 @@ app.use('/uploads', express.static(path.join(process.cwd(), 'public/uploads')));
 app.use(cookieParser());
 
 // Logs HTTP
-if (process.env.NODE_ENV !== 'test') {
+if (env.NODE_ENV !== 'test') {
   // ----------------------------
   //  🔍 Sentry Context & Request Logging
   // ----------------------------
@@ -133,7 +138,7 @@ if (process.env.NODE_ENV !== 'test') {
   });
 
   // Logging requests
-  app.use(morgan(process.env.NODE_ENV === 'production' ? 'combined' : 'dev', {
+  app.use(morgan(env.NODE_ENV === 'production' ? 'combined' : 'dev', {
     stream: httpLogStream,
   }));
 }
@@ -146,7 +151,7 @@ app.get('/api/ping', (_req, res) => res.json({ pong: true, now: Date.now() }));
 app.get('/api/healthz', (_req, res) => res.json({ ok: true, service: 'epion-api' }));
 app.get('/api/version', (_req, res) => res.json({ name: 'epion-api', version: '0.1.0' }));
 app.use('/api/health', healthRouter);
-if (env.NODE_ENV !== 'production' && process.env.ENABLE_DEBUG_ROUTES === 'true') {
+if (env.NODE_ENV !== 'production' && env.ENABLE_DEBUG_ROUTES) {
   app.use('/api/debug', debugRouter);
 
 // ----------------------------
@@ -209,7 +214,7 @@ app.use(
 
     return res.status(err.status || 500).json({
       error: err.code || 'INTERNAL_ERROR',
-      message: process.env.NODE_ENV === 'development' ? err.message : undefined,
+      message: env.NODE_ENV === 'development' ? err.message : undefined,
     });
   },
 );
@@ -217,7 +222,7 @@ app.use(
 // ----------------------------
 //  🚀 Launch
 // ----------------------------
-const PORT = Number(process.env.PORT) || 5175;
+const PORT = env.PORT;
 
 // Initialize BullMQ Recurring Jobs
 // IMPORTANT: Repeatable jobs persist in Redis with their original config.
@@ -360,7 +365,7 @@ async function startServer(): Promise<void> {
   await ensureCategories();
 
   app.listen(PORT, '0.0.0.0', () => {
-    log.info(`API listening on http://localhost:${PORT} [${process.env.NODE_ENV || 'development'}]`);
+    log.info(`API listening on http://localhost:${PORT} [${env.NODE_ENV}]`);
   });
 }
 

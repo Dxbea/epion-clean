@@ -12,6 +12,7 @@
  * v3.0 — Merged article generation + DISARM analysis into single call.
  */
 import OpenAI from 'openai';
+import { env } from '../../env.js';
 import { logger } from '../logger.js';
 import {
     FactCheckContext,
@@ -50,7 +51,7 @@ function normalizeOpinionQuestion(input: unknown): GeneratedContent['opinionQues
 }
 
 const openai = new OpenAI({
-    apiKey: process.env.OPENAI_API_KEY,
+    apiKey: env.OPENAI_API_KEY,
 });
 
 // ─── DISARM Reference ────────────────────────────────────────────────────────

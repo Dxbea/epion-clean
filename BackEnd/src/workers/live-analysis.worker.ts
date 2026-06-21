@@ -13,6 +13,7 @@
  */
 import { Worker, Job } from 'bullmq';
 import { Redis as IORedis } from 'ioredis';
+import { env } from '../env.js';
 import { logger } from '../lib/logger.js';
 import { runLiveAnalysis, runLiveAnalysisWithGeneration } from '../lib/live-analysis/index.js';
 import { sourceEnrichmentQueue } from '../lib/queue.js';
@@ -43,7 +44,7 @@ function normalizeGeneratedOpinionQuestion(input: unknown) {
     };
 }
 
-const redisUrl = process.env.REDIS_URL || 'redis://localhost:6379';
+const redisUrl = env.REDIS_URL;
 const connection = new IORedis(redisUrl, {
     maxRetriesPerRequest: null,
 });

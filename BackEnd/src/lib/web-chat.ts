@@ -1,10 +1,11 @@
 import OpenAI from 'openai';
+import { env } from '../env.js';
 import { ChatOptions } from '../types/chat.js';
 import { logger } from './logger.js';
 import { investigateArticle } from './live-analysis/fact-investigator.js';
 import { getRootDomain } from './utils/domain.js';
 
-const openai = new OpenAI({ apiKey: process.env.OPENAI_API_KEY });
+const openai = new OpenAI({ apiKey: env.OPENAI_API_KEY });
 
 const ACCREDITED_MEDIA_DOMAINS = new Set([
     'afp.com',
@@ -504,7 +505,7 @@ export async function callWebSearchLLM(
     messages: WebChatMessage[],
     options: CallWebSearchLLMOptions = {},
 ): Promise<{ answer: string; sources: WebSearchSource[]; choices: Array<{ message: { content: string } }> }> {
-    if (!process.env.OPENAI_API_KEY) {
+    if (!env.OPENAI_API_KEY) {
         throw new Error('OPENAI_API_KEY missing');
     }
 

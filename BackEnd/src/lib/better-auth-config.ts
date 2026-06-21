@@ -1,14 +1,5 @@
 import { env } from '../env.js';
 
-const DEFAULT_BACKEND_ORIGIN = `http://localhost:${env.PORT}`;
-const DEFAULT_TRUSTED_ORIGINS = [
-  env.FRONTEND_ORIGIN,
-  'http://localhost:5173',
-  'https://epion-clean.vercel.app',
-  'https://epion.app',
-  'https://www.epion.app',
-];
-
 function splitOrigins(value?: string): string[] {
   return (value ?? '')
     .split(',')
@@ -37,32 +28,18 @@ function validateOrigin(origin: string): string {
 }
 
 export function getBetterAuthBaseUrl(): string {
-  return env.BETTER_AUTH_URL ?? DEFAULT_BACKEND_ORIGIN;
+  return env.BETTER_AUTH_URL;
 }
 
 export function getBetterAuthTrustedOrigins(): string[] {
   return Array.from(
     new Set([
-      ...DEFAULT_TRUSTED_ORIGINS,
+      env.FRONTEND_ORIGIN,
       ...splitOrigins(env.BETTER_AUTH_TRUSTED_ORIGINS),
     ].map(validateOrigin)),
   );
 }
 
 export function getBetterAuthSecret(): string {
-  const secret = env.BETTER_AUTH_SECRET;
-
-  if (secret) {
-    if (env.NODE_ENV === 'production' && secret.startsWith('replace_me')) {
-      throw new Error('BETTER_AUTH_SECRET must be a real secret in production.');
-    }
-
-    return secret;
-  }
-
-  if (env.NODE_ENV === 'production') {
-    throw new Error('BETTER_AUTH_SECRET must be set in production.');
-  }
-
-  return 'dev-better-auth-secret-change-me-32-chars-min';
+  return env.BETTER_AUTH_SECRET;
 }

@@ -1,8 +1,9 @@
 import { APIError } from 'better-auth/api';
+import { env } from '../env.js';
 
 import { prisma } from './db.js';
 
-const BETA_MODE = process.env.NODE_ENV !== 'test' && process.env.BETA_MODE === 'true';
+const BETA_MODE = env.NODE_ENV !== 'test' && env.BETA_MODE;
 const USERNAME_RX = /^[a-z0-9_]{3,20}$/i;
 
 function normalizeInviteCode(value: unknown) {

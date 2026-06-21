@@ -1,9 +1,10 @@
 import { Router } from 'express';
+import { env } from '../env.js';
 import { prisma } from '../lib/db.js';
 
 export const router = Router();
 
-const BETA_MODE = process.env.NODE_ENV !== 'test' && process.env.BETA_MODE === 'true';
+const BETA_MODE = env.NODE_ENV !== 'test' && env.BETA_MODE;
 
 router.get('/auth/beta-status', (_req, res) => {
   res.json({ betaMode: BETA_MODE });

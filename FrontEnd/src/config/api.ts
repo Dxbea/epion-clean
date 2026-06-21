@@ -1,7 +1,7 @@
 // src/lib/api.ts
-const PROD_API_BASE = 'https://epion-clean.onrender.com';
-export const API_BASE =
-  import.meta.env.VITE_API_URL || (import.meta.env.PROD ? PROD_API_BASE : 'http://localhost:5175');
+import { frontendEnv } from './env';
+
+export const API_BASE = frontendEnv.VITE_API_URL;
 
 /**
  * Petit helper interne : tente de recharger /api/me quand on a un 401,
@@ -14,15 +14,15 @@ async function tryRefreshMe() {
       cache: 'no-store',
     });
   } catch {
-    // on ignore, c’est juste un best-effort
+    // on ignore, c'est juste un best-effort
   }
 }
 
 /**
- * Appel API centralisé.
+ * Appel API centralise.
  * - envoie toujours credentials
- * - lève une erreur JS si pas ok
- * - si 401 → on tente un refresh, puis on jette une erreur UNAUTHENTICATED
+ * - leve une erreur JS si pas ok
+ * - si 401 -> on tente un refresh, puis on jette une erreur UNAUTHENTICATED
  */
 export async function api<T>(path: string, init?: RequestInit): Promise<T> {
   const res = await fetch(`${API_BASE}${path}`, {
@@ -34,25 +34,20 @@ export async function api<T>(path: string, init?: RequestInit): Promise<T> {
     ...init,
   });
 
-  // cas normal
   if (res.ok) {
-    // si pas de body (204, delete, etc.)
     if (res.status === 204) {
       return null as unknown as T;
     }
     return res.json() as Promise<T>;
   }
 
-  // si 401 → on tente de resync
   if (res.status === 401) {
     await tryRefreshMe();
-    // on jette une erreur standardisée
     const err: any = new Error('UNAUTHENTICATED');
     err.code = 'UNAUTHENTICATED';
     throw err;
   }
 
-  // autre erreur → on remonte le message texte si dispo
   const text = await res.text().catch(() => `HTTP ${res.status}`);
   throw new Error(text || `HTTP ${res.status}`);
 }

@@ -1,5 +1,6 @@
 import { DelayedError, Worker, type Job } from 'bullmq';
 import { Redis as IORedis } from 'ioredis';
+import { env } from '../env.js';
 import { ArticleStatus, type Prisma } from '@prisma/client';
 import { prisma } from '../lib/db.js';
 import logger from '../lib/logger.js';
@@ -7,7 +8,7 @@ import { newsIngestionQueue, embeddingQueue } from '../lib/queue.js';
 import { extractArticle, DomainCircuitOpenError, isOperationalExtractionError } from '../lib/extractor.js';
 import { claimDiscoveredUrl, DEDUP_URLS_KEY, fetchGdeltArticleList, fetchSitemapUrls, type DiscoveredArticle } from '../lib/discovery.js';
 
-const redisUrl = process.env.REDIS_URL || 'redis://localhost:6379';
+const redisUrl = env.REDIS_URL;
 const connection = new IORedis(redisUrl, { maxRetriesPerRequest: null });
 const log = logger.child({ module: 'NewsWorker' });
 

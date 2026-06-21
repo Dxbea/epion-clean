@@ -3,10 +3,7 @@ import crypto from 'crypto';
 import { env } from '../env.js';
 import { getCurrentSession } from './currentUser.js';
 
-const CSRF_SECRET =
-  env.CSRF_SECRET ??
-  env.BETTER_AUTH_SECRET ??
-  'dev-csrf-secret-change-me-32-chars-min';
+const CSRF_SECRET = env.CSRF_SECRET;
 
 type CsrfPayload = {
   sid: string;

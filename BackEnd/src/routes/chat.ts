@@ -1,5 +1,6 @@
 // DEBUT BLOC (remplace tout)
 import { Router, type Request } from 'express';
+import { env } from '../env.js';
 import { prisma } from '../lib/db.js';
 import { getCurrentUserId } from '../lib/currentUser.js';
 import {
@@ -34,10 +35,10 @@ import { buildAnswerScorePayload } from '../lib/score-helpers.js';
 
 // OpenAI Client for RAG mode (fast)
 // Verify API Key availability
-if (!process.env.OPENAI_API_KEY) {
+if (!env.OPENAI_API_KEY) {
   logger.warn("OPENAI_API_KEY missing, RAG mode will fail.");
 }
-const openai = new OpenAI({ apiKey: process.env.OPENAI_API_KEY });
+const openai = new OpenAI({ apiKey: env.OPENAI_API_KEY });
 
 
 // ————————————————————————————————————————————————————————————————

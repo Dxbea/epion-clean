@@ -2,7 +2,7 @@ import { Queue } from 'bullmq';
 import { env } from '../env.js';
 import { logger } from './logger.js';
 
-const redisUrl = process.env.REDIS_URL || 'redis://localhost:6379';
+const redisUrl = env.REDIS_URL;
 
 // Parse redis URL to fit BullMQ connection options if needed, 
 // strictly speaking BullMQ accepts a connection object or URL, but ioredis instance is preferred for reuse

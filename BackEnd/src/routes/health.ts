@@ -1,3 +1,4 @@
+import { env } from '../env.js';
 import { Router } from 'express';
 import { prisma } from '../lib/db.js';
 import OpenAI from 'openai';
@@ -80,8 +81,8 @@ router.get('/diagnostics', async (req, res, next) => {
   const checkOpenAI = async (): Promise<ServiceCheck> => {
     const s = Date.now();
     try {
-      if (!process.env.OPENAI_API_KEY) throw new Error('Missing OPENAI_API_KEY');
-      const openai = new OpenAI({ apiKey: process.env.OPENAI_API_KEY });
+      if (!env.OPENAI_API_KEY) throw new Error('Missing OPENAI_API_KEY');
+      const openai = new OpenAI({ apiKey: env.OPENAI_API_KEY });
       await openai.embeddings.create({
         model: 'text-embedding-3-small',
         input: 'test',

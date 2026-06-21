@@ -1,3 +1,4 @@
+import { env } from '../env.js';
 import { PlanType, Role } from "@prisma/client";
 import { prisma } from "./db.js";
 import { logger } from "./logger.js";
@@ -74,7 +75,7 @@ export async function hasSufficientCredits(
     const cost = COSTS[action];
     const isSufficient = usage.dailyCredits >= cost;
 
-    if (!isSufficient && process.env.NODE_ENV === 'production') {
+    if (!isSufficient && env.NODE_ENV === 'production') {
         logger.warn('Insufficient credits check', { userId, action, cost, available: usage.dailyCredits });
     }
 

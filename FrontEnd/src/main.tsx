@@ -3,15 +3,17 @@ import React from 'react'
 import ReactDOM from 'react-dom/client'
 import { inject } from '@vercel/analytics';
 import * as Sentry from "@sentry/react";
+import { frontendEnv } from '@/config/env';
 
 inject();
 
 Sentry.init({
-  dsn: import.meta.env.VITE_SENTRY_DSN,
+  dsn: frontendEnv.VITE_SENTRY_DSN,
   integrations: [
     Sentry.browserTracingIntegration(),
     Sentry.replayIntegration(),
   ],
+  enabled: !!frontendEnv.VITE_SENTRY_DSN,
   // Performance Monitoring
   tracesSampleRate: 0.1, // Capture 10% of the transactions
   // Session Replay

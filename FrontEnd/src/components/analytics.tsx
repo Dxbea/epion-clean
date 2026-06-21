@@ -1,5 +1,6 @@
 import { useEffect } from 'react';
 import { useLocation } from 'react-router-dom';
+import { frontendEnv } from '@/config/env';
 
 // Déclaration de type pour Google Analytics gtag
 declare global {
@@ -14,8 +15,8 @@ const Analytics = () => {
 
     useEffect(() => {
         // On envoie la vue à Google à chaque changement de 'location'
-        if (typeof window.gtag === 'function') {
-            window.gtag('config', 'G-NX59W4PKLR', {
+        if (frontendEnv.VITE_GA_ID && typeof window.gtag === 'function') {
+            window.gtag('config', frontendEnv.VITE_GA_ID, {
                 page_path: location.pathname + location.search,
             });
         }

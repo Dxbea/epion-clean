@@ -6,8 +6,9 @@ import { buildArticleScorePayload, hashAnalysisInput } from '../lib/score-helper
 import { stableSourceId } from '../lib/structured-article.js';
 import type { SourceScoreEntry } from '../lib/score-types.js';
 import { Redis as IORedis } from 'ioredis';
+import { env } from '../env.js';
 
-const redisUrl = process.env.REDIS_URL || 'redis://localhost:6379';
+const redisUrl = env.REDIS_URL;
 const connection = new IORedis(redisUrl, {
     maxRetriesPerRequest: null,
 });

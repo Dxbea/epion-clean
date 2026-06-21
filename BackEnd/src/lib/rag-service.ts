@@ -4,6 +4,7 @@
  */
 
 import OpenAI from 'openai';
+import { env } from '../env.js';
 import { prisma } from './db.js';
 import { Prisma } from '@prisma/client';
 import { logger } from './logger.js';
@@ -12,7 +13,7 @@ import { logger } from './logger.js';
 // Configuration
 // -----------------------------------------------------------------------------
 const openai = new OpenAI({
-    apiKey: process.env.OPENAI_API_KEY,
+    apiKey: env.OPENAI_API_KEY,
 });
 
 const EMBEDDING_MODEL = 'text-embedding-3-small';

@@ -1,4 +1,5 @@
 
+import { env } from '../env.js';
 import { logger } from "./logger.js";
 
 export interface FactCheckResult {
@@ -7,7 +8,7 @@ export interface FactCheckResult {
 }
 
 export async function checkMediaReputation(domain: string): Promise<FactCheckResult> {
-    const apiKey = process.env.GOOGLE_FACT_CHECK_KEY;
+    const apiKey = env.GOOGLE_FACT_CHECK_KEY;
     if (!apiKey) {
         logger.error('CRITICAL ERROR: No API Key found in env (GOOGLE_FACT_CHECK_KEY). Audit will be skipped.', { module: 'GoogleFactCheck' });
         return { failureCount: 0, recentFailures: false };

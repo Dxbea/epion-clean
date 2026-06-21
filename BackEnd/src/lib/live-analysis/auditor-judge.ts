@@ -11,6 +11,7 @@
  * v2.0 — Sprint 1: Recentered from full re-scoring to citation auditing.
  */
 import { Mistral } from '@mistralai/mistralai';
+import { env } from '../../env.js';
 import { logger } from '../logger.js';
 import {
     FactCheckContext,
@@ -23,7 +24,7 @@ import {
 } from './types.js';
 
 const mistral = new Mistral({
-    apiKey: process.env.MISTRAL_API_KEY || '',
+    apiKey: env.MISTRAL_API_KEY || '',
 });
 
 /**
