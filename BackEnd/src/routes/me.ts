@@ -6,6 +6,7 @@ import { getCurrentUser, getCurrentUserId } from '../lib/currentUser.js';
 import { checkAndIncrement } from '../lib/rateLimiter.js';
 import { logger } from '../lib/logger.js';
 import { auth } from '../lib/better-auth.js';
+import { deleteStoredProfileImageByUrl, toUploadError, uploadProfileImage } from '../lib/profile-image-storage.js';
 
 export const router = Router();
 
@@ -50,7 +51,7 @@ router.put('/', async (req, res, next) => {
     // Rate limiting (Maintenant couplé au quota DB)
     await checkAndIncrement(userId);
 
-    const { displayName, username, phone, avatarUrl, bio } = req.body ?? {};
+    const { displayName, username, phone, bio } = req.body ?? {};
 
     logger.info(`[ME] User ${userId} updating profile`, { displayName, username });
 
@@ -80,7 +81,6 @@ router.put('/', async (req, res, next) => {
         name: dn,
         username: un || null,
         phone: String(phone ?? '').trim() || null,
-        avatarUrl: avatarUrl ?? null,
         bio: b,
       },
       select: {
@@ -227,30 +227,38 @@ router.delete('/sessions/:id', async (req, res, next) => {
  * Body: { dataUrl: string }
  */
 router.post('/avatar', async (req, res, next) => {
+  let uploadedAvatarUrl: string | null = null;
+
   try {
     const userId = await getCurrentUserId(req, res).catch(() => null);
     if (!userId) return res.status(401).json({ error: 'NO_SESSION' });
 
-    const dataUrl = String(req.body?.dataUrl || '');
-    if (!/^data:image\/(png|jpe?g|webp);base64,/i.test(dataUrl)) {
-      return res.status(400).json({ error: 'BAD_INPUT' });
-    }
+    const current = await prisma.user.findUnique({
+      where: { id: userId },
+      select: { avatarUrl: true },
+    });
 
-    // (optionnel) limite de taille simple pour éviter les payloads énormes
-    if (dataUrl.length > 2_000_000) {
-      return res.status(400).json({ error: 'AVATAR_TOO_LARGE' });
-    }
+    uploadedAvatarUrl = await uploadProfileImage({
+      userId,
+      kind: 'avatars',
+      dataUrl: String(req.body?.dataUrl || ''),
+    });
 
     const updated = await prisma.user.update({
       where: { id: userId },
-      data: { avatarUrl: dataUrl },
+      data: { avatarUrl: uploadedAvatarUrl },
       select: { id: true, avatarUrl: true },
     });
+
+    await deleteStoredProfileImageByUrl(current?.avatarUrl);
 
     logger.info(`[ME] Avatar updated`, { userId });
 
     res.json({ ok: true, avatarUrl: updated.avatarUrl });
   } catch (e) {
+    const uploadError = toUploadError(e);
+    if (uploadError) return res.status(uploadError.status).json(uploadError.body);
+    await deleteStoredProfileImageByUrl(uploadedAvatarUrl);
     next(e);
   }
 });
@@ -258,60 +266,38 @@ router.post('/avatar', async (req, res, next) => {
 /**
  * POST /api/me/banner
  * Body: { dataUrl: string } (Base64)
- * Save to disk -> public/uploads/banners/
  */
-import fs from 'fs';
-import path from 'path';
-
 router.post('/banner', async (req, res, next) => {
+  let uploadedBannerUrl: string | null = null;
+
   try {
     const userId = await getCurrentUserId(req, res).catch(() => null);
     if (!userId) return res.status(401).json({ error: 'NO_SESSION' });
 
-    const dataUrl = String(req.body?.dataUrl || '');
-    if (!/^data:image\/(png|jpe?g|webp);base64,/i.test(dataUrl)) {
-      return res.status(400).json({ error: 'BAD_INPUT' });
-    }
+    const current = await prisma.user.findUnique({
+      where: { id: userId },
+      select: { bannerUrl: true },
+    });
 
-    // Limit size (approx check on base64 length, 5MB ~ 6.7MB base64)
-    if (dataUrl.length > 7_000_000) {
-      return res.status(400).json({ error: 'BANNER_TOO_LARGE' });
-    }
+    uploadedBannerUrl = await uploadProfileImage({
+      userId,
+      kind: 'banners',
+      dataUrl: String(req.body?.dataUrl || ''),
+    });
 
-    // Prepare directory
-    const uploadDir = path.join(process.cwd(), 'public', 'uploads', 'banners');
-    if (!fs.existsSync(uploadDir)) {
-      fs.mkdirSync(uploadDir, { recursive: true });
-    }
-
-    // Extract extension and data
-    const matches = dataUrl.match(/^data:image\/(png|jpe?g|webp);base64,(.+)$/i);
-    if (!matches || matches.length !== 3) {
-      return res.status(400).json({ error: 'INVALID_IMAGE_FORMAT' });
-    }
-    const normalizedType = matches[1].toLowerCase();
-    const ext = normalizedType === 'jpeg' ? 'jpg' : normalizedType;
-    const base64Data = matches[2];
-
-    // Generate filename
-    const filename = `${userId}-${Date.now()}.${ext}`;
-    const filePath = path.join(uploadDir, filename);
-
-    // Save file
-    fs.writeFileSync(filePath, Buffer.from(base64Data, 'base64'));
-
-    // Public URL
-    const publicUrl = `/uploads/banners/${filename}`;
-
-    // Update DB
     const updated = await prisma.user.update({
       where: { id: userId },
-      data: { bannerUrl: publicUrl },
+      data: { bannerUrl: uploadedBannerUrl },
       select: { id: true, bannerUrl: true },
     });
 
+    await deleteStoredProfileImageByUrl(current?.bannerUrl);
+
     res.json({ ok: true, bannerUrl: updated.bannerUrl });
   } catch (e) {
+    const uploadError = toUploadError(e);
+    if (uploadError) return res.status(uploadError.status).json(uploadError.body);
+    await deleteStoredProfileImageByUrl(uploadedBannerUrl);
     logger.error('[ME] Banner update error', { userId: (req as any).user?.id, error: (e as any).message });
     next(e);
   }

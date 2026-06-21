@@ -1,6 +1,5 @@
 // BackEnd/src/server.ts
 import * as Sentry from '@sentry/node';
-import path from 'path';
 import './env.js';
 import express from 'express';
 import cors from 'cors';
@@ -9,6 +8,7 @@ import cookieParser from 'cookie-parser';
 import helmet from 'helmet';
 import { router as csrfRouter } from './routes/csrf.js';
 import { csrfRequired } from './lib/csrf.js';
+import { getLocalUploadRoot, isLocalFileStorage } from './lib/file-storage.js';
 
 import { env } from './env.js';
 import type { Request, Response, NextFunction } from 'express';
@@ -111,8 +111,10 @@ app.use(express.urlencoded({ extended: false, limit: '10mb' }));
 //  📦 Middleware globaux
 // ----------------------------
 
-// Servir les fichiers statiques (uploads)
-app.use('/uploads', express.static(path.join(process.cwd(), 'public/uploads')));
+// Local uploads are served only for the local storage driver.
+if (isLocalFileStorage()) {
+  app.use('/uploads', express.static(getLocalUploadRoot()));
+}
 
 app.use(cookieParser());
 

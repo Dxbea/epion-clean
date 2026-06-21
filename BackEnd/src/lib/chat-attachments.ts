@@ -1,8 +1,10 @@
 import type { Express } from 'express';
 import { PDFParse } from 'pdf-parse';
 import { logger } from './logger.js';
+import { ATTACHMENT_MIME_TYPES, validateFileBuffer } from './file-validation.js';
 
 const MAX_PDF_TEXT_CHARS = 12_000;
+const CHAT_ATTACHMENT_MAX_BYTES = 5 * 1024 * 1024;
 
 export type ChatAttachmentKind = 'pdf' | 'image';
 
@@ -94,9 +96,26 @@ export async function prepareChatAttachment(file?: Express.Multer.File): Promise
         return null;
     }
 
-    if (file.mimetype === 'application/pdf') {
-        return preparePdfAttachment(file);
+    const validated = validateFileBuffer({
+        buffer: file.buffer,
+        declaredMimeType: file.mimetype,
+        allowedMimeTypes: ATTACHMENT_MIME_TYPES,
+        maxBytes: CHAT_ATTACHMENT_MAX_BYTES,
+        tooLargeCode: 'ATTACHMENT_TOO_LARGE',
+        unsupportedCode: 'UNSUPPORTED_ATTACHMENT_TYPE',
+        mismatchCode: 'INVALID_ATTACHMENT_CONTENT',
+    });
+
+    const normalizedFile: Express.Multer.File = {
+        ...file,
+        buffer: validated.buffer,
+        mimetype: validated.contentType,
+        size: validated.size,
+    };
+
+    if (normalizedFile.mimetype === 'application/pdf') {
+        return preparePdfAttachment(normalizedFile);
     }
 
-    return prepareImageAttachment(file);
+    return prepareImageAttachment(normalizedFile);
 }
