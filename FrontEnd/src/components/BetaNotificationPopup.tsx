@@ -14,6 +14,15 @@ export default function BetaNotificationPopup() {
   const [isOpen, setIsOpen] = useState(false);
 
   useEffect(() => {
+    try {
+      const dismissed = localStorage.getItem('epion_beta_popup_dismissed');
+      if (dismissed === 'true') {
+        return;
+      }
+    } catch (e) {
+      // Ignore storage errors
+    }
+
     // Smooth reveal
     const timer = setTimeout(() => setIsOpen(true), 150);
     return () => clearTimeout(timer);
@@ -34,6 +43,11 @@ export default function BetaNotificationPopup() {
 
   const handleClose = () => {
     setIsOpen(false);
+    try {
+      localStorage.setItem('epion_beta_popup_dismissed', 'true');
+    } catch (e) {
+      // Ignore storage errors
+    }
   };
 
   return createPortal(
