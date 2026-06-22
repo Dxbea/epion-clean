@@ -62,6 +62,10 @@ jobs:
 
   frontend-check:
     runs-on: ubuntu-latest
+    env:
+      VITE_API_URL: "https://api.epion.test"
+      VITE_SENTRY_DSN: ""
+      VITE_GA_ID: ""
     defaults:
       run:
         working-directory: ./FrontEnd
@@ -78,6 +82,9 @@ jobs:
 
     - name: Install dependencies
       run: npm ci
+
+    - name: Run Tests
+      run: npm test
 
     - name: Build
       run: npm run build
