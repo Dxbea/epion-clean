@@ -6,9 +6,7 @@ import Header from '@/components/Header';
 import Footer from '@/components/Footer';
 import logoLight from '@/assets/LG_All_Blanc.png';
 import logoDark from '@/assets/LG_Text_Noir.png';
-import { ToasterProvider } from '@/components/ui/Toast';
-import { AuthPromptProvider } from '@/contexts/AuthPromptContext';
-import BetaNotificationPopup from '@/components/BetaNotificationPopup';
+import AppProviders from '@/layout/AppProviders';
 
 
 function useExposeChromeHeights(): void {
@@ -26,6 +24,8 @@ function useExposeChromeHeights(): void {
       const f = footerEl ? Math.round(footerEl.getBoundingClientRect().height) : 0;
       root.style.setProperty('--app-header-h', `${h}px`);
       root.style.setProperty('--app-footer-h', `${f}px`);
+      root.style.setProperty('--footer-offset', `${f}px`);
+      root.style.setProperty('--app-bottom-nav-h', '0px');
     };
 
 
@@ -57,22 +57,19 @@ export default function MainLayout(): React.JSX.Element {
 
 
   return (
-    <AuthPromptProvider>
-      <ToasterProvider>
-        <BetaNotificationPopup />
-        <div className="grid min-h-screen grid-rows-[auto_1fr_auto] bg-[#FAFAF5] text-neutral-900 dark:bg-neutral-950 dark:text-white">
-          <Header data-app-header />
-          <Analytics />
-          <main className="min-h-0">
-            <Outlet />
-          </main>
-          <Footer
-            data-app-footer
-            logoLight={logoLight}
-            logoDark={logoDark}
-          />
-        </div>
-      </ToasterProvider>
-    </AuthPromptProvider>
+    <AppProviders>
+      <div className="grid min-h-screen grid-rows-[auto_1fr_auto] bg-[#FAFAF5] text-neutral-900 dark:bg-neutral-950 dark:text-white">
+        <Header data-app-header />
+        <Analytics />
+        <main className="min-h-0">
+          <Outlet />
+        </main>
+        <Footer
+          data-app-footer
+          logoLight={logoLight}
+          logoDark={logoDark}
+        />
+      </div>
+    </AppProviders>
   );
 }

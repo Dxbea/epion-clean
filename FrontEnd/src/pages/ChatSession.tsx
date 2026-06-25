@@ -2,6 +2,7 @@
 // DEBUT BLOC
 import React from 'react';
 import { useNavigate, useParams, useLocation } from 'react-router-dom';
+import { Menu } from 'lucide-react';
 import ChatSidebar from '@/components/chat/ChatSidebar';
 import ChatInput, { type UploadedFile } from '@/components/chat/ChatInput';
 import ChatMessage from '@/components/chat/ChatMessage';
@@ -55,6 +56,10 @@ export default function ChatSession() {
   // Toasts locaux pour les erreurs
   type Toast = { id: number; text: string };
   const [toasts, setToasts] = React.useState<Toast[]>([]);
+
+  const openMobileChatMenu = React.useCallback(() => {
+    window.dispatchEvent(new Event('toggleMobileChatDrawer'));
+  }, []);
 
   const pushToast = React.useCallback((text: string) => {
     const id = Date.now() + Math.random();
@@ -313,8 +318,16 @@ export default function ChatSession() {
   return (
     <div
       className="w-full"
-      style={{ minHeight: 'calc(100dvh - var(--app-header-h,64px))' }}
+      style={{ minHeight: 'calc(100dvh - var(--app-header-h,0px))' }}
     >
+      <button
+        type="button"
+        aria-label="Open chat menu"
+        onClick={openMobileChatMenu}
+        className="fixed left-3 top-[calc(env(safe-area-inset-top)+0.75rem)] z-40 flex h-11 w-11 items-center justify-center rounded-full border border-black/10 bg-white/90 text-neutral-900 shadow-lg backdrop-blur md:hidden dark:border-white/10 dark:bg-neutral-900/90 dark:text-white"
+      >
+        <Menu className="h-5 w-5" />
+      </button>
       <div
         className={`flex flex-col isolate h-full min-h-0 bg-[#FAFAF5] text-neutral-900 dark:bg-neutral-950 dark:text-white md:grid ${collapsed ? 'md:grid-cols-[3.5rem_1fr]' : 'md:grid-cols-[15rem_1fr]'
           }`}
@@ -352,7 +365,7 @@ export default function ChatSession() {
           <div
             ref={listRef}
             className="flex-1 overflow-y-auto"
-            style={{ paddingBottom: '160px' }}
+            style={{ paddingBottom: 'calc(160px + var(--app-bottom-nav-h, 0px))' }}
           >
             <div
               className={`mx-auto w-full max-w-3xl px-4 py-8 ${empty && !activeFolderId ? 'flex h-full items-center justify-center' : ''
@@ -400,7 +413,7 @@ export default function ChatSession() {
           {/* Input */}
           <div
             className="sticky bottom-0 z-10 bg-gradient-to-t from-[#FAFAF5] via-[#FAFAF5] to-transparent pt-8 pb-3 dark:from-neutral-950 dark:via-neutral-950"
-            style={{ ['--chat-input-h' as any]: '120px' }}
+            style={{ ['--chat-input-h' as any]: '120px', bottom: 'var(--app-bottom-nav-h, 0px)' }}
           >
             {attachedContext && attachedContext.type === 'article' && (
               <div className="mx-auto max-w-3xl px-4 pt-2">

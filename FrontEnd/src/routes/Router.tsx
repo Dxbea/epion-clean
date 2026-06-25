@@ -2,6 +2,7 @@
 import React, { Suspense } from 'react';
 import { Routes, Route, Navigate } from 'react-router-dom';
 import MainLayout from '../layout/MainLayout';
+import AppLayout from '@/layout/AppLayout';
 import PageLoader from '../components/ui/PageLoader';
 
 // Eager loaded pages (Core / Landing / First Paint)
@@ -45,10 +46,12 @@ const Cookies = React.lazy(() => import('../pages/Cookies'));
 const ResetPassword = React.lazy(() => import('../pages/ResetPassword'));
 const VerifyEmail = React.lazy(() => import('../pages/VerifyEmail'));
 
-
 import { useMe } from '@/contexts/MeContext';
 import { useAuthPrompt } from '@/contexts/AuthPromptContext';
 
+function lazy(element: React.ReactElement): React.ReactElement {
+  return <Suspense fallback={<PageLoader />}>{element}</Suspense>;
+}
 
 function RequireAuth({ children }: { children: React.ReactElement }) {
   const { me, loading } = useMe();
@@ -62,7 +65,7 @@ function RequireAuth({ children }: { children: React.ReactElement }) {
     }
   }, [loading, me, requireAuth]);
 
-  if (loading) return <div className="p-6 text-sm opacity-70">Loading…</div>;
+  if (loading) return <div className="p-6 text-sm opacity-70">Loading...</div>;
   if (!me) return <Navigate to="/settings#account" replace />;
 
   return children;
@@ -89,144 +92,103 @@ export default function Router(): React.ReactElement {
   return (
     <Routes>
       <Route element={<MainLayout />}>
-        {/* --- pages publiques Core (Eager) --- */}
         <Route path="/" element={<Home />} />
+        <Route path="/legal/terms" element={lazy(<TermsPage />)} />
+        <Route path="/legal/privacy" element={lazy(<PrivacyPage />)} />
+        <Route path="/legal" element={lazy(<LegalPage />)} />
+        <Route path="/legal/moderation" element={lazy(<ModerationPolicy />)} />
+        <Route path="/legal/cookies" element={lazy(<Cookies />)} />
+        <Route path="/about" element={lazy(<AboutPage />)} />
+        <Route path="/help" element={lazy(<HelpPage />)} />
+        <Route path="/download" element={lazy(<Download />)} />
+        <Route path="/changelog" element={lazy(<Changelog />)} />
+        <Route path="/guide" element={lazy(<Guide />)} />
+        <Route path="/blog" element={lazy(<Blog />)} />
+        <Route path="/transparency" element={lazy(<Transparency />)} />
+        <Route path="/contact" element={lazy(<Contact />)} />
+        <Route path="/press" element={lazy(<Press />)} />
+      </Route>
+
+      <Route element={<AppLayout />}>
         <Route path="/news" element={<News />} />
         <Route path="/news/category" element={<CategoryIndex />} />
         <Route path="/news/favorites" element={<Favorites />} />
         <Route path="/news/categories" element={<Categories />} />
         <Route path="/news/:slug" element={<NewsSlug />} />
         <Route path="/news/saved" element={<Saved />} />
+        <Route path="/news/search" element={lazy(<SearchPage />)} />
+        <Route path="/saved" element={<Navigate to="/news/saved" replace />} />
+
         <Route
-          path="/saved"
-          element={<Navigate to="/news/saved" replace />}
+          path="/article/:slug"
+          element={lazy(
+            <RequireAuth>
+              <Article />
+            </RequireAuth>,
+          )}
+        />
+        <Route
+          path="/article/:id"
+          element={lazy(
+            <RequireAuth>
+              <Article />
+            </RequireAuth>,
+          )}
+        />
+        <Route
+          path="/create"
+          element={lazy(
+            <RequireAuth>
+              <CreateArticle />
+            </RequireAuth>,
+          )}
+        />
+        <Route path="/account/articles/:idOrSlug/edit" element={lazy(<EditArticlePage />)} />
+        <Route path="/news/article/:idOrSlug/edit" element={lazy(<EditArticlePage />)} />
+        <Route path="/article/:idOrSlug/edit" element={lazy(<EditArticlePage />)} />
+
+        <Route
+          path="/account"
+          element={lazy(
+            <RequireAuth>
+              <MyAccount />
+            </RequireAuth>,
+          )}
+        />
+        <Route
+          path="/activity"
+          element={lazy(
+            <RequireAuth>
+              <Activity />
+            </RequireAuth>,
+          )}
+        />
+        <Route
+          path="/account/articles"
+          element={lazy(
+            <RequireAuth>
+              <MyArticlesPage />
+            </RequireAuth>,
+          )}
+        />
+        <Route path="/account/saved" element={<Navigate to="/activity?tab=SAVED" replace />} />
+        <Route path="/u/:userId" element={lazy(<Profile />)} />
+
+        <Route
+          path="/admin/contribution-reports"
+          element={lazy(
+            <RequireAdmin>
+              <AdminContributionReports />
+            </RequireAdmin>,
+          )}
         />
 
-        {/* --- Lazy Loaded Pages --- */}
-        <Route
-          path="*"
-          element={
-            <Suspense fallback={<PageLoader />}>
-              <Routes>
-                {/* --- Search & Articles --- */}
-                <Route path="/news/search" element={<SearchPage />} />
+        <Route path="/chat" element={lazy(<Chat />)} />
+        <Route path="/chat/:id" element={lazy(<ChatSession />)} />
 
-                {/* article en lecture */}
-                <Route
-                  path="/article/:slug"
-                  element={
-                    <RequireAuth>
-                      <Article />
-                    </RequireAuth>
-                  }
-                />
-                <Route
-                  path="/article/:id"
-                  element={
-                    <RequireAuth>
-                      <Article />
-                    </RequireAuth>
-                  }
-                />
-
-                {/* création (réservée aux comptes connectés) */}
-                <Route
-                  path="/create"
-                  element={
-                    <RequireAuth>
-                      <CreateArticle />
-                    </RequireAuth>
-                  }
-                />
-
-                {/* édition depuis l’espace compte */}
-                <Route
-                  path="/account/articles/:idOrSlug/edit"
-                  element={<EditArticlePage />}
-                />
-
-                {/* édition depuis une URL “actualité” */}
-                <Route
-                  path="/news/article/:idOrSlug/edit"
-                  element={<EditArticlePage />}
-                />
-
-                {/* fallback ancien format */}
-                <Route
-                  path="/article/:idOrSlug/edit"
-                  element={<EditArticlePage />}
-                />
-
-                {/* --- compte / user --- */}
-                <Route
-                  path="/account"
-                  element={
-                    <RequireAuth>
-                      <MyAccount />
-                    </RequireAuth>
-                  }
-                />
-                <Route
-                  path="/activity"
-                  element={
-                    <RequireAuth>
-                      <Activity />
-                    </RequireAuth>
-                  }
-                />
-                <Route
-                  path="/account/articles"
-                  element={
-                    <RequireAuth>
-                      <MyArticlesPage />
-                    </RequireAuth>
-                  }
-                />
-                <Route
-                  path="/account/saved"
-                  element={<Navigate to="/activity?tab=SAVED" replace />}
-                />
-
-                {/* --- Public Profile --- */}
-                <Route path="/u/:userId" element={<Profile />} />
-
-                <Route
-                  path="/admin/contribution-reports"
-                  element={
-                    <RequireAdmin>
-                      <AdminContributionReports />
-                    </RequireAdmin>
-                  }
-                />
-
-                {/* --- chat (PLUS DE REQUIREAUTH ICI) --- */}
-                <Route path="/chat" element={<Chat />} />
-                <Route path="/chat/:id" element={<ChatSession />} />
-
-                {/* --- settings / légal / divers --- */}
-                <Route path="/settings" element={<Settings />} />
-                <Route path="/legal/terms" element={<TermsPage />} />
-                <Route path="/legal/privacy" element={<PrivacyPage />} />
-                <Route path="/legal" element={<LegalPage />} />
-                <Route path="/legal/moderation" element={<ModerationPolicy />} />
-                <Route path="/legal/cookies" element={<Cookies />} />
-                <Route path="/about" element={<AboutPage />} />
-                <Route path="/help" element={<HelpPage />} />
-                <Route path="/download" element={<Download />} />
-                <Route path="/changelog" element={<Changelog />} />
-                <Route path="/guide" element={<Guide />} />
-                <Route path="/blog" element={<Blog />} />
-                <Route path="/transparency" element={<Transparency />} />
-                <Route path="/contact" element={<Contact />} />
-                <Route path="/press" element={<Press />} />
-
-                {/* reset password */}
-                <Route path="/reset-password" element={<ResetPassword />} />
-                <Route path="/verify-email" element={<VerifyEmail />} />
-              </Routes>
-            </Suspense>
-          }
-        />
+        <Route path="/settings" element={lazy(<Settings />)} />
+        <Route path="/reset-password" element={lazy(<ResetPassword />)} />
+        <Route path="/verify-email" element={lazy(<VerifyEmail />)} />
       </Route>
     </Routes>
   );

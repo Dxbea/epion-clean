@@ -1,49 +1,104 @@
 import React, { useState } from 'react';
-import { Sparkles, MessageSquare, Share2, Info, X, Copy, Check, Highlighter } from 'lucide-react';
+import { Link } from 'react-router-dom';
+import { Check, ChevronLeft, Forward, Heart, Highlighter, Info, MessageSquare, X } from 'lucide-react';
+import { FaFacebookF, FaFacebookMessenger, FaInstagram, FaLinkedinIn, FaRedditAlien, FaWhatsapp, FaXTwitter } from 'react-icons/fa6';
+import type { IconType } from 'react-icons';
+
 import ReactionButtons from '@/components/ui/ReactionButtons';
 import SaveButton from '@/components/ui/SaveButton';
+import { useI18n } from '@/i18n/I18nContext';
 
 type Props = {
     articleId: string;
-    onSummarize: () => void;
     onChat: () => void;
     onFactCheck: () => void;
     onShowPrompt: () => void;
-    summaryText?: string;
-    summaryLoading?: boolean;
     promptText?: string;
     isHighlightActive?: boolean;
     onHighlightClick?: () => void;
 };
 
-type Section = 'interactions' | 'summarize' | 'info' | null;
+type Section = 'share' | 'interactions' | 'info' | null;
+type CopyState = 'idle' | 'copied' | 'error';
+type ShareDestination = {
+    label: string;
+    icon: IconType;
+    href?: string;
+    fallback?: boolean;
+    title?: string;
+};
 
 export default function ArticleActionBar({
     articleId,
-    onSummarize,
     onChat,
-    onFactCheck,
     onShowPrompt,
-    summaryText,
-    summaryLoading,
     promptText,
     isHighlightActive,
     onHighlightClick
 }: Props) {
     const [activeSection, setActiveSection] = useState<Section>(null);
-    const [copied, setCopied] = useState(false);
+    const [copyState, setCopyState] = useState<CopyState>('idle');
+    const { t, locale } = useI18n();
 
-    const handleShare = () => {
-        navigator.clipboard.writeText(window.location.href);
-        alert('Link copied to clipboard!');
+    const isFrench = locale.startsWith('fr');
+    const newsLabel = t('nav_news') || (isFrench ? 'Actualites' : 'News');
+    const shareLabel = isFrench ? 'Partager' : 'Share';
+    const copyLabel = isFrench ? 'Copier' : 'Copy';
+    const copiedLabel = isFrench ? 'Copié' : 'Copied';
+    const copyErrorLabel = isFrench ? 'Copie indisponible' : 'Copy unavailable';
+    const articleUrl = typeof window !== 'undefined' ? window.location.href : '';
+    const articleTitle = typeof document !== 'undefined' ? document.title : 'Epion article';
+    const encodedUrl = encodeURIComponent(articleUrl);
+    const encodedTitle = encodeURIComponent(articleTitle);
+    const encodedText = encodeURIComponent(articleTitle + ' ' + articleUrl);
+
+    const shareDestinations: ShareDestination[] = [
+        { label: 'X', icon: FaXTwitter, href: 'https://twitter.com/intent/tweet?url=' + encodedUrl + '&text=' + encodedTitle },
+        {
+            label: 'Instagram',
+            icon: FaInstagram,
+            fallback: true,
+            title: isFrench
+                ? 'Instagram ne propose pas de lien web fiable pour partager une URL. Utilise le partage natif ou copie le lien.'
+                : 'Instagram does not provide a reliable web URL share endpoint. Use native share or copy the link.',
+        },
+        { label: 'WhatsApp', icon: FaWhatsapp, href: 'https://wa.me/?text=' + encodedText },
+        { label: 'Facebook', icon: FaFacebookF, href: 'https://www.facebook.com/sharer/sharer.php?u=' + encodedUrl },
+        {
+            label: 'Messenger',
+            icon: FaFacebookMessenger,
+            fallback: true,
+            title: isFrench
+                ? 'Messenger demande une integration app fiable. Utilise le partage natif ou copie le lien.'
+                : 'Messenger requires a reliable app integration. Use native share or copy the link.',
+        },
+        { label: 'Reddit', icon: FaRedditAlien, href: 'https://www.reddit.com/submit?url=' + encodedUrl + '&title=' + encodedTitle },
+        { label: 'LinkedIn', icon: FaLinkedinIn, href: 'https://www.linkedin.com/sharing/share-offsite/?url=' + encodedUrl },
+    ];
+
+    const handleCopy = async () => {
+        try {
+            await navigator.clipboard.writeText(articleUrl);
+            setCopyState('copied');
+            window.setTimeout(() => setCopyState('idle'), 1800);
+        } catch {
+            setCopyState('error');
+            window.setTimeout(() => setCopyState('idle'), 1800);
+        }
     };
 
-    const handleCopy = () => {
-        if (summaryText) {
-            navigator.clipboard.writeText(summaryText);
-            setCopied(true);
-            setTimeout(() => setCopied(false), 2000);
+
+    const handleFallbackShare = async () => {
+        if (typeof navigator !== 'undefined' && navigator.share) {
+            try {
+                await navigator.share({ title: articleTitle, url: articleUrl });
+                return;
+            } catch (error: any) {
+                if (error?.name === 'AbortError') return;
+            }
         }
+
+        await handleCopy();
     };
 
     const toggleSection = (section: Section) => {
@@ -51,16 +106,13 @@ export default function ArticleActionBar({
             setActiveSection(null);
         } else {
             setActiveSection(section);
-            if (section === 'summarize') onSummarize();
             if (section === 'info') onShowPrompt();
         }
     };
 
-    // Responsive width logic
     const getWidth = () => {
-        if (!activeSection) return '330px';
-        if (activeSection === 'interactions') return '330px';
-        // For summarize/info: 85vw on mobile, 75vw on desktop
+        if (!activeSection) return 'min(94vw, 430px)';
+        if (activeSection === 'share' || activeSection === 'interactions') return 'min(94vw, 430px)';
         return 'var(--expanded-width, 75vw)';
     };
 
@@ -77,13 +129,8 @@ export default function ArticleActionBar({
                 `}
             </style>
 
-            {/* SVG Gradients Definitions */}
             <svg width="0" height="0" className="absolute">
                 <defs>
-                    <linearGradient id="grad-summarize" x1="0" y1="0" x2="24" y2="24" gradientUnits="userSpaceOnUse">
-                        <stop offset="0%" stopColor="#2dd4bf" />
-                        <stop offset="100%" stopColor="#3b82f6" />
-                    </linearGradient>
                     <linearGradient id="grad-chat" x1="0" y1="0" x2="24" y2="24" gradientUnits="userSpaceOnUse">
                         <stop offset="0%" stopColor="#34d399" />
                         <stop offset="100%" stopColor="#14b8a6" />
@@ -100,15 +147,88 @@ export default function ArticleActionBar({
             </svg>
 
             <div
-                style={{ width: getWidth() }}
-                className={`fixed bottom-6 left-1/2 z-50 transition-all duration-500 -translate-x-1/2 flex flex-col items-center bg-white/90 backdrop-blur-xl dark:bg-neutral-900/90 border border-black/5 dark:border-white/10 shadow-2xl rounded-[32px] overflow-hidden ${activeSection ? 'p-4 gap-4' : 'p-2 gap-0'
+                style={{
+                    width: getWidth(),
+                    bottom: 'calc(1.5rem + env(safe-area-inset-bottom))',
+                }}
+                className={`fixed left-1/2 z-50 transition-all duration-500 -translate-x-1/2 flex flex-col items-center bg-white/90 backdrop-blur-xl dark:bg-neutral-900/90 border border-black/5 dark:border-white/10 shadow-2xl rounded-[32px] overflow-hidden ${activeSection ? 'p-4 gap-4' : 'p-2 gap-0'
                     }`}
             >
-                {/* CONTENT PANELS */}
                 <div className={`w-full overflow-hidden transition-all duration-500 ${activeSection ? 'max-h-[500px] opacity-100 mb-2' : 'max-h-0 opacity-0'
                     }`}>
 
-                    {/* 1. INTERACTIONS PANEL */}
+                    {activeSection === 'share' && (
+                        <div className="flex flex-col gap-3 animate-in fade-in slide-in-from-bottom-2 duration-300">
+                            <div className="px-2">
+                                <span className="text-[11px] font-bold uppercase tracking-wider text-neutral-400 dark:text-neutral-500">
+                                    {shareLabel}
+                                </span>
+                            </div>
+
+                            <div className="flex gap-3 overflow-x-auto px-1 pb-1 [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
+                                {shareDestinations.map((destination) => {
+                                    const Icon = destination.icon;
+                                    const content = (
+                                        <>
+                                            <span className="flex h-10 w-10 items-center justify-center rounded-2xl border border-black/5 bg-black/[0.03] transition-colors dark:border-white/5 dark:bg-white/[0.05]">
+                                                <Icon className="h-5 w-5" />
+                                            </span>
+                                            <span className="max-w-[4.5rem] truncate text-[11px] font-medium leading-none">{destination.label}</span>
+                                        </>
+                                    );
+
+                                    if (destination.href) {
+                                        return (
+                                            <a
+                                                key={destination.label}
+                                                href={destination.href}
+                                                target="_blank"
+                                                rel="noreferrer"
+                                                className="flex h-[72px] w-16 flex-shrink-0 flex-col items-center justify-center gap-1.5 rounded-2xl text-neutral-700 transition-all hover:bg-black/5 active:scale-95 dark:text-neutral-200 dark:hover:bg-white/10"
+                                            >
+                                                {content}
+                                            </a>
+                                        );
+                                    }
+
+                                    return (
+                                        <button
+                                            key={destination.label}
+                                            type="button"
+                                            title={destination.title}
+                                            onClick={handleFallbackShare}
+                                            className="flex h-[72px] w-16 flex-shrink-0 flex-col items-center justify-center gap-1.5 rounded-2xl text-neutral-500 opacity-75 transition-all hover:bg-black/5 hover:opacity-100 active:scale-95 dark:text-neutral-400 dark:hover:bg-white/10"
+                                        >
+                                            {content}
+                                        </button>
+                                    );
+                                })}
+                            </div>
+
+                            <div className={`flex items-center gap-2 rounded-2xl border p-1.5 transition-colors ${copyState === 'copied'
+                                ? 'border-emerald-400/70 bg-emerald-500/10 dark:border-emerald-400/50 dark:bg-emerald-400/10'
+                                : copyState === 'error'
+                                    ? 'border-red-400/60 bg-red-500/10 dark:border-red-400/50 dark:bg-red-400/10'
+                                    : 'border-black/5 bg-black/[0.03] dark:border-white/5 dark:bg-white/[0.04]'
+                                }`}
+                            >
+                                {copyState === 'copied' && <Check className="h-4 w-4 flex-shrink-0 text-emerald-500" />}
+                                <input
+                                    readOnly
+                                    value={articleUrl}
+                                    className="min-w-0 flex-1 bg-transparent px-2 text-xs text-neutral-600 outline-none dark:text-neutral-300"
+                                    aria-label="Article URL"
+                                />
+                                <button
+                                    type="button"
+                                    onClick={handleCopy}
+                                    className="h-9 rounded-full bg-neutral-950 px-3 text-xs font-semibold text-white transition-all hover:bg-neutral-800 active:scale-95 dark:bg-white dark:text-neutral-950 dark:hover:bg-neutral-200"
+                                >
+                                    {copyState === 'copied' ? copiedLabel : copyState === 'error' ? copyErrorLabel : copyLabel}
+                                </button>
+                            </div>
+                        </div>
+                    )}
                     {activeSection === 'interactions' && (
                         <div className="flex flex-col gap-3 animate-in fade-in slide-in-from-bottom-2 duration-300">
                             <div className="px-2">
@@ -123,50 +243,10 @@ export default function ArticleActionBar({
                                     variant="expanded-menu"
                                     className="border border-black/5 dark:border-white/5"
                                 />
-                                <button
-                                    onClick={handleShare}
-                                    className="cursor-pointer group relative flex w-full h-12 items-center gap-3 rounded-xl px-4 text-[15px] font-medium transition-all active:scale-95 border border-black/5 dark:border-white/5 bg-transparent hover:bg-black/5 dark:hover:bg-white/10 text-neutral-800 dark:text-neutral-200"
-                                >
-                                    <Share2 className="h-5 w-5 transition-transform group-hover:scale-110 text-neutral-800" />
-                                    <span>Share Article</span>
-                                </button>
                             </div>
                         </div>
                     )}
 
-                    {/* 2. SUMMARIZE PANEL */}
-                    {activeSection === 'summarize' && (
-                        <div className="flex flex-col gap-4 animate-in fade-in slide-in-from-bottom-2 duration-300">
-                            <div className="flex items-center justify-between px-2">
-                                <div className="flex items-center gap-2">
-                                    <Sparkles className="h-5 w-5 text-teal-500" />
-                                    <span className="text-sm font-bold text-neutral-800 dark:text-neutral-100">AI Summary</span>
-                                </div>
-                                <button
-                                    onClick={handleCopy}
-                                    disabled={summaryLoading || !summaryText}
-                                    className="p-2 rounded-lg hover:bg-black/5 dark:hover:bg-white/5 transition-colors"
-                                >
-                                    {copied ? <Check className="h-4 w-4 text-green-500" /> : <Copy className="h-4 w-4 text-neutral-400" />}
-                                </button>
-                            </div>
-                            <div className="px-2 min-h-[100px] max-h-[300px] overflow-y-auto">
-                                {summaryLoading ? (
-                                    <div className="space-y-2 animate-pulse">
-                                        <div className="h-3 bg-neutral-200 dark:bg-neutral-800 rounded w-3/4" />
-                                        <div className="h-3 bg-neutral-200 dark:bg-neutral-800 rounded w-full" />
-                                        <div className="h-3 bg-neutral-200 dark:bg-neutral-800 rounded w-5/6" />
-                                    </div>
-                                ) : (
-                                    <p className="text-[15px] leading-relaxed text-neutral-600 dark:text-neutral-300">
-                                        {summaryText || "No summary available."}
-                                    </p>
-                                )}
-                            </div>
-                        </div>
-                    )}
-
-                    {/* 3. INFO/PROMPT PANEL */}
                     {activeSection === 'info' && (
                         <div className="flex flex-col gap-4 animate-in fade-in slide-in-from-bottom-2 duration-300">
                             <div className="px-2">
@@ -193,11 +273,33 @@ export default function ArticleActionBar({
                     <div className="mt-4 h-px bg-neutral-100 dark:bg-neutral-800" />
                 </div>
 
-                {/* PRIMARY ACTIONS (Bottom Row) */}
-                <div className="flex items-center gap-1 w-full justify-between px-1">
+                <div className="flex min-h-[44px] items-center gap-1 w-full justify-between px-1">
+                    <Link
+                        to="/news"
+                        className="group flex h-11 min-w-0 flex-shrink items-center gap-1.5 rounded-full px-2.5 text-[13px] font-medium text-neutral-700 transition-all hover:bg-black/5 hover:text-neutral-950 active:scale-95 dark:text-neutral-200 dark:hover:bg-white/10 dark:hover:text-white"
+                        aria-label={newsLabel}
+                    >
+                        <ChevronLeft className="h-4 w-4 flex-shrink-0" />
+                        <span className="truncate">{newsLabel}</span>
+                    </Link>
 
-                    {/* LEFT: Interaction Trigger & Comments */}
-                    <div className="flex items-center gap-1">
+                    <div className="h-5 w-px bg-neutral-200 dark:bg-neutral-800 mx-1 flex-shrink-0" />
+
+                    <div className="flex flex-shrink-0 items-center gap-1">
+                        <button
+                            className={`group relative flex h-10 w-10 items-center justify-center rounded-full transition-all active:scale-95 ${activeSection === 'share' ? 'bg-black text-white dark:bg-white dark:text-black' : 'hover:bg-black/5 dark:hover:bg-white/10 text-neutral-400'
+                                }`}
+                            title={shareLabel}
+                            aria-label={shareLabel}
+                            onClick={() => toggleSection('share')}
+                        >
+                            {activeSection === 'share' ? (
+                                <X className="h-5 w-5 animate-in spin-in-90 duration-200" />
+                            ) : (
+                                <Forward className="h-5 w-5 transition-transform group-hover:scale-110" />
+                            )}
+                        </button>
+
                         <button
                             className={`group relative flex h-10 w-10 items-center justify-center rounded-full transition-all flex-shrink-0 ${activeSection === 'interactions' ? 'bg-black text-white dark:bg-white dark:text-black' : 'hover:bg-black/5 dark:hover:bg-white/10 text-neutral-400'
                                 }`}
@@ -207,26 +309,8 @@ export default function ArticleActionBar({
                             {activeSection === 'interactions' ? (
                                 <X className="h-5 w-5 animate-in spin-in-90 duration-200" />
                             ) : (
-                                <Share2 className="h-5 w-5 transition-transform group-hover:scale-110" />
+                                <Heart className="h-5 w-5 transition-transform group-hover:scale-110" />
                             )}
-                        </button>
-
-                    </div>
-
-                    <div className="h-4 w-px bg-neutral-200 dark:bg-neutral-800 mx-1 flex-shrink-0" />
-
-                    {/* MIDDLE/RIGHT: AI Actions & Info */}
-                    <div className="flex items-center gap-1">
-                        <button
-                            className={`group relative flex h-10 w-10 items-center justify-center rounded-full transition-all ${activeSection === 'summarize' ? 'bg-teal-50 dark:bg-teal-900/30' : 'hover:bg-black/5 dark:hover:bg-white/10'
-                                }`}
-                            title="Summarize"
-                            onClick={() => toggleSection('summarize')}
-                        >
-                            <Sparkles
-                                className="h-5 w-5 transition-transform group-hover:scale-110"
-                                style={{ stroke: 'url(#grad-summarize)' }}
-                            />
                         </button>
 
                         <button

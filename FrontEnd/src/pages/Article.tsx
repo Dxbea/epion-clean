@@ -566,7 +566,7 @@ export default function Article() {
 
   return (
     <>
-      <main className="mx-auto w-full max-w-4xl px-4 py-10 space-y-8 pb-32">
+      <main className="mx-auto w-full max-w-4xl px-4 py-10 space-y-8 pb-[calc(9rem+env(safe-area-inset-bottom))]">
         {/* Breadcrumb */}
         <nav className="text-sm opacity-70">
           <Link to="/news" className="hover:underline">
@@ -811,12 +811,9 @@ export default function Article() {
       {/* Action Bar & Drawer */}
       <ArticleActionBar
         articleId={article.id}
-        onSummarize={handleSummarize}
         onChat={handleChat}
         onFactCheck={handleFactCheck}
         onShowPrompt={handleShowPrompt}
-        summaryText={summaryText}
-        summaryLoading={summaryLoading}
         promptText={article?.generationPrompt || ''}
         isHighlightActive={isHighlightActive}
         onHighlightClick={() => {
