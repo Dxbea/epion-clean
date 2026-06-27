@@ -187,6 +187,7 @@ export default function Router(): React.ReactElement {
         <Route path="/chat/:id" element={lazy(<ChatSession />)} />
 
         <Route path="/settings" element={lazy(<Settings />)} />
+        <Route path="/settings/:category" element={lazy(<Settings />)} />
         <Route path="/reset-password" element={lazy(<ResetPassword />)} />
         <Route path="/verify-email" element={lazy(<VerifyEmail />)} />
       </Route>
