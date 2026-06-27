@@ -28,6 +28,11 @@ import App from '@/App'
 
 import { MeProvider } from '@/contexts/MeContext'
 
+if ('serviceWorker' in navigator) {
+  window.addEventListener('load', () => {
+    void navigator.serviceWorker.register('/sw.js')
+  })
+}
 const container = document.getElementById('root')
 if (!container) {
   throw new Error('Root container missing: <div id="root"></div> absent de index.html')
