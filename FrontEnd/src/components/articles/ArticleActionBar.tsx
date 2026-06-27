@@ -19,6 +19,7 @@ type Props = {
 };
 
 type Section = 'share' | 'interactions' | 'info' | null;
+type ToolbarAction = 'share' | 'interactions' | 'chat' | 'highlight' | 'info';
 type CopyState = 'idle' | 'copied' | 'error';
 type ShareDestination = {
     label: string;
@@ -27,6 +28,8 @@ type ShareDestination = {
     fallback?: boolean;
     title?: string;
 };
+
+const TOOLBAR_DRAG_THRESHOLD_PX = 10;
 
 export default function ArticleActionBar({
     articleId,
@@ -38,6 +41,11 @@ export default function ArticleActionBar({
 }: Props) {
     const [activeSection, setActiveSection] = useState<Section>(null);
     const [copyState, setCopyState] = useState<CopyState>('idle');
+    const actionsRef = React.useRef<HTMLDivElement>(null);
+    const actionDragRef = React.useRef<{ pointerId: number; startX: number; currentX: number; didDrag: boolean } | null>(null);
+    const suppressActionClickRef = React.useRef(false);
+    const [actionDragPercent, setActionDragPercent] = React.useState<number | null>(null);
+    const [actionPreviewIndex, setActionPreviewIndex] = React.useState<number | null>(null);
     const { t, locale } = useI18n();
 
     const isFrench = locale.startsWith('fr');
@@ -51,6 +59,11 @@ export default function ArticleActionBar({
     const encodedUrl = encodeURIComponent(articleUrl);
     const encodedTitle = encodeURIComponent(articleTitle);
     const encodedText = encodeURIComponent(articleTitle + ' ' + articleUrl);
+
+    const toolbarActions: ToolbarAction[] = ['share', 'interactions', 'chat', 'highlight', 'info'];
+    const toolbarItemWidth = 100 / toolbarActions.length;
+    const activeActionIndex = actionPreviewIndex ?? (activeSection ? toolbarActions.indexOf(activeSection) : isHighlightActive ? toolbarActions.indexOf('highlight') : -1);
+    const actionIndicatorPercent = actionDragPercent ?? (activeActionIndex >= 0 ? activeActionIndex * toolbarItemWidth : null);
 
     const shareDestinations: ShareDestination[] = [
         { label: 'X', icon: FaXTwitter, href: 'https://twitter.com/intent/tweet?url=' + encodedUrl + '&text=' + encodedTitle },
@@ -101,15 +114,110 @@ export default function ArticleActionBar({
         await handleCopy();
     };
 
-    const toggleSection = (section: Section) => {
-        if (activeSection === section) {
-            setActiveSection(null);
-        } else {
-            setActiveSection(section);
-            if (section === 'info') onShowPrompt();
+    const openToolbarAction = React.useCallback((action: ToolbarAction, source: 'click' | 'drag') => {
+        if (action === 'share' || action === 'interactions' || action === 'info') {
+            if (source === 'click' && activeSection === action) {
+                setActiveSection(null);
+                return;
+            }
+            setActiveSection(action);
+            if (action === 'info') onShowPrompt();
+            return;
         }
+
+        if (action === 'chat') {
+            setActiveSection(null);
+            onChat();
+            return;
+        }
+
+        setActiveSection(null);
+        onHighlightClick?.();
+    }, [activeSection, onChat, onHighlightClick, onShowPrompt]);
+
+    const getActionPercentFromClientX = React.useCallback((clientX: number) => {
+        const track = actionsRef.current;
+        if (!track) return 0;
+        const rect = track.getBoundingClientRect();
+        if (rect.width <= 0) return 0;
+        const raw = ((clientX - rect.left) / rect.width) * 100 - toolbarItemWidth / 2;
+        return Math.max(0, Math.min(100 - toolbarItemWidth, raw));
+    }, [toolbarItemWidth]);
+
+    const getClosestActionIndex = React.useCallback((percent: number) => {
+        return Math.max(0, Math.min(toolbarActions.length - 1, Math.round(percent / toolbarItemWidth)));
+    }, [toolbarActions.length, toolbarItemWidth]);
+
+    const handleActionPointerDown = (event: React.PointerEvent<HTMLDivElement>) => {
+        if (event.button !== 0) return;
+        actionDragRef.current = {
+            pointerId: event.pointerId,
+            startX: event.clientX,
+            currentX: event.clientX,
+            didDrag: false,
+        };
     };
 
+    const handleActionPointerMove = (event: React.PointerEvent<HTMLDivElement>) => {
+        const drag = actionDragRef.current;
+        if (!drag || drag.pointerId !== event.pointerId) return;
+
+        const deltaX = event.clientX - drag.startX;
+        drag.currentX = event.clientX;
+
+        if (!drag.didDrag && Math.abs(deltaX) < TOOLBAR_DRAG_THRESHOLD_PX) return;
+
+        if (!drag.didDrag) {
+            drag.didDrag = true;
+            event.currentTarget.setPointerCapture?.(event.pointerId);
+            setActionPreviewIndex(null);
+        }
+
+        event.preventDefault();
+        setActionDragPercent(getActionPercentFromClientX(event.clientX));
+    };
+
+    const finishActionDrag = (event: React.PointerEvent<HTMLDivElement>) => {
+        const drag = actionDragRef.current;
+        if (!drag || drag.pointerId !== event.pointerId) return;
+
+        if (event.currentTarget.hasPointerCapture?.(event.pointerId)) {
+            event.currentTarget.releasePointerCapture(event.pointerId);
+        }
+
+        actionDragRef.current = null;
+
+        if (!drag.didDrag) {
+            setActionDragPercent(null);
+            return;
+        }
+
+        const closestIndex = getClosestActionIndex(getActionPercentFromClientX(drag.currentX));
+        setActionDragPercent(null);
+        setActionPreviewIndex(closestIndex);
+        suppressActionClickRef.current = true;
+        window.setTimeout(() => {
+            suppressActionClickRef.current = false;
+            setActionPreviewIndex(null);
+        }, 0);
+        openToolbarAction(toolbarActions[closestIndex], 'drag');
+    };
+
+    const cancelActionDrag = (event: React.PointerEvent<HTMLDivElement>) => {
+        if (event.currentTarget.hasPointerCapture?.(event.pointerId)) {
+            event.currentTarget.releasePointerCapture(event.pointerId);
+        }
+        actionDragRef.current = null;
+        setActionDragPercent(null);
+        setActionPreviewIndex(null);
+    };
+
+    const handleActionClickCapture = (event: React.MouseEvent<HTMLDivElement>) => {
+        if (!suppressActionClickRef.current) return;
+        event.preventDefault();
+        event.stopPropagation();
+        suppressActionClickRef.current = false;
+    };
     const getWidth = () => {
         if (!activeSection) return 'min(94vw, 430px)';
         if (activeSection === 'share' || activeSection === 'interactions') return 'min(94vw, 430px)';
@@ -285,13 +393,35 @@ export default function ArticleActionBar({
 
                     <div className="h-5 w-px bg-neutral-200 dark:bg-neutral-800 mx-1 flex-shrink-0" />
 
-                    <div className="flex flex-shrink-0 items-center gap-1">
+                    <div
+                        ref={actionsRef}
+                        data-article-toolbar-actions
+                        className="relative grid flex-shrink-0 touch-pan-y select-none grid-cols-5 gap-1 overflow-hidden rounded-full"
+                        onPointerDown={handleActionPointerDown}
+                        onPointerMove={handleActionPointerMove}
+                        onPointerUp={finishActionDrag}
+                        onPointerCancel={cancelActionDrag}
+                        onClickCapture={handleActionClickCapture}
+                    >
+                        {actionIndicatorPercent !== null && (
+                            <span
+                                data-article-toolbar-indicator
+                                aria-hidden="true"
+                                className="absolute bottom-0 top-0 rounded-full bg-black text-white transition-[left] duration-300 ease-out motion-reduce:transition-none dark:bg-white dark:text-black"
+                                style={{
+                                    width: `calc(${toolbarItemWidth}% - 0.25rem)`,
+                                    left: `calc(${actionIndicatorPercent}% + 0.125rem)`,
+                                    transitionDuration: actionDragPercent === null ? undefined : '80ms',
+                                }}
+                            />
+                        )}
+
                         <button
-                            className={`group relative flex h-10 w-10 items-center justify-center rounded-full transition-all active:scale-95 ${activeSection === 'share' ? 'bg-black text-white dark:bg-white dark:text-black' : 'hover:bg-black/5 dark:hover:bg-white/10 text-neutral-400'
+                            className={`group relative z-10 flex h-10 w-10 touch-manipulation items-center justify-center rounded-full transition-all active:scale-95 ${activeSection === 'share' ? 'text-white dark:text-black' : 'hover:bg-black/5 dark:hover:bg-white/10 text-neutral-400'
                                 }`}
                             title={shareLabel}
                             aria-label={shareLabel}
-                            onClick={() => toggleSection('share')}
+                            onClick={() => openToolbarAction('share', 'click')}
                         >
                             {activeSection === 'share' ? (
                                 <X className="h-5 w-5 animate-in spin-in-90 duration-200" />
@@ -301,10 +431,10 @@ export default function ArticleActionBar({
                         </button>
 
                         <button
-                            className={`group relative flex h-10 w-10 items-center justify-center rounded-full transition-all flex-shrink-0 ${activeSection === 'interactions' ? 'bg-black text-white dark:bg-white dark:text-black' : 'hover:bg-black/5 dark:hover:bg-white/10 text-neutral-400'
+                            className={`group relative z-10 flex h-10 w-10 touch-manipulation items-center justify-center rounded-full transition-all flex-shrink-0 ${activeSection === 'interactions' ? 'text-white dark:text-black' : 'hover:bg-black/5 dark:hover:bg-white/10 text-neutral-400'
                                 }`}
                             title="Interact"
-                            onClick={() => toggleSection('interactions')}
+                            onClick={() => openToolbarAction('interactions', 'click')}
                         >
                             {activeSection === 'interactions' ? (
                                 <X className="h-5 w-5 animate-in spin-in-90 duration-200" />
@@ -314,9 +444,9 @@ export default function ArticleActionBar({
                         </button>
 
                         <button
-                            className="group relative flex h-10 w-10 items-center justify-center rounded-full hover:bg-black/5 dark:hover:bg-white/10"
+                            className="group relative z-10 flex h-10 w-10 touch-manipulation items-center justify-center rounded-full hover:bg-black/5 dark:hover:bg-white/10"
                             title="Chat with article"
-                            onClick={onChat}
+                            onClick={() => openToolbarAction('chat', 'click')}
                         >
                             <MessageSquare
                                 className="h-5 w-5 transition-transform group-hover:scale-110"
@@ -325,10 +455,10 @@ export default function ArticleActionBar({
                         </button>
 
                         <button
-                            className={`group relative flex h-10 w-10 items-center justify-center rounded-full transition-all flex-shrink-0 ${isHighlightActive ? 'bg-cyan-50 dark:bg-cyan-900/30' : 'hover:bg-black/5 dark:hover:bg-white/10 dark:hover:bg-white/5'
+                            className={`group relative z-10 flex h-10 w-10 touch-manipulation items-center justify-center rounded-full transition-all flex-shrink-0 ${isHighlightActive ? 'text-cyan-700 dark:text-cyan-200' : 'hover:bg-black/5 dark:hover:bg-white/10 dark:hover:bg-white/5'
                                 }`}
                             title="Surligner"
-                            onClick={onHighlightClick}
+                            onClick={() => openToolbarAction('highlight', 'click')}
                         >
                             <Highlighter
                                 className="h-5 w-5 transition-transform group-hover:scale-110"
@@ -337,14 +467,14 @@ export default function ArticleActionBar({
                         </button>
 
                         <button
-                            className={`group relative flex h-10 w-10 items-center justify-center rounded-full transition-all ${activeSection === 'info' ? 'bg-blue-50 dark:bg-blue-900/30' : 'hover:bg-black/5 dark:hover:bg-white/10'
+                            className={`group relative z-10 flex h-10 w-10 touch-manipulation items-center justify-center rounded-full transition-all ${activeSection === 'info' ? 'text-white dark:text-black' : 'hover:bg-black/5 dark:hover:bg-white/10'
                                 }`}
                             title="Analysis Info"
-                            onClick={() => toggleSection('info')}
+                            onClick={() => openToolbarAction('info', 'click')}
                         >
                             <Info
                                 className="h-5 w-5 transition-transform group-hover:scale-110"
-                                style={{ stroke: 'url(#grad-check)' }}
+                                style={{ stroke: activeSection === 'info' ? 'currentColor' : 'url(#grad-check)' }}
                             />
                         </button>
                     </div>

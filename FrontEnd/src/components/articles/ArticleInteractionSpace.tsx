@@ -81,7 +81,7 @@ function getAuthorInitials(author: ApiContribution['author']): string {
   return name.slice(0, 2).toUpperCase();
 }
 
-// ─── Opinion Slider (draggable with spring animation) ───────────────────────
+// Opinion Slider
 
 type OpinionSliderProps = {
   positions: PositionValue[];
@@ -92,60 +92,82 @@ type OpinionSliderProps = {
 
 function OpinionSlider({ positions, selected, disabled, onSelect }: OpinionSliderProps) {
   const trackRef = React.useRef<HTMLDivElement>(null);
-  const [isDragging, setIsDragging] = React.useState(false);
+  const dragRef = React.useRef<{ pointerId: number; ratio: number } | null>(null);
+  const [dragRatio, setDragRatio] = React.useState<number | null>(null);
 
-  const getSnapIndex = React.useCallback((clientX: number) => {
+  const getRatioFromClientX = React.useCallback((clientX: number) => {
     const track = trackRef.current;
-    if (!track) return -1;
+    if (!track) return 0;
     const rect = track.getBoundingClientRect();
-    const ratio = Math.max(0, Math.min(1, (clientX - rect.left) / rect.width));
-    return Math.round(ratio * (positions.length - 1));
+    if (rect.width <= 0) return 0;
+    return Math.max(0, Math.min(1, (clientX - rect.left) / rect.width));
+  }, []);
+
+  const getSnapIndex = React.useCallback((ratio: number) => {
+    return Math.max(
+      0,
+      Math.min(positions.length - 1, Math.round(ratio * (positions.length - 1))),
+    );
   }, [positions.length]);
 
-  const handleInteraction = React.useCallback((clientX: number) => {
-    if (disabled) return;
-    const index = getSnapIndex(clientX);
-    if (index >= 0 && index < positions.length) {
-      onSelect(positions[index]);
+  const handlePointerDown = (event: React.PointerEvent<HTMLDivElement>) => {
+    if (disabled || event.button !== 0) return;
+    event.preventDefault();
+    const ratio = getRatioFromClientX(event.clientX);
+    dragRef.current = { pointerId: event.pointerId, ratio };
+    event.currentTarget.setPointerCapture?.(event.pointerId);
+    setDragRatio(ratio);
+  };
+
+  const handlePointerMove = (event: React.PointerEvent<HTMLDivElement>) => {
+    const drag = dragRef.current;
+    if (!drag || drag.pointerId !== event.pointerId) return;
+    event.preventDefault();
+    const ratio = getRatioFromClientX(event.clientX);
+    drag.ratio = ratio;
+    setDragRatio(ratio);
+  };
+
+  const finishInteraction = (event: React.PointerEvent<HTMLDivElement>) => {
+    const drag = dragRef.current;
+    if (!drag || drag.pointerId !== event.pointerId) return;
+    event.preventDefault();
+    if (event.currentTarget.hasPointerCapture?.(event.pointerId)) {
+      event.currentTarget.releasePointerCapture(event.pointerId);
     }
-  }, [disabled, getSnapIndex, onSelect, positions]);
-
-  const handlePointerDown = (e: React.PointerEvent) => {
-    if (disabled) return;
-    e.preventDefault();
-    (e.target as HTMLElement).setPointerCapture(e.pointerId);
-    setIsDragging(true);
-    handleInteraction(e.clientX);
+    const index = getSnapIndex(drag.ratio);
+    dragRef.current = null;
+    setDragRatio(null);
+    onSelect(positions[index]);
   };
 
-  const handlePointerMove = (e: React.PointerEvent) => {
-    if (isDragging) handleInteraction(e.clientX);
-  };
-
-  const handlePointerUp = (e: React.PointerEvent) => {
-    if (!isDragging) return;
-    (e.target as HTMLElement).releasePointerCapture(e.pointerId);
-    setIsDragging(false);
+  const cancelInteraction = (event: React.PointerEvent<HTMLDivElement>) => {
+    if (event.currentTarget.hasPointerCapture?.(event.pointerId)) {
+      event.currentTarget.releasePointerCapture(event.pointerId);
+    }
+    dragRef.current = null;
+    setDragRatio(null);
   };
 
   const selectedIndex = selected !== null ? positions.indexOf(selected) : -1;
-  const thumbPercent = selectedIndex >= 0 ? (selectedIndex / (positions.length - 1)) * 100 : -1;
+  const snappedPercent = selectedIndex >= 0 ? (selectedIndex / (positions.length - 1)) * 100 : -1;
+  const thumbPercent = dragRatio !== null ? dragRatio * 100 : snappedPercent;
+  const hasThumb = thumbPercent >= 0;
 
   return (
     <div
       ref={trackRef}
-      className={`relative select-none touch-none px-4 py-8 ${disabled ? 'cursor-default opacity-60' : 'cursor-pointer'}`}
+      data-opinion-slider
+      className={`relative select-none touch-none px-4 py-10 ${disabled ? 'cursor-default opacity-60' : 'cursor-pointer'}`}
       onPointerDown={handlePointerDown}
       onPointerMove={handlePointerMove}
-      onPointerUp={handlePointerUp}
-      onPointerCancel={handlePointerUp}
+      onPointerUp={finishInteraction}
+      onPointerCancel={cancelInteraction}
     >
-      {/* Fixed bar */}
       <div className="relative h-[3px] rounded-full bg-black/25 dark:bg-white/30">
-        {/* Fixed snap points — always visible */}
         {positions.map((position, i) => {
           const percent = (i / (positions.length - 1)) * 100;
-          const isSelected = position === selected;
+          const isSelected = position === selected && dragRatio === null;
           return (
             <span
               key={position}
@@ -155,28 +177,27 @@ function OpinionSlider({ positions, selected, disabled, onSelect }: OpinionSlide
                 width: isSelected ? '13px' : '9px',
                 height: isSelected ? '13px' : '9px',
                 backgroundColor: isSelected ? '#00dc82' : undefined,
-                transition: 'width 0.35s cubic-bezier(0.34, 1.56, 0.64, 1), height 0.35s cubic-bezier(0.34, 1.56, 0.64, 1), background-color 0.3s ease',
+                transition: 'width 0.25s ease, height 0.25s ease, background-color 0.25s ease',
               }}
             />
           );
         })}
 
-        {/* Thumb — slides fluidly between points */}
-        {thumbPercent >= 0 && (
+        {hasThumb && (
           <span
-            className="absolute top-1/2 -translate-x-1/2 -translate-y-1/2"
+            data-opinion-slider-thumb
+            className="absolute top-1/2 -translate-x-1/2 -translate-y-1/2 motion-reduce:transition-none"
             style={{
               left: `${thumbPercent}%`,
-              transition: isDragging ? 'left 0.06s ease-out' : 'left 0.5s cubic-bezier(0.16, 1, 0.3, 1)',
+              transition: dragRatio !== null ? 'left 0.04s linear' : 'left 0.32s cubic-bezier(0.16, 1, 0.3, 1)',
             }}
           >
             <span
-              className="flex items-center justify-center rounded-full border-2 border-[#00dc82] bg-white dark:bg-neutral-900"
+              className="flex items-center justify-center rounded-full border-2 border-[#00dc82] bg-white transition-[width,height,box-shadow] duration-200 ease-out motion-reduce:transition-none dark:bg-neutral-900"
               style={{
-                width: isDragging ? '28px' : '24px',
-                height: isDragging ? '28px' : '24px',
-                boxShadow: isDragging ? '0 3px 14px rgba(0,220,130,0.4)' : '0 2px 10px rgba(0,220,130,0.28)',
-                transition: 'width 0.25s cubic-bezier(0.34, 1.56, 0.64, 1), height 0.25s cubic-bezier(0.34, 1.56, 0.64, 1), box-shadow 0.3s ease',
+                width: dragRatio !== null ? '30px' : '24px',
+                height: dragRatio !== null ? '30px' : '24px',
+                boxShadow: dragRatio !== null ? '0 3px 14px rgba(0,220,130,0.34)' : '0 2px 10px rgba(0,220,130,0.24)',
               }}
             >
               <span className="h-2.5 w-2.5 rounded-full bg-[#00dc82]" />
@@ -188,7 +209,7 @@ function OpinionSlider({ positions, selected, disabled, onSelect }: OpinionSlide
   );
 }
 
-// ─── Main Component ─────────────────────────────────────────────────────────
+// Main Component
 
 export default function ArticleInteractionSpace({ articleSlug }: Props) {
   const { t } = useI18n();
