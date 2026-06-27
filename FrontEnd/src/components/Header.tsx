@@ -155,7 +155,7 @@ export default function Header(
               size="auto"
               className="hidden sm:inline-flex h-9 px-4 text-[13px] font-medium"
             >
-              {t('nav_download') || 'Download epion'}
+              {t('nav_download') || 'Install Epion'}
             </Button>
           )}
 

@@ -1,8 +1,8 @@
 import React, { JSX, useEffect, useRef } from 'react';
 import { Link } from 'react-router-dom';
-import { FaAndroid, FaApple, FaWindows } from 'react-icons/fa';
 
 import { Button } from '@/components/ui';
+import PwaInstallButton from '@/components/PwaInstallButton';
 import { useI18n } from '@/i18n/I18nContext';
 import { useTheme } from '@/hooks/useTheme';
 import MagnifierBackground, { Magnifier } from '@/components/ui/MagnifierBackground';
@@ -255,50 +255,14 @@ export default function Home(): JSX.Element {
           >
             {t('home_access_everywhere')}
           </h2>
-          <div className="flex flex-col items-center gap-10 lg:flex-row lg:items-start lg:justify-center lg:gap-16">
-            <div data-reveal className="reveal reveal-delay-1 flex flex-col items-center gap-4">
-              <p className="text-sm font-medium uppercase tracking-wide text-gray-500 dark:text-gray-400">
-                {t('home_on_desktop')}
-              </p>
-              <div className="flex flex-wrap justify-center gap-4">
-                <Button
-                  variant="primary"
-                  size="auto"
-                  className="py-2.5 px-6 rounded-full"
-                >
-                  <FaWindows className="mr-2" /> Windows
-                </Button>
-                <Button
-                  variant="primary"
-                  size="auto"
-                  className="py-2.5 px-6 rounded-full"
-                >
-                  <FaApple className="mr-2 mb-[2px]" /> Mac
-                </Button>
-              </div>
-            </div>
-
-            <div data-reveal className="reveal reveal-delay-2 flex flex-col items-center gap-4">
-              <p className="text-sm font-medium uppercase tracking-wide text-gray-500 dark:text-gray-400">
-                {t('home_on_mobile')}
-              </p>
-              <div className="flex flex-wrap justify-center gap-4">
-                <Button
-                  variant="primary"
-                  size="auto"
-                  className="h-auto rounded-full text-base py-2 px-6"
-                >
-                  <FaApple className="mr-2 mb-[2px]" /> iOS
-                </Button>
-                <Button
-                  variant="primary"
-                  size="auto"
-                  className="h-auto rounded-full text-base py-2 px-6"
-                >
-                  <FaAndroid className="mr-2" /> Android
-                </Button>
-              </div>
-            </div>
+          <div data-reveal className="reveal reveal-delay-1 flex w-full flex-col items-center gap-4">
+            <PwaInstallButton
+              label={t('pwa_install_button')}
+              className="rounded-full px-8 py-3 text-base sm:text-lg"
+            />
+            <p className="max-w-xl text-sm leading-relaxed text-gray-500 dark:text-gray-400">
+              {t('home_pwa_install_note')}
+            </p>
           </div>
         </div>
       </section>
