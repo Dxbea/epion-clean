@@ -7,7 +7,10 @@ const DEFAULT_TRUSTED_ORIGINS = [
   'https://epion-clean.vercel.app',
   'https://epion.app',
   'https://www.epion.app',
+  // Capacitor Android WebView (androidScheme: 'https' → origine interne https://localhost)
+  'https://localhost',
 ];
+
 
 function splitOrigins(value?: string): string[] {
   return (value ?? '')
