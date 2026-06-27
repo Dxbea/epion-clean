@@ -10,6 +10,10 @@ const envSchema = z.object({
   BETTER_AUTH_URL: z.string().url().optional(),
   BETTER_AUTH_SECRET: z.string().min(32).optional(),
   BETTER_AUTH_TRUSTED_ORIGINS: z.string().optional(),
+  // Origines CORS supplémentaires à autoriser (virgule-séparé, ex: https://localhost,https://autre.app)
+  // Utilisé par le middleware CORS Express — distinct de BETTER_AUTH_TRUSTED_ORIGINS.
+  // Sur Render : ajouter https://localhost pour l'app Android Capacitor.
+  CORS_EXTRA_ORIGINS: z.string().optional(),
   OPENAI_API_KEY: z.string().optional(),
   PERPLEXITY_API_KEY: z.string().optional(),
   TAVILY_API_KEY: z.string().optional(),
@@ -17,6 +21,7 @@ const envSchema = z.object({
   MISTRAL_API_KEY: z.string().optional(),
   SENTRY_DSN: z.string().optional(),
 });
+
 
 type Env = z.infer<typeof envSchema>;
 

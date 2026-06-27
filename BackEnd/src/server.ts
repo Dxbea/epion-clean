@@ -71,16 +71,34 @@ app.use(
 // ----------------------------
 //  🌍 CORS CORRECT (une seule fois !)
 // ----------------------------
-const allowedOrigin = [
+
+// Origines hardcodées — toujours autorisées quelle que soit la config Render.
+const CORS_BASE_ORIGINS = [
+  // Dev web local
   'http://localhost:5173',
+  // Vercel preview
   'https://epion-clean.vercel.app',
+  // Production web
   'https://epion.app',
   'https://www.epion.app',
+  // Capacitor Android WebView (androidScheme: 'https' → origine interne https://localhost)
+  'https://localhost',
 ];
+
+// Origines supplémentaires via variable d'environnement CORS_EXTRA_ORIGINS (virgule-séparé).
+// Permet d'ajouter des origines sur Render sans redéployer le code.
+// Exemple Render : CORS_EXTRA_ORIGINS=https://localhost,https://staging.epion.app
+const corsExtraOrigins = (env.CORS_EXTRA_ORIGINS ?? '')
+  .split(',')
+  .map((o) => o.trim())
+  .filter(Boolean);
+
+const allowedOrigin = Array.from(new Set([...CORS_BASE_ORIGINS, ...corsExtraOrigins]));
 
 app.use(
   cors({
     origin(origin, callback) {
+      // Pas d'Origin (requêtes serveur-à-serveur, curl sans -H Origin) → autorisé.
       if (!origin) return callback(null, true);
       if (allowedOrigin.includes(origin)) {
         return callback(null, true);
@@ -90,6 +108,8 @@ app.use(
     credentials: true,
   }),
 );
+
+
 
 // Better Auth must receive the raw Node request before Express body parsing.
 // Legacy /api/auth routes are explicitly passed through by the handler.
