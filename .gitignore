@@ -22,3 +22,10 @@ dist-ssr
 *.njsproj
 *.sln
 *.sw?
+
+# Capacitor Android — fichiers locaux/sensibles (le dossier android/ est versionné)
+FrontEnd/android/.gradle/
+FrontEnd/android/local.properties
+FrontEnd/android/*.keystore
+FrontEnd/android/**/*.keystore
+FrontEnd/android/app/release/

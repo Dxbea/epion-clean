@@ -1,0 +1,7 @@
+<?xml version='1.0' encoding='utf-8'?>
+<resources>
+    <string name="app_name">Epion</string>
+    <string name="title_activity_main">Epion</string>
+    <string name="package_name">app.epion</string>
+    <string name="custom_url_scheme">app.epion</string>
+</resources>
