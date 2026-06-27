@@ -17,6 +17,10 @@ const csrfExemptAuthPaths = new Set([
   '/auth/verify-invite',
 ]);
 
+function isPublicArticleViewTrackingRequest(method: string, path: string): boolean {
+  return method === 'POST' && /^\/articles\/[^/]+\/view$/.test(path);
+}
+
 function safeEqual(a: string, b: string): boolean {
   const ba = Buffer.from(a);
   const bb = Buffer.from(b);
@@ -70,7 +74,7 @@ export async function csrfRequired(req: Request, res: Response, next: NextFuncti
   const safe = method === 'GET' || method === 'HEAD' || method === 'OPTIONS';
   const path = req.path || '';
 
-  if (safe || path === '/csrf' || csrfExemptAuthPaths.has(path)) {
+  if (safe || path === '/csrf' || csrfExemptAuthPaths.has(path) || isPublicArticleViewTrackingRequest(method, path)) {
     return next();
   }
 

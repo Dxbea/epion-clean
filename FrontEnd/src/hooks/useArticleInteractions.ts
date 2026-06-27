@@ -72,6 +72,28 @@ type InteractionsResponse = {
   contributions: Contribution[];
 };
 
+const DEFAULT_OPINION_DISTRIBUTION: OpinionDistribution = {
+  counts: {},
+  total: 0,
+  lacksContextCount: 0,
+};
+
+function normalizeOpinionDistribution(value: unknown): OpinionDistribution {
+  if (!value || typeof value !== 'object') return DEFAULT_OPINION_DISTRIBUTION;
+  const distribution = value as Partial<OpinionDistribution>;
+  const counts = distribution.counts && typeof distribution.counts === 'object'
+    ? distribution.counts
+    : {};
+
+  return {
+    counts,
+    total: typeof distribution.total === 'number' ? distribution.total : 0,
+    lacksContextCount: typeof distribution.lacksContextCount === 'number'
+      ? distribution.lacksContextCount
+      : 0,
+  };
+}
+
 function mapContributionTree(
   contributions: Contribution[],
   contributionId: string,
@@ -117,12 +139,12 @@ export function useArticleInteractions(articleSlug: string | undefined) {
       });
       if (!r.ok) throw new Error(`HTTP ${r.status}`);
       const data: InteractionsResponse = await r.json();
-      setOpinionQuestion(data.opinionQuestion);
-      setCurrentPosition(data.currentUserOpinionPosition);
-      setContributions(data.contributions);
-      setCanContribute(data.canContribute);
-      setCanValidate(data.canValidateContributions);
-      setOpinionDistribution(data.opinionDistribution);
+      setOpinionQuestion(data.opinionQuestion ?? null);
+      setCurrentPosition(data.currentUserOpinionPosition ?? null);
+      setContributions(Array.isArray(data.contributions) ? data.contributions : []);
+      setCanContribute(data.canContribute === true);
+      setCanValidate(data.canValidateContributions === true);
+      setOpinionDistribution(normalizeOpinionDistribution(data.opinionDistribution));
     } catch (e: any) {
       setError(e.message || 'Failed to load interactions');
     } finally {

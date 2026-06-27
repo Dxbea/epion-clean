@@ -236,9 +236,10 @@ export default function ArticleInteractionSpace({ articleSlug }: Props) {
   const isConfirmed = currentPosition !== null;
   const hasInsufficientContext = isConfirmed && (currentPosition?.lacksContext ?? false);
   const canConfirmPosition = selectedPosition !== null || lacksContext;
+  const opinionCounts = opinionDistribution?.counts ?? {};
   const maxOpinionCount = Math.max(
     1,
-    ...positionValues.map((position) => opinionDistribution.counts[String(position)] ?? 0),
+    ...positionValues.map((position) => opinionCounts[String(position)] ?? 0),
   );
 
   React.useEffect(() => {
@@ -522,11 +523,11 @@ export default function ArticleInteractionSpace({ articleSlug }: Props) {
                   key={positionValues[i]}
                   className="flex-1 animate-in fade-in slide-in-from-bottom-1 rounded-sm bg-[#00dc82]/20 dark:bg-[#00dc82]/15"
                   style={{
-                    height: `${Math.max(8, ((opinionDistribution.counts[String(positionValues[i])] ?? 0) / maxOpinionCount) * 100)}%`,
+                    height: `${Math.max(8, ((opinionCounts[String(positionValues[i])] ?? 0) / maxOpinionCount) * 100)}%`,
                     animationDelay: `${i * 80}ms`,
                     animationFillMode: 'both',
                   }}
-                  title={`${opinionDistribution.counts[String(positionValues[i])] ?? 0}`}
+                  title={`${opinionCounts[String(positionValues[i])] ?? 0}`}
                 />
               ))}
             </div>
