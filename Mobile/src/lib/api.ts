@@ -12,11 +12,33 @@ export async function readJson(response: Response): Promise<unknown> {
   return response.json().catch(() => null);
 }
 
+export type Category = {
+  id: string;
+  name: string;
+  slug: string;
+  articleCount?: number;
+};
+
+export type ChatSessionSummary = {
+  id: string;
+  title: string;
+  updatedAt?: string;
+};
+
+export type ArticlePage = {
+  items: Article[];
+  nextCursor: string | null;
+};
+
 function readOptionalText(value: unknown): string | undefined {
   return typeof value === 'string' && value.trim().length > 0 ? value.trim() : undefined;
 }
 
-function readCategory(value: unknown): string | undefined {
+function readOptionalNumber(value: unknown): number | undefined {
+  return typeof value === 'number' && Number.isFinite(value) ? value : undefined;
+}
+
+function readCategoryName(value: unknown): string | undefined {
   const directCategory = readOptionalText(value);
 
   if (directCategory) {
@@ -31,22 +53,53 @@ function readCategory(value: unknown): string | undefined {
   return undefined;
 }
 
-function getArticleItems(payload: unknown): ArticleApiItem[] {
+function readCategorySlug(value: unknown): string | undefined {
+  if (value && typeof value === 'object') {
+    const record = value as Record<string, unknown>;
+    return readOptionalText(record.slug);
+  }
+
+  return undefined;
+}
+
+function slugify(value: string): string {
+  return value
+    .toLowerCase()
+    .normalize('NFD')
+    .replace(/[\u0300-\u036f]/g, '')
+    .replace(/[^a-z0-9]+/g, '-')
+    .replace(/^-+|-+$/g, '');
+}
+
+function getItems(payload: unknown): unknown[] {
   if (Array.isArray(payload)) {
-    return payload as ArticleApiItem[];
+    return payload;
   }
 
   if (payload && typeof payload === 'object') {
     const record = payload as Record<string, unknown>;
-    const candidates = [record.articles, record.items, record.data];
+    const candidates = [record.items, record.articles, record.data, record.sessions];
     const match = candidates.find(Array.isArray);
 
     if (match) {
-      return match as ArticleApiItem[];
+      return match;
     }
   }
 
   return [];
+}
+
+function getNextCursor(payload: unknown): string | null {
+  if (!payload || typeof payload !== 'object') {
+    return null;
+  }
+
+  const cursor = (payload as Record<string, unknown>).nextCursor;
+  return readOptionalText(cursor) ?? null;
+}
+
+function getArticleItems(payload: unknown): ArticleApiItem[] {
+  return getItems(payload) as ArticleApiItem[];
 }
 
 function getArticlePayload(payload: unknown): ArticleDetailApiItem | null {
@@ -71,6 +124,44 @@ function getArticlePayload(payload: unknown): ArticleDetailApiItem | null {
   return record as ArticleDetailApiItem;
 }
 
+function countPotentialSources(sources: unknown, factCheckData: unknown): number | undefined {
+  const candidates = [sources, factCheckData];
+
+  for (const candidate of candidates) {
+    if (Array.isArray(candidate)) {
+      return candidate.length;
+    }
+
+    if (candidate && typeof candidate === 'object') {
+      const nested = (candidate as Record<string, unknown>).sources;
+      if (Array.isArray(nested)) {
+        return nested.length;
+      }
+    }
+  }
+
+  return undefined;
+}
+
+function readSupportLevel(factCheckData: unknown, score?: number): string | undefined {
+  if (factCheckData && typeof factCheckData === 'object') {
+    const supportLevel = readOptionalText((factCheckData as Record<string, unknown>).supportLevel);
+    if (supportLevel) {
+      return supportLevel;
+    }
+  }
+
+  if (score === undefined) {
+    return undefined;
+  }
+
+  if (score >= 90) return 'Tres solide';
+  if (score >= 70) return 'Solide';
+  if (score >= 50) return 'A nuancer';
+  if (score >= 30) return 'Fragile';
+  return 'A verifier';
+}
+
 function normalizeArticle(item: ArticleApiItem, index: number): Article | null {
   const title = readOptionalText(item.title);
 
@@ -78,15 +169,36 @@ function normalizeArticle(item: ArticleApiItem, index: number): Article | null {
     return null;
   }
 
+  const slug = readOptionalText(item.slug);
+  const category = readCategoryName(item.category);
+  const categorySlug = readCategorySlug(item.category) ?? (category ? slugify(category) : undefined);
+  const publishedAt = readOptionalText(item.publishedAt) ?? readOptionalText(item.createdAt);
+  const imageUrl = readOptionalText(item.imageUrl);
+  const excerpt = readOptionalText(item.excerpt) ?? readOptionalText(item.summary) ?? readOptionalText(item.description);
+  const url = readOptionalText(item.url) ?? (slug ? `/article/${slug}` : undefined);
+  const views = readOptionalNumber(item.views);
+
   return {
-    id: String(item.id ?? item.slug ?? index),
+    id: String(item.id ?? slug ?? index),
+    ...(slug ? { slug } : {}),
     title,
-    excerpt:
-      readOptionalText(item.excerpt) ??
-      readOptionalText(item.summary) ??
-      readOptionalText(item.description),
-    category: readCategory(item.category),
+    ...(excerpt ? { excerpt } : {}),
+    ...(category ? { category } : {}),
+    ...(categorySlug ? { categorySlug } : {}),
+    ...(imageUrl ? { imageUrl } : {}),
+    ...(publishedAt ? { publishedAt } : {}),
+    ...(views !== undefined ? { views } : {}),
+    ...(url ? { url } : {}),
   };
+}
+
+function readAuthorName(author: unknown): string | undefined {
+  if (!author || typeof author !== 'object') {
+    return undefined;
+  }
+
+  const record = author as Record<string, unknown>;
+  return readOptionalText(record.name) ?? readOptionalText(record.username) ?? readOptionalText(record.email);
 }
 
 function normalizeArticleDetail(item: ArticleDetailApiItem | null, fallbackId: string): ArticleDetail | null {
@@ -100,16 +212,32 @@ function normalizeArticleDetail(item: ArticleDetailApiItem | null, fallbackId: s
     return null;
   }
 
+  const factCheckScore = readOptionalNumber(item.factCheckScore);
+  const factCheckStatus = readOptionalText(item.factCheckStatus);
+  const body = readOptionalText(item.content) ?? readOptionalText(item.body);
+  const aiSummary = readOptionalText(item.aiSummary);
+  const generationPrompt = readOptionalText(item.generationPrompt);
+  const authorName = readAuthorName(item.author);
+  const sourcesCount = countPotentialSources(item.sources, item.factCheckData);
+  const supportLevel = readSupportLevel(item.factCheckData, factCheckScore);
+
   return {
     ...article,
     id: String(item.id ?? fallbackId),
-    publishedAt: readOptionalText(item.publishedAt) ?? readOptionalText(item.createdAt),
-    body: readOptionalText(item.content) ?? readOptionalText(item.body),
+    ...(body ? { body } : {}),
+    ...(aiSummary ? { aiSummary } : {}),
+    ...(authorName ? { authorName } : {}),
+    ...(factCheckScore !== undefined ? { factCheckScore } : {}),
+    ...(factCheckStatus ? { factCheckStatus } : {}),
+    ...(supportLevel ? { supportLevel } : {}),
+    ...(sourcesCount !== undefined ? { sourcesCount } : {}),
+    ...(generationPrompt ? { generationPrompt } : {}),
+    ...(item.structuredContent ? { structuredContentAvailable: true } : {}),
   };
 }
 
-export async function fetchArticles(): Promise<Article[]> {
-  const response = await fetch(`${API_BASE}/api/articles`, {
+async function fetchArticlePage(path: string): Promise<ArticlePage> {
+  const response = await fetch(`${API_BASE}${path}`, {
     headers: {
       Accept: 'application/json',
     },
@@ -121,17 +249,71 @@ export async function fetchArticles(): Promise<Article[]> {
 
   const payload = await readJson(response);
 
+  return {
+    items: getArticleItems(payload)
+      .map(normalizeArticle)
+      .filter((article): article is Article => article !== null),
+    nextCursor: getNextCursor(payload),
+  };
+}
+
+export async function fetchArticlesPage(options?: { take?: number; cursor?: string | null; status?: 'PUBLISHED' | 'ALL' }): Promise<ArticlePage> {
+  const params = new URLSearchParams();
+  params.set('take', String(Math.min(options?.take ?? 24, 50)));
+  if (options?.status === 'ALL') params.set('status', 'all');
+  if (options?.cursor) params.set('cursor', options.cursor);
+
+  return fetchArticlePage(`/api/articles?${params.toString()}`);
+}
+
+export async function fetchArticles(): Promise<Article[]> {
+  return (await fetchArticlesPage()).items;
+}
+
+export async function fetchTopArticles(period: '7d' | 'all' = '7d', take = 12): Promise<Article[]> {
+  const params = new URLSearchParams({ period, take: String(take) });
+  return (await fetchArticlePage(`/api/articles/top?${params.toString()}`)).items;
+}
+
+export async function fetchFollowingArticles(): Promise<Article[]> {
+  const response = await fetch(`${API_BASE}/api/articles/following`, {
+    credentials: 'include',
+    headers: {
+      Accept: 'application/json',
+    },
+  });
+
+  if (response.status === 401) {
+    return [];
+  }
+
+  if (!response.ok) {
+    throw new Error(`HTTP ${response.status}`);
+  }
+
+  const payload = await readJson(response);
   return getArticleItems(payload)
     .map(normalizeArticle)
     .filter((article): article is Article => article !== null);
 }
 
 export async function fetchArticleDetail(articleId: string): Promise<ArticleDetail | null> {
-  const response = await fetch(`${API_BASE}/api/articles/${encodeURIComponent(articleId)}`, {
+  const encoded = encodeURIComponent(articleId);
+  const primary = await fetch(`${API_BASE}/api/articles/${encoded}`, {
     headers: {
       Accept: 'application/json',
     },
   });
+
+  let response = primary;
+
+  if (primary.status === 404) {
+    response = await fetch(`${API_BASE}/api/articles/slug/${encoded}`, {
+      headers: {
+        Accept: 'application/json',
+      },
+    });
+  }
 
   if (!response.ok) {
     throw new Error(`HTTP ${response.status}`);
@@ -141,38 +323,42 @@ export async function fetchArticleDetail(articleId: string): Promise<ArticleDeta
   return normalizeArticleDetail(getArticlePayload(payload), articleId);
 }
 
+export async function fetchArticleBySlug(slug: string): Promise<ArticleDetail | null> {
+  const response = await fetch(`${API_BASE}/api/articles/slug/${encodeURIComponent(slug)}`, {
+    headers: {
+      Accept: 'application/json',
+    },
+  });
 
-
-
-export type Category = {
-  id: string;
-  name: string;
-  slug: string;
-  articleCount?: number;
-};
-
-export type ChatSessionSummary = {
-  id: string;
-  title: string;
-  updatedAt?: string;
-};
-
-function getItems(payload: unknown): unknown[] {
-  if (Array.isArray(payload)) {
-    return payload;
+  if (!response.ok) {
+    throw new Error(`HTTP ${response.status}`);
   }
 
-  if (payload && typeof payload === 'object') {
-    const record = payload as Record<string, unknown>;
-    const candidates = [record.items, record.articles, record.data, record.sessions];
-    const match = candidates.find(Array.isArray);
+  const payload = await readJson(response);
+  return normalizeArticleDetail(getArticlePayload(payload), slug);
+}
 
-    if (match) {
-      return match;
-    }
+export async function recordArticleView(articleId: string): Promise<void> {
+  await fetch(`${API_BASE}/api/articles/${encodeURIComponent(articleId)}/view`, {
+    method: 'POST',
+    credentials: 'include',
+  }).catch(() => undefined);
+}
+
+export async function fetchArticleStats(articleId: string): Promise<{ viewsAll?: number }> {
+  const response = await fetch(`${API_BASE}/api/articles/${encodeURIComponent(articleId)}/stats`, {
+    headers: {
+      Accept: 'application/json',
+    },
+  });
+
+  if (!response.ok) {
+    return {};
   }
 
-  return [];
+  const payload = await readJson(response);
+  const viewsAll = payload && typeof payload === 'object' ? readOptionalNumber((payload as Record<string, unknown>).viewsAll) : undefined;
+  return viewsAll === undefined ? {} : { viewsAll };
 }
 
 export async function fetchCategories(): Promise<Category[]> {
@@ -196,7 +382,7 @@ export async function fetchCategories(): Promise<Category[]> {
 
       const record = item as Record<string, unknown>;
       const name = readOptionalText(record.name);
-      const slug = readOptionalText(record.slug) ?? name?.toLowerCase().replace(/\s+/g, '-');
+      const slug = readOptionalText(record.slug) ?? (name ? slugify(name) : undefined);
 
       if (!name || !slug) {
         return null;
@@ -209,50 +395,35 @@ export async function fetchCategories(): Promise<Category[]> {
         ...(typeof record.articleCount === 'number' ? { articleCount: record.articleCount } : {}),
       };
     })
-    .filter((category): category is Category => category !== null);
+    .filter((category): category is Category => category !== null)
+    .sort((a, b) => (b.articleCount ?? 0) - (a.articleCount ?? 0));
+}
+
+export async function searchArticlesPage(query: string, options?: { take?: number; cursor?: string | null }): Promise<ArticlePage> {
+  const params = new URLSearchParams({
+    q: query,
+    take: String(Math.min(options?.take ?? 24, 50)),
+  });
+  if (options?.cursor) params.set('cursor', options.cursor);
+
+  return fetchArticlePage(`/api/articles/search?${params.toString()}`);
 }
 
 export async function searchArticles(query: string): Promise<Article[]> {
+  return (await searchArticlesPage(query)).items;
+}
+
+export async function fetchCategoryArticlesPage(slug: string, options?: { take?: number; cursor?: string | null }): Promise<ArticlePage> {
   const params = new URLSearchParams({
-    q: query,
-    take: '24',
+    take: String(Math.min(options?.take ?? 24, 50)),
   });
-  const response = await fetch(`${API_BASE}/api/articles/search?${params.toString()}`, {
-    headers: {
-      Accept: 'application/json',
-    },
-  });
+  if (options?.cursor) params.set('cursor', options.cursor);
 
-  if (!response.ok) {
-    throw new Error(`HTTP ${response.status}`);
-  }
-
-  const payload = await readJson(response);
-
-  return getArticleItems(payload)
-    .map(normalizeArticle)
-    .filter((article): article is Article => article !== null);
+  return fetchArticlePage(`/api/categories/${encodeURIComponent(slug)}/articles?${params.toString()}`);
 }
 
 export async function fetchCategoryArticles(slug: string): Promise<Article[]> {
-  const params = new URLSearchParams({
-    take: '24',
-  });
-  const response = await fetch(`${API_BASE}/api/categories/${encodeURIComponent(slug)}/articles?${params.toString()}`, {
-    headers: {
-      Accept: 'application/json',
-    },
-  });
-
-  if (!response.ok) {
-    throw new Error(`HTTP ${response.status}`);
-  }
-
-  const payload = await readJson(response);
-
-  return getArticleItems(payload)
-    .map(normalizeArticle)
-    .filter((article): article is Article => article !== null);
+  return (await fetchCategoryArticlesPage(slug)).items;
 }
 
 export async function fetchFavoriteArticles(): Promise<Article[]> {
@@ -330,4 +501,3 @@ export async function fetchChatSessions(): Promise<ChatSessionSummary[]> {
     })
     .filter((session): session is ChatSessionSummary => session !== null);
 }
-

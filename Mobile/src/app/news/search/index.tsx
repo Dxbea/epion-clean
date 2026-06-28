@@ -1,21 +1,36 @@
-import { useCallback, useState } from 'react';
+import { useLocalSearchParams, useRouter } from 'expo-router';
+import { useCallback, useMemo, useState } from 'react';
 import { Pressable, StyleSheet, Text, TextInput } from 'react-native';
 
 import { ArticleListScreen } from '@/components/article-list-screen';
 import { Screen, StateBox } from '@/components/screen';
-import { searchArticles } from '@/lib/api';
+import { searchArticlesPage } from '@/lib/api';
 
 export default function SearchScreen() {
-  const [query, setQuery] = useState('');
-  const [submittedQuery, setSubmittedQuery] = useState('');
+  const router = useRouter();
+  const params = useLocalSearchParams<{ q?: string | string[] }>();
+  const initialQuery = useMemo(() => (Array.isArray(params.q) ? params.q[0] : params.q) ?? '', [params.q]);
+  const [query, setQuery] = useState(initialQuery);
+  const [submittedQuery, setSubmittedQuery] = useState(initialQuery.trim());
 
-  const loadArticles = useCallback(() => {
-    if (!submittedQuery.trim()) {
-      return Promise.resolve([]);
+  const submitSearch = useCallback(() => {
+    const nextQuery = query.trim();
+    setSubmittedQuery(nextQuery);
+    if (nextQuery) {
+      router.setParams({ q: nextQuery });
     }
+  }, [query, router]);
 
-    return searchArticles(submittedQuery.trim());
-  }, [submittedQuery]);
+  const loadPage = useCallback(
+    (cursor?: string | null) => {
+      if (!submittedQuery.trim()) {
+        return Promise.resolve({ items: [], nextCursor: null });
+      }
+
+      return searchArticlesPage(submittedQuery.trim(), { cursor });
+    },
+    [submittedQuery],
+  );
 
   if (submittedQuery) {
     return (
@@ -23,7 +38,7 @@ export default function SearchScreen() {
         title="Search"
         subtitle={`Resultats pour "${submittedQuery}"`}
         emptyText="Aucun resultat pour cette recherche."
-        loadArticles={loadArticles}
+        loadPage={loadPage}
       />
     );
   }
@@ -36,9 +51,9 @@ export default function SearchScreen() {
         onChangeText={setQuery}
         placeholder="Recherche..."
         returnKeyType="search"
-        onSubmitEditing={() => setSubmittedQuery(query.trim())}
+        onSubmitEditing={submitSearch}
       />
-      <Pressable style={styles.button} onPress={() => setSubmittedQuery(query.trim())}>
+      <Pressable style={styles.button} onPress={submitSearch}>
         <Text style={styles.buttonText}>Rechercher</Text>
       </Pressable>
       <StateBox title="Astuce" text="Saisissez un sujet puis validez pour lancer la recherche." />
