@@ -772,7 +772,7 @@ export async function fetchFollowingArticles(): Promise<Article[]> {
 
 export async function fetchArticleDetail(articleId: string): Promise<ArticleDetail | null> {
   const encoded = encodeURIComponent(articleId);
-  const primary = await fetch(`${API_BASE}/api/articles/${encoded}`, {
+  const primary = await fetch(`${API_BASE}/api/articles/slug/${encoded}`, {
     headers: {
       Accept: 'application/json',
     },
@@ -781,7 +781,7 @@ export async function fetchArticleDetail(articleId: string): Promise<ArticleDeta
   let response = primary;
 
   if (primary.status === 404) {
-    response = await fetch(`${API_BASE}/api/articles/slug/${encoded}`, {
+    response = await fetch(`${API_BASE}/api/articles/${encoded}`, {
       headers: {
         Accept: 'application/json',
       },
