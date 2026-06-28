@@ -31,7 +31,9 @@ export default function AccountScreen() {
       setMeHttpStatus(session.meStatus);
       setAuthStatus(session.hasSession ? 'Session valide.' : 'Aucune session active.');
     } catch (authError) {
-      console.log('[Epion Mobile Auth] Session refresh failed', authError instanceof Error ? authError.message : String(authError));
+      if (__DEV__) {
+        console.log('[Epion Mobile Auth] Session refresh failed', authError instanceof Error ? authError.message : String(authError));
+      }
       setAuthStatus('Impossible de verifier la session.');
     }
   }, [refreshSession]);
@@ -54,7 +56,9 @@ export default function AccountScreen() {
       setAuthStatus(result.ok && result.user ? 'Session valide.' : `Login echoue${result.errorMessage ? `: ${result.errorMessage}` : '.'}`);
     } catch (authError) {
       setPassword('');
-      console.log('[Epion Mobile Auth] Login failed', authError instanceof Error ? authError.message : String(authError));
+      if (__DEV__) {
+        console.log('[Epion Mobile Auth] Login failed', authError instanceof Error ? authError.message : String(authError));
+      }
       setAuthStatus('Erreur reseau pendant le login.');
     }
   }, [email, password, signIn]);
@@ -68,7 +72,9 @@ export default function AccountScreen() {
       setMeHttpStatus(result.meStatus);
       setAuthStatus(result.ok ? 'Deconnecte.' : `Logout echoue: HTTP ${result.logoutStatus}`);
     } catch (authError) {
-      console.log('[Epion Mobile Auth] Logout failed', authError instanceof Error ? authError.message : String(authError));
+      if (__DEV__) {
+        console.log('[Epion Mobile Auth] Logout failed', authError instanceof Error ? authError.message : String(authError));
+      }
       setAuthStatus('Erreur reseau pendant le logout.');
     }
   }, [signOut]);

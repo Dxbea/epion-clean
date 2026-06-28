@@ -1,4 +1,4 @@
-﻿import { API_BASE, AUTH_CALLBACK_URL, WEB_ORIGIN, getHeaderValue, readJson } from '@/lib/api';
+import { API_BASE, AUTH_CALLBACK_URL, WEB_ORIGIN, getHeaderValue, readJson } from '@/lib/api';
 import type {
   AuthMeResult,
   AuthSessionResult,
@@ -19,6 +19,8 @@ const betterAuthPostHeaders = {
 };
 
 function logAuthStep(message: string, details?: unknown) {
+  if (!__DEV__) return;
+
   if (details === undefined) {
     console.log(`[Epion Mobile Auth] ${message}`);
     return;
@@ -164,6 +166,3 @@ export async function signOut(): Promise<AuthSignOutResult> {
     ok: response.ok,
   };
 }
-
-
-

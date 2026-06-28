@@ -739,9 +739,6 @@ export async function fetchArticlesPage(options?: { take?: number; cursor?: stri
   return fetchArticlePage(`/api/articles?${params.toString()}`);
 }
 
-export async function fetchArticles(): Promise<Article[]> {
-  return (await fetchArticlesPage()).items;
-}
 
 export async function fetchTopArticles(period: '7d' | 'all' = '7d', take = 12): Promise<Article[]> {
   const params = new URLSearchParams({ period, take: String(take) });
@@ -1078,9 +1075,6 @@ export async function searchArticlesPage(query: string, options?: { take?: numbe
   return fetchArticlePage(`/api/articles/search?${params.toString()}`);
 }
 
-export async function searchArticles(query: string): Promise<Article[]> {
-  return (await searchArticlesPage(query)).items;
-}
 
 export async function fetchCategoryArticlesPage(slug: string, options?: { take?: number; cursor?: string | null }): Promise<ArticlePage> {
   const params = new URLSearchParams({
@@ -1091,9 +1085,6 @@ export async function fetchCategoryArticlesPage(slug: string, options?: { take?:
   return fetchArticlePage(`/api/categories/${encodeURIComponent(slug)}/articles?${params.toString()}`);
 }
 
-export async function fetchCategoryArticles(slug: string): Promise<Article[]> {
-  return (await fetchCategoryArticlesPage(slug)).items;
-}
 
 export async function fetchFavoriteArticles(): Promise<Article[]> {
   const response = await fetch(`${API_BASE}/api/favorites?take=24`, {
@@ -1164,24 +1155,6 @@ export async function removeFavoriteArticle(articleId: string): Promise<void> {
   if (!response.ok) {
     throw new Error(`HTTP ${response.status}`);
   }
-}
-export async function fetchMyArticles(): Promise<Article[]> {
-  const response = await fetch(`${API_BASE}/api/me/articles?take=24`, {
-    credentials: 'include',
-    headers: {
-      Accept: 'application/json',
-    },
-  });
-
-  if (!response.ok) {
-    throw new Error(`HTTP ${response.status}`);
-  }
-
-  const payload = await readJson(response);
-
-  return getArticleItems(payload)
-    .map(normalizeArticle)
-    .filter((article): article is Article => article !== null);
 }
 
 export async function fetchChatSessions(): Promise<ChatSessionSummary[]> {

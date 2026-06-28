@@ -116,10 +116,12 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
   useEffect(() => {
     void refreshSession().catch((authError) => {
-      console.log(
-        '[Epion Mobile Auth] Startup session refresh failed',
-        authError instanceof Error ? authError.message : String(authError),
-      );
+      if (__DEV__) {
+        console.log(
+          '[Epion Mobile Auth] Startup session refresh failed',
+          authError instanceof Error ? authError.message : String(authError),
+        );
+      }
       setUser(null);
     });
   }, [refreshSession]);
@@ -143,7 +145,6 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       setLoading(false);
     }
   }, [refreshSession]);
-
 
   const value = useMemo<AuthContextValue>(
     () => ({
