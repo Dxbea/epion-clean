@@ -2,94 +2,8 @@ import { useLocalSearchParams, useRouter } from 'expo-router';
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import { ActivityIndicator, Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
 
-type ArticleDetail = {
-  id: string;
-  title: string;
-  excerpt?: string;
-  category?: string;
-  publishedAt?: string;
-  body?: string;
-};
-
-type ArticleDetailApiItem = {
-  id?: string | number;
-  title?: unknown;
-  excerpt?: unknown;
-  summary?: unknown;
-  description?: unknown;
-  content?: unknown;
-  body?: unknown;
-  publishedAt?: unknown;
-  createdAt?: unknown;
-  category?: unknown;
-};
-
-const ARTICLE_URL = 'https://api.epion.app/api/articles';
-
-function readOptionalText(value: unknown): string | undefined {
-  return typeof value === 'string' && value.trim().length > 0 ? value.trim() : undefined;
-}
-
-function readCategory(value: unknown): string | undefined {
-  const directCategory = readOptionalText(value);
-
-  if (directCategory) {
-    return directCategory;
-  }
-
-  if (value && typeof value === 'object') {
-    const record = value as Record<string, unknown>;
-    return readOptionalText(record.name) ?? readOptionalText(record.slug);
-  }
-
-  return undefined;
-}
-
-function getArticlePayload(payload: unknown): ArticleDetailApiItem | null {
-  if (!payload || typeof payload !== 'object') {
-    return null;
-  }
-
-  const record = payload as Record<string, unknown>;
-
-  if (record.article && typeof record.article === 'object') {
-    return record.article as ArticleDetailApiItem;
-  }
-
-  if (record.item && typeof record.item === 'object') {
-    return record.item as ArticleDetailApiItem;
-  }
-
-  if (record.data && typeof record.data === 'object' && !Array.isArray(record.data)) {
-    return record.data as ArticleDetailApiItem;
-  }
-
-  return record as ArticleDetailApiItem;
-}
-
-function normalizeArticle(item: ArticleDetailApiItem | null, fallbackId: string): ArticleDetail | null {
-  if (!item) {
-    return null;
-  }
-
-  const title = readOptionalText(item.title);
-
-  if (!title) {
-    return null;
-  }
-
-  return {
-    id: String(item.id ?? fallbackId),
-    title,
-    excerpt:
-      readOptionalText(item.excerpt) ??
-      readOptionalText(item.summary) ??
-      readOptionalText(item.description),
-    category: readCategory(item.category),
-    publishedAt: readOptionalText(item.publishedAt) ?? readOptionalText(item.createdAt),
-    body: readOptionalText(item.content) ?? readOptionalText(item.body),
-  };
-}
+import { fetchArticleDetail } from '@/lib/api';
+import type { ArticleDetail } from '@/types/article';
 
 function formatDate(value?: string): string | undefined {
   if (!value) {
@@ -135,18 +49,7 @@ export default function ArticleDetailScreen() {
     setError(null);
 
     try {
-      const response = await fetch(`${ARTICLE_URL}/${encodeURIComponent(articleId)}`, {
-        headers: {
-          Accept: 'application/json',
-        },
-      });
-
-      if (!response.ok) {
-        throw new Error(`HTTP ${response.status}`);
-      }
-
-      const payload: unknown = await response.json();
-      setArticle(normalizeArticle(getArticlePayload(payload), articleId));
+      setArticle(await fetchArticleDetail(articleId));
     } catch {
       setArticle(null);
       setError('Impossible de charger cet article pour le moment.');
