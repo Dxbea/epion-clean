@@ -1,5 +1,17 @@
-import { PlaceholderScreen } from '@/components/placeholder-screen';
+import { StaticInfoScreen } from '@/components/static-info-screen';
 
 export default function ChangelogScreen() {
-  return <PlaceholderScreen title="Changelog" subtitle="Nouveautes Epion." status="Placeholder: historique des versions." links={[{ href: '/news', title: 'News' }]} />;
+  return (
+    <StaticInfoScreen
+      title="Changelog"
+      subtitle="What changed, and when."
+      sections={[
+        {
+          title: '0.1.0',
+          paragraphs: ['Initial public pages added.'],
+        },
+      ]}
+      links={[{ href: '/blog', title: 'Blog' }]}
+    />
+  );
 }
