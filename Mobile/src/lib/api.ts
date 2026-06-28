@@ -70,7 +70,26 @@ export type Category = {
 export type ChatSessionSummary = {
   id: string;
   title: string;
+  createdAt?: string;
   updatedAt?: string;
+  folderId?: string | null;
+};
+
+export type ChatRigor = 'fast' | 'balanced' | 'precise';
+
+export type ChatResponseStyle = 'concise' | 'normal' | 'detailed';
+
+export type ChatSessionDetail = ChatSessionSummary & {
+  mode?: ChatRigor;
+};
+
+export type ChatMessageItem = {
+  id: string;
+  role: 'user' | 'assistant';
+  content: string;
+  createdAt: string;
+  sources?: unknown[];
+  metadata?: unknown;
 };
 
 export type ArticlePage = {
@@ -144,6 +163,112 @@ function getNextCursor(payload: unknown): string | null {
 
   const cursor = (payload as Record<string, unknown>).nextCursor;
   return readOptionalText(cursor) ?? null;
+}
+function normalizeChatSession(item: unknown): ChatSessionSummary | null {
+  if (!item || typeof item !== 'object') {
+    return null;
+  }
+
+  const record = item as Record<string, unknown>;
+  const id = readOptionalText(record.id);
+
+  if (!id) {
+    return null;
+  }
+
+  const createdAt = readOptionalText(record.createdAt);
+  const updatedAt = readOptionalText(record.updatedAt);
+  const folderId = readOptionalText(record.folderId) ?? null;
+
+  return {
+    id,
+    title: readOptionalText(record.title) ?? 'Conversation sans titre',
+    ...(createdAt ? { createdAt } : {}),
+    ...(updatedAt ? { updatedAt } : {}),
+    folderId,
+  };
+}
+
+function normalizeChatSessionDetail(payload: unknown): ChatSessionDetail | null {
+  const session = normalizeChatSession(payload);
+
+  if (!session || !payload || typeof payload !== 'object') {
+    return session;
+  }
+
+  const mode = readOptionalText((payload as Record<string, unknown>).mode);
+
+  return {
+    ...session,
+    ...(mode === 'fast' || mode === 'balanced' || mode === 'precise' ? { mode } : {}),
+  };
+}
+
+function normalizeChatMessage(item: unknown): ChatMessageItem | null {
+  if (!item || typeof item !== 'object') {
+    return null;
+  }
+
+  const record = item as Record<string, unknown>;
+  const id = readOptionalText(record.id);
+  const rawRole = readOptionalText(record.role);
+  const content = typeof record.content === 'string' ? record.content : '';
+  const createdAt = readOptionalText(record.createdAt);
+
+  if (!id || !createdAt || (rawRole !== 'user' && rawRole !== 'assistant')) {
+    return null;
+  }
+
+  return {
+    id,
+    role: rawRole,
+    content,
+    createdAt,
+    ...(Array.isArray(record.sources) ? { sources: record.sources } : {}),
+    ...(record.metadata !== undefined ? { metadata: record.metadata } : {}),
+  };
+}
+
+function buildApiError(response: Response, payload: unknown): Error {
+  const record = payload && typeof payload === 'object' ? (payload as Record<string, unknown>) : {};
+  const message = readOptionalText(record.message) ?? readOptionalText(record.error) ?? `HTTP ${response.status}`;
+  const error = new Error(message) as Error & { status?: number; code?: string };
+  error.status = response.status;
+  error.code = readOptionalText(record.code) ?? readOptionalText(record.error);
+  return error;
+}
+
+function parseChatStreamText(text: string): string {
+  if (!text.trim()) {
+    return '';
+  }
+
+  let content = '';
+  const events = text.split(/\n\n+/);
+
+  for (const event of events) {
+    const data = event
+      .split(/\r?\n/)
+      .filter((line) => line.startsWith('data:'))
+      .map((line) => line.slice(5).trimStart())
+      .join('\n')
+      .trim();
+
+    if (!data) {
+      continue;
+    }
+
+    try {
+      const parsed = JSON.parse(data) as Record<string, unknown>;
+      if (parsed.type === 'text' && typeof parsed.content === 'string') {
+        content += parsed.content;
+      }
+    } catch {
+      // Ignore malformed stream events; the canonical messages are reloaded after POST.
+    }
+  }
+
+  return content;
 }
 
 function getArticleItems(payload: unknown): ArticleApiItem[] {
@@ -551,36 +676,133 @@ export async function fetchChatSessions(): Promise<ChatSessionSummary[]> {
     },
   });
 
-  if (!response.ok) {
-    throw new Error(`HTTP ${response.status}`);
-  }
-
   const payload = await readJson(response);
 
+  if (!response.ok) {
+    throw buildApiError(response, payload);
+  }
+
   return getItems(payload)
-    .map((item) => {
-      if (!item || typeof item !== 'object') {
-        return null;
-      }
-
-      const record = item as Record<string, unknown>;
-      const id = readOptionalText(record.id);
-
-      if (!id) {
-        return null;
-      }
-
-      const updatedAt = readOptionalText(record.updatedAt);
-
-      return {
-        id,
-        title: readOptionalText(record.title) ?? 'Conversation sans titre',
-        ...(updatedAt ? { updatedAt } : {}),
-      };
-    })
+    .map(normalizeChatSession)
     .filter((session): session is ChatSessionSummary => session !== null);
 }
 
+export async function createChatSession(options?: { title?: string; mode?: ChatRigor }): Promise<ChatSessionDetail> {
+  const body = {
+    ...(options?.title ? { title: options.title } : {}),
+    mode: options?.mode ?? 'balanced',
+  };
+
+  const response = await fetch(
+    `${API_BASE}/api/chat/sessions`,
+    await withCsrf({
+      method: 'POST',
+      headers: {
+        Accept: 'application/json',
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify(body),
+    }),
+  );
+
+  const payload = await readJson(response);
+
+  if (!response.ok) {
+    throw buildApiError(response, payload);
+  }
+
+  const session = normalizeChatSessionDetail(payload);
+  if (!session) {
+    throw new Error('Invalid chat session response');
+  }
+
+  return session;
+}
+
+export async function fetchChatSession(sessionId: string): Promise<ChatSessionDetail> {
+  const response = await fetch(`${API_BASE}/api/chat/sessions/${encodeURIComponent(sessionId)}`, {
+    credentials: 'include',
+    headers: {
+      Accept: 'application/json',
+    },
+  });
+
+  const payload = await readJson(response);
+
+  if (!response.ok) {
+    throw buildApiError(response, payload);
+  }
+
+  const session = normalizeChatSessionDetail(payload);
+  if (!session) {
+    throw new Error('Invalid chat session response');
+  }
+
+  return session;
+}
+
+export async function fetchChatMessages(sessionId: string): Promise<ChatMessageItem[]> {
+  const response = await fetch(`${API_BASE}/api/chat/sessions/${encodeURIComponent(sessionId)}/messages?take=100`, {
+    credentials: 'include',
+    headers: {
+      Accept: 'application/json',
+    },
+  });
+
+  const payload = await readJson(response);
+
+  if (!response.ok) {
+    throw buildApiError(response, payload);
+  }
+
+  return getItems(payload)
+    .map(normalizeChatMessage)
+    .filter((message): message is ChatMessageItem => message !== null);
+}
+
+export async function sendChatMessage(
+  sessionId: string,
+  content: string,
+  options?: {
+    model?: 'sonar' | 'sonar-pro';
+    mode?: ChatRigor;
+    responseStyle?: ChatResponseStyle;
+  },
+): Promise<{ streamedText: string }> {
+  const response = await fetch(
+    `${API_BASE}/api/chat/sessions/${encodeURIComponent(sessionId)}/messages`,
+    await withCsrf({
+      method: 'POST',
+      headers: {
+        Accept: 'text/event-stream, application/json',
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({
+        content,
+        model: options?.model ?? 'sonar',
+        mode: options?.mode ?? 'balanced',
+        sourceRestricted: true,
+        neutralityForced: true,
+        timeRecent: false,
+        responseStyle: options?.responseStyle ?? 'normal',
+      }),
+    }),
+  );
+
+  const text = await response.text().catch(() => '');
+
+  if (!response.ok) {
+    let payload: unknown = null;
+    try {
+      payload = text ? JSON.parse(text) : null;
+    } catch {
+      payload = { message: text };
+    }
+    throw buildApiError(response, payload);
+  }
+
+  return { streamedText: parseChatStreamText(text) };
+}
 export type MyArticleStatus = 'ALL' | 'DRAFT' | 'PUBLISHED' | 'ARCHIVED';
 
 export type MyArticleStats = {
