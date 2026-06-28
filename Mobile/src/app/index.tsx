@@ -1,3 +1,4 @@
+import { useRouter } from 'expo-router';
 import { useCallback, useEffect, useState } from 'react';
 import { ActivityIndicator, Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
 
@@ -76,6 +77,7 @@ function normalizeArticle(item: ArticleApiItem, index: number): Article | null {
 }
 
 export default function HomeScreen() {
+  const router = useRouter();
   const [articles, setArticles] = useState<Article[]>([]);
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -112,6 +114,13 @@ export default function HomeScreen() {
     void loadArticles();
   }, [loadArticles]);
 
+  const openArticle = useCallback(
+    (articleId: string) => {
+      router.push({ pathname: '/article/[id]', params: { id: articleId } });
+    },
+    [router],
+  );
+
   return (
     <View style={styles.screen}>
       <ScrollView contentContainerStyle={styles.content}>
@@ -143,11 +152,14 @@ export default function HomeScreen() {
               <Text style={styles.emptyText}>Aucun article disponible.</Text>
             ) : (
               articles.map((article) => (
-                <View key={article.id} style={styles.articleCard}>
+                <Pressable
+                  key={article.id}
+                  style={({ pressed }) => [styles.articleCard, pressed ? styles.articleCardPressed : null]}
+                  onPress={() => openArticle(article.id)}>
                   {article.category ? <Text style={styles.category}>{article.category}</Text> : null}
                   <Text style={styles.articleTitle}>{article.title}</Text>
                   {article.excerpt ? <Text style={styles.excerpt}>{article.excerpt}</Text> : null}
-                </View>
+                </Pressable>
               ))
             )}
           </View>
@@ -232,6 +244,9 @@ const styles = StyleSheet.create({
     borderRadius: 8,
     borderWidth: 1,
     padding: 18,
+  },
+  articleCardPressed: {
+    opacity: 0.75,
   },
   category: {
     color: '#2563EB',
