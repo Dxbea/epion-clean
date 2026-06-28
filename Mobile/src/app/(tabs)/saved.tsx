@@ -1,30 +1,13 @@
-import { StyleSheet, Text, View } from 'react-native';
+import { fetchFavoriteArticles } from '@/lib/api';
+import { ArticleListScreen } from '@/components/article-list-screen';
 
 export default function SavedScreen() {
   return (
-    <View style={styles.screen}>
-      <Text style={styles.title}>Saved</Text>
-      <Text style={styles.text}>Bientôt disponible</Text>
-    </View>
+    <ArticleListScreen
+      title="Saved"
+      subtitle="Articles sauvegardes sur votre compte."
+      emptyText="Aucun article sauvegarde pour le moment."
+      loadArticles={fetchFavoriteArticles}
+    />
   );
 }
-
-const styles = StyleSheet.create({
-  screen: {
-    flex: 1,
-    alignItems: 'center',
-    justifyContent: 'center',
-    backgroundColor: '#F7FAFC',
-    padding: 24,
-  },
-  title: {
-    color: '#111827',
-    fontSize: 32,
-    fontWeight: '800',
-    marginBottom: 10,
-  },
-  text: {
-    color: '#4B5563',
-    fontSize: 16,
-  },
-});

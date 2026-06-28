@@ -3,51 +3,47 @@ import { useCallback, useEffect, useState } from 'react';
 import { ActivityIndicator, Pressable, StyleSheet, Text, View } from 'react-native';
 
 import { Screen, StateBox } from '@/components/screen';
-import { fetchChatSessions, type ChatSessionSummary } from '@/lib/api';
+import { fetchCategories, type Category } from '@/lib/api';
 
-export default function ChatScreen() {
-  const [sessions, setSessions] = useState<ChatSessionSummary[]>([]);
+export default function CategoriesScreen() {
+  const [categories, setCategories] = useState<Category[]>([]);
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
-  const loadSessions = useCallback(async () => {
+  const load = useCallback(async () => {
     setIsLoading(true);
     setError(null);
 
     try {
-      setSessions(await fetchChatSessions());
+      setCategories(await fetchCategories());
     } catch {
-      setSessions([]);
-      setError('Impossible de charger les conversations.');
+      setCategories([]);
+      setError('Impossible de charger les categories.');
     } finally {
       setIsLoading(false);
     }
   }, []);
 
   useEffect(() => {
-    void loadSessions();
-  }, [loadSessions]);
+    void load();
+  }, [load]);
 
   return (
-    <Screen title="Chat" subtitle="Conversations Epion et verification sourcee.">
-      <StateBox title="Nouvelle conversation" text="Placeholder. L'envoi de messages mobile sera ajoute quand le flux complet sera pret." />
-
+    <Screen title="Categories" subtitle="Explorez les articles par theme.">
       {isLoading ? (
         <View style={styles.stateBox}>
           <ActivityIndicator size="large" color="#2563EB" />
-          <Text style={styles.stateText}>Chargement des conversations...</Text>
+          <Text style={styles.stateText}>Chargement des categories...</Text>
         </View>
       ) : null}
-
-      {!isLoading && error ? <StateBox title={error} text="Connectez-vous depuis Compte puis reessayez." /> : null}
-      {!isLoading && !error && sessions.length === 0 ? <StateBox title="Aucune conversation recente." /> : null}
-
+      {!isLoading && error ? <StateBox title={error} /> : null}
+      {!isLoading && !error && categories.length === 0 ? <StateBox title="Aucune categorie disponible." /> : null}
       {!isLoading && !error
-        ? sessions.map((session) => (
-            <Link key={session.id} href={({ pathname: '/chat/[id]', params: { id: session.id } }) as unknown as Href} asChild>
+        ? categories.map((category) => (
+            <Link key={category.slug} href={({ pathname: '/news/[slug]', params: { slug: category.slug } }) as unknown as Href} asChild>
               <Pressable style={({ pressed }) => [styles.card, pressed ? styles.pressed : null]}>
-                <Text style={styles.title}>{session.title}</Text>
-                {session.updatedAt ? <Text style={styles.meta}>{session.updatedAt}</Text> : null}
+                <Text style={styles.title}>{category.name}</Text>
+                <Text style={styles.meta}>{category.articleCount ?? 0} articles</Text>
               </Pressable>
             </Link>
           ))
@@ -91,3 +87,5 @@ const styles = StyleSheet.create({
     marginTop: 6,
   },
 });
+
+

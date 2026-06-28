@@ -9,6 +9,7 @@ import {
   View,
 } from 'react-native';
 
+import { ActionLink, Section } from '@/components/screen';
 import { useAuth } from '@/context/AuthContext';
 import { getAuthUserLabel } from '@/lib/auth';
 
@@ -143,6 +144,12 @@ export default function AccountScreen() {
           </Text>
           <Text style={styles.connectedUser}>{getAuthUserLabel(user)}</Text>
         </View>
+
+        <Section title="Compte">
+          <ActionLink href="/activity" title="Activity" description="Historique et interactions du compte." />
+          <ActionLink href="/account/articles" title="My articles" description="Articles crees depuis votre compte." />
+          <ActionLink href="/settings" title="Settings" description="Reglages, securite et preferences." />
+        </Section>
       </ScrollView>
     </View>
   );

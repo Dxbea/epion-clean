@@ -1,4 +1,4 @@
-import { useRouter } from 'expo-router';
+import { useRouter, type Href } from 'expo-router';
 import { useCallback, useEffect, useState } from 'react';
 import { ActivityIndicator, Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
 
@@ -42,6 +42,17 @@ export default function NewsScreen() {
           <Text style={styles.eyebrow}>Epion</Text>
           <Text style={styles.title}>Articles recents</Text>
           <Text style={styles.subtitle}>Verifiez, comprenez et explorez l'information.</Text>
+          <View style={styles.quickActions}>
+            <Pressable style={styles.quickAction} onPress={() => router.push('/news/search' as Href)}>
+              <Text style={styles.quickActionText}>Search</Text>
+            </Pressable>
+            <Pressable style={styles.quickAction} onPress={() => router.push('/news/categories' as Href)}>
+              <Text style={styles.quickActionText}>Categories</Text>
+            </Pressable>
+            <Pressable style={styles.quickAction} onPress={() => router.push('/create' as Href)}>
+              <Text style={styles.quickActionText}>Create</Text>
+            </Pressable>
+          </View>
         </View>
 
         {isLoading ? (
@@ -144,6 +155,23 @@ const styles = StyleSheet.create({
     color: '#FFFFFF',
     fontSize: 15,
     fontWeight: '700',
+  },
+  quickActions: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    gap: 10,
+    marginTop: 18,
+  },
+  quickAction: {
+    backgroundColor: '#111827',
+    borderRadius: 8,
+    paddingHorizontal: 14,
+    paddingVertical: 10,
+  },
+  quickActionText: {
+    color: '#FFFFFF',
+    fontSize: 14,
+    fontWeight: '800',
   },
   list: {
     gap: 14,

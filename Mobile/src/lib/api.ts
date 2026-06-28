@@ -1,4 +1,4 @@
-﻿import type { Article, ArticleApiItem, ArticleDetail, ArticleDetailApiItem } from '@/types/article';
+import type { Article, ArticleApiItem, ArticleDetail, ArticleDetailApiItem } from '@/types/article';
 
 export const API_BASE = 'https://api.epion.app';
 export const WEB_ORIGIN = 'https://epion.app';
@@ -142,4 +142,192 @@ export async function fetchArticleDetail(articleId: string): Promise<ArticleDeta
 }
 
 
+
+
+export type Category = {
+  id: string;
+  name: string;
+  slug: string;
+  articleCount?: number;
+};
+
+export type ChatSessionSummary = {
+  id: string;
+  title: string;
+  updatedAt?: string;
+};
+
+function getItems(payload: unknown): unknown[] {
+  if (Array.isArray(payload)) {
+    return payload;
+  }
+
+  if (payload && typeof payload === 'object') {
+    const record = payload as Record<string, unknown>;
+    const candidates = [record.items, record.articles, record.data, record.sessions];
+    const match = candidates.find(Array.isArray);
+
+    if (match) {
+      return match;
+    }
+  }
+
+  return [];
+}
+
+export async function fetchCategories(): Promise<Category[]> {
+  const response = await fetch(`${API_BASE}/api/categories`, {
+    headers: {
+      Accept: 'application/json',
+    },
+  });
+
+  if (!response.ok) {
+    throw new Error(`HTTP ${response.status}`);
+  }
+
+  const payload = await readJson(response);
+
+  return getItems(payload)
+    .map((item) => {
+      if (!item || typeof item !== 'object') {
+        return null;
+      }
+
+      const record = item as Record<string, unknown>;
+      const name = readOptionalText(record.name);
+      const slug = readOptionalText(record.slug) ?? name?.toLowerCase().replace(/\s+/g, '-');
+
+      if (!name || !slug) {
+        return null;
+      }
+
+      return {
+        id: String(record.id ?? slug),
+        name,
+        slug,
+        ...(typeof record.articleCount === 'number' ? { articleCount: record.articleCount } : {}),
+      };
+    })
+    .filter((category): category is Category => category !== null);
+}
+
+export async function searchArticles(query: string): Promise<Article[]> {
+  const params = new URLSearchParams({
+    q: query,
+    take: '24',
+  });
+  const response = await fetch(`${API_BASE}/api/articles/search?${params.toString()}`, {
+    headers: {
+      Accept: 'application/json',
+    },
+  });
+
+  if (!response.ok) {
+    throw new Error(`HTTP ${response.status}`);
+  }
+
+  const payload = await readJson(response);
+
+  return getArticleItems(payload)
+    .map(normalizeArticle)
+    .filter((article): article is Article => article !== null);
+}
+
+export async function fetchCategoryArticles(slug: string): Promise<Article[]> {
+  const params = new URLSearchParams({
+    take: '24',
+  });
+  const response = await fetch(`${API_BASE}/api/categories/${encodeURIComponent(slug)}/articles?${params.toString()}`, {
+    headers: {
+      Accept: 'application/json',
+    },
+  });
+
+  if (!response.ok) {
+    throw new Error(`HTTP ${response.status}`);
+  }
+
+  const payload = await readJson(response);
+
+  return getArticleItems(payload)
+    .map(normalizeArticle)
+    .filter((article): article is Article => article !== null);
+}
+
+export async function fetchFavoriteArticles(): Promise<Article[]> {
+  const response = await fetch(`${API_BASE}/api/favorites?take=24`, {
+    credentials: 'include',
+    headers: {
+      Accept: 'application/json',
+    },
+  });
+
+  if (!response.ok) {
+    throw new Error(`HTTP ${response.status}`);
+  }
+
+  const payload = await readJson(response);
+
+  return getArticleItems(payload)
+    .map(normalizeArticle)
+    .filter((article): article is Article => article !== null);
+}
+
+export async function fetchMyArticles(): Promise<Article[]> {
+  const response = await fetch(`${API_BASE}/api/me/articles?take=24`, {
+    credentials: 'include',
+    headers: {
+      Accept: 'application/json',
+    },
+  });
+
+  if (!response.ok) {
+    throw new Error(`HTTP ${response.status}`);
+  }
+
+  const payload = await readJson(response);
+
+  return getArticleItems(payload)
+    .map(normalizeArticle)
+    .filter((article): article is Article => article !== null);
+}
+
+export async function fetchChatSessions(): Promise<ChatSessionSummary[]> {
+  const response = await fetch(`${API_BASE}/api/chat/sessions?take=20`, {
+    credentials: 'include',
+    headers: {
+      Accept: 'application/json',
+    },
+  });
+
+  if (!response.ok) {
+    throw new Error(`HTTP ${response.status}`);
+  }
+
+  const payload = await readJson(response);
+
+  return getItems(payload)
+    .map((item) => {
+      if (!item || typeof item !== 'object') {
+        return null;
+      }
+
+      const record = item as Record<string, unknown>;
+      const id = readOptionalText(record.id);
+
+      if (!id) {
+        return null;
+      }
+
+      const updatedAt = readOptionalText(record.updatedAt);
+
+      return {
+        id,
+        title: readOptionalText(record.title) ?? 'Conversation sans titre',
+        ...(updatedAt ? { updatedAt } : {}),
+      };
+    })
+    .filter((session): session is ChatSessionSummary => session !== null);
+}
 
