@@ -1,4 +1,4 @@
-import { Link, useRouter, type Href } from 'expo-router';
+import { useRouter } from 'expo-router';
 import { useCallback, useEffect, useState } from 'react';
 import { ActivityIndicator, Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
 
@@ -42,19 +42,6 @@ export default function NewsScreen() {
           <Text style={styles.eyebrow}>Epion</Text>
           <Text style={styles.title}>Articles recents</Text>
           <Text style={styles.subtitle}>Verifiez, comprenez et explorez l'information.</Text>
-        </View>
-
-        <View style={styles.nav}>
-          <Link href={'/news' as Href} asChild>
-            <Pressable style={styles.primaryNavButton}>
-              <Text style={styles.primaryNavText}>News</Text>
-            </Pressable>
-          </Link>
-          <Link href={'/account' as Href} asChild>
-            <Pressable style={styles.navButton}>
-              <Text style={styles.navText}>Account</Text>
-            </Pressable>
-          </Link>
         </View>
 
         {isLoading ? (
@@ -126,33 +113,6 @@ const styles = StyleSheet.create({
     color: '#4B5563',
     fontSize: 16,
     lineHeight: 23,
-  },
-  nav: {
-    flexDirection: 'row',
-    gap: 10,
-    marginBottom: 24,
-  },
-  primaryNavButton: {
-    backgroundColor: '#2563EB',
-    borderRadius: 8,
-    paddingHorizontal: 16,
-    paddingVertical: 11,
-  },
-  primaryNavText: {
-    color: '#FFFFFF',
-    fontSize: 15,
-    fontWeight: '800',
-  },
-  navButton: {
-    backgroundColor: '#111827',
-    borderRadius: 8,
-    paddingHorizontal: 16,
-    paddingVertical: 11,
-  },
-  navText: {
-    color: '#FFFFFF',
-    fontSize: 15,
-    fontWeight: '800',
   },
   stateBox: {
     alignItems: 'center',

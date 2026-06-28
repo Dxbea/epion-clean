@@ -1,4 +1,3 @@
-import { Link, type Href } from 'expo-router';
 import { useCallback, useEffect, useState } from 'react';
 import {
   ActivityIndicator,
@@ -104,19 +103,6 @@ export default function AccountScreen() {
           <Text style={styles.subtitle}>Connexion et verification de session mobile.</Text>
         </View>
 
-        <View style={styles.nav}>
-          <Link href={'/news' as Href} asChild>
-            <Pressable style={styles.navButton}>
-              <Text style={styles.navText}>News</Text>
-            </Pressable>
-          </Link>
-          <Link href={'/account' as Href} asChild>
-            <Pressable style={styles.primaryNavButton}>
-              <Text style={styles.primaryNavText}>Account</Text>
-            </Pressable>
-          </Link>
-        </View>
-
         <View style={styles.authBox}>
           <Text style={styles.sectionTitle}>Session</Text>
           <TextInput
@@ -192,33 +178,6 @@ const styles = StyleSheet.create({
     color: '#4B5563',
     fontSize: 16,
     lineHeight: 23,
-  },
-  nav: {
-    flexDirection: 'row',
-    gap: 10,
-    marginBottom: 24,
-  },
-  primaryNavButton: {
-    backgroundColor: '#2563EB',
-    borderRadius: 8,
-    paddingHorizontal: 16,
-    paddingVertical: 11,
-  },
-  primaryNavText: {
-    color: '#FFFFFF',
-    fontSize: 15,
-    fontWeight: '800',
-  },
-  navButton: {
-    backgroundColor: '#111827',
-    borderRadius: 8,
-    paddingHorizontal: 16,
-    paddingVertical: 11,
-  },
-  navText: {
-    color: '#FFFFFF',
-    fontSize: 15,
-    fontWeight: '800',
   },
   authBox: {
     backgroundColor: '#FFFFFF',

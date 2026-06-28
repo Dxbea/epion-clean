@@ -1,4 +1,4 @@
-﻿import { createContext, useCallback, useContext, useMemo, useState, type ReactNode } from 'react';
+import { createContext, useCallback, useContext, useEffect, useMemo, useState, type ReactNode } from 'react';
 
 import {
   getMe,
@@ -114,6 +114,16 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     [refreshSession],
   );
 
+  useEffect(() => {
+    void refreshSession().catch((authError) => {
+      console.log(
+        '[Epion Mobile Auth] Startup session refresh failed',
+        authError instanceof Error ? authError.message : String(authError),
+      );
+      setUser(null);
+    });
+  }, [refreshSession]);
+
   const signOut = useCallback(async (): Promise<SignOutResult> => {
     setLoading(true);
 
@@ -158,6 +168,3 @@ export function useAuth() {
 
   return context;
 }
-
-
-
