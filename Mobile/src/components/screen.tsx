@@ -1,6 +1,10 @@
 import type { ReactNode } from 'react';
 import { Link, type Href } from 'expo-router';
 import { Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
+
+import { useTheme } from '@/hooks/use-theme';
+import { Fonts, FontSize, Radius, Spacing } from '@/constants/theme';
 
 type ScreenProps = {
   title: string;
@@ -20,13 +24,15 @@ type StateBoxProps = {
 };
 
 export function Screen({ title, subtitle, children }: ScreenProps) {
+  const colors = useTheme();
+  const insets = useSafeAreaInsets();
+
   return (
-    <View style={styles.screen}>
-      <ScrollView contentContainerStyle={styles.content}>
+    <View style={[styles.screen, { backgroundColor: colors.background }]}>
+      <ScrollView contentContainerStyle={[styles.content, { paddingTop: insets.top + Spacing['2xl'] }]} showsVerticalScrollIndicator={false}>
         <View style={styles.header}>
-          <Text style={styles.eyebrow}>Epion</Text>
-          <Text style={styles.title}>{title}</Text>
-          {subtitle ? <Text style={styles.subtitle}>{subtitle}</Text> : null}
+          <Text style={[styles.title, { color: colors.text, fontFamily: Fonts.display }]}>{title}</Text>
+          {subtitle ? <Text style={[styles.subtitle, { color: colors.textSecondary }]}>{subtitle}</Text> : null}
         </View>
         {children}
       </ScrollView>
@@ -35,126 +41,101 @@ export function Screen({ title, subtitle, children }: ScreenProps) {
 }
 
 export function Section({ title, children }: { title: string; children: ReactNode }) {
+  const colors = useTheme();
+
   return (
-    <View style={styles.section}>
-      <Text style={styles.sectionTitle}>{title}</Text>
+    <View style={[styles.section, { backgroundColor: colors.backgroundElevated, borderColor: colors.border }]}>
+      <Text style={[styles.sectionTitle, { color: colors.text, fontFamily: Fonts.display }]}>{title}</Text>
       {children}
     </View>
   );
 }
 
 export function ActionLink({ href, title, description }: ActionLinkProps) {
+  const colors = useTheme();
+
   return (
     <Link href={href as Href} asChild>
-      <Pressable style={({ pressed }) => [styles.linkCard, pressed ? styles.pressed : null]}>
-        <Text style={styles.linkTitle}>{title}</Text>
-        {description ? <Text style={styles.linkDescription}>{description}</Text> : null}
+      <Pressable style={({ pressed }) => [styles.linkCard, { backgroundColor: colors.backgroundElevated, borderColor: colors.borderSubtle }, pressed ? styles.pressed : null]}>
+        <Text style={[styles.linkTitle, { color: colors.text }]}>{title}</Text>
+        {description ? <Text style={[styles.linkDescription, { color: colors.textMuted }]}>{description}</Text> : null}
       </Pressable>
     </Link>
   );
 }
 
 export function StateBox({ title, text }: StateBoxProps) {
+  const colors = useTheme();
+
   return (
-    <View style={styles.stateBox}>
-      <Text style={styles.stateTitle}>{title}</Text>
-      {text ? <Text style={styles.stateText}>{text}</Text> : null}
+    <View style={[styles.stateBox, { backgroundColor: colors.backgroundSubtle, borderColor: colors.borderSubtle }]}>
+      <Text style={[styles.stateTitle, { color: colors.textTertiary }]}>{title}</Text>
+      {text ? <Text style={[styles.stateText, { color: colors.textMuted }]}>{text}</Text> : null}
     </View>
   );
 }
 
-
 const styles = StyleSheet.create({
   screen: {
     flex: 1,
-    backgroundColor: '#F7FAFC',
   },
   content: {
-    gap: 16,
-    paddingHorizontal: 20,
-    paddingBottom: 36,
-    paddingTop: 64,
+    gap: Spacing['3xl'],
+    paddingHorizontal: Spacing.xl,
+    paddingBottom: 40,
   },
   header: {
-    marginBottom: 6,
-  },
-  eyebrow: {
-    color: '#2563EB',
-    fontSize: 14,
-    fontWeight: '700',
-    marginBottom: 8,
-    textTransform: 'uppercase',
+    gap: Spacing.sm,
   },
   title: {
-    color: '#111827',
-    fontSize: 32,
-    fontWeight: '800',
-    marginBottom: 10,
+    fontSize: FontSize['4xl'],
+    fontWeight: '500',
+    letterSpacing: -0.5,
   },
   subtitle: {
-    color: '#4B5563',
-    fontSize: 16,
-    lineHeight: 23,
+    fontSize: FontSize.md,
+    lineHeight: 22,
   },
   section: {
-    backgroundColor: '#FFFFFF',
-    borderColor: '#E5E7EB',
-    borderRadius: 8,
+    borderRadius: Radius.xl,
     borderWidth: 1,
-    gap: 12,
-    padding: 18,
+    gap: Spacing.md,
+    padding: Spacing.xl,
   },
   sectionTitle: {
-    color: '#111827',
-    fontSize: 20,
-    fontWeight: '800',
+    fontSize: FontSize.lg,
+    fontWeight: '500',
   },
   linkCard: {
-    backgroundColor: '#FFFFFF',
-    borderColor: '#E5E7EB',
-    borderRadius: 8,
+    borderRadius: Radius.xl,
     borderWidth: 1,
-    padding: 16,
+    padding: Spacing.lg,
   },
   pressed: {
-    opacity: 0.72,
+    opacity: 0.8,
   },
   linkTitle: {
-    color: '#111827',
-    fontSize: 17,
-    fontWeight: '800',
-    lineHeight: 23,
+    fontSize: FontSize.md,
+    fontWeight: '600',
   },
   linkDescription: {
-    color: '#4B5563',
-    fontSize: 14,
+    fontSize: FontSize.base,
     lineHeight: 20,
-    marginTop: 6,
+    marginTop: 4,
   },
   stateBox: {
-    backgroundColor: '#FFFFFF',
-    borderColor: '#E5E7EB',
-    borderRadius: 8,
+    borderRadius: Radius.xl,
+    borderStyle: 'dashed',
     borderWidth: 1,
-    padding: 18,
+    padding: Spacing.xl,
   },
   stateTitle: {
-    color: '#111827',
-    fontSize: 17,
-    fontWeight: '800',
-    lineHeight: 23,
+    fontSize: FontSize.md,
+    fontWeight: '500',
   },
   stateText: {
-    color: '#4B5563',
-    fontSize: 15,
-    lineHeight: 22,
-    marginTop: 8,
-  },
-  bodyText: {
-    color: '#374151',
-    fontSize: 15,
-    lineHeight: 22,
+    fontSize: FontSize.base,
+    lineHeight: 20,
+    marginTop: Spacing.sm,
   },
 });
-
-

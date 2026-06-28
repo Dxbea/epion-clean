@@ -1,9 +1,12 @@
 import { useCallback, useEffect, useState } from 'react';
-import { ActivityIndicator, Pressable, ScrollView, StyleSheet, Text, TextInput, View } from 'react-native';
+import { ActivityIndicator, Pressable, StyleSheet, Text, View } from 'react-native';
+import { Link, type Href } from 'expo-router';
 
-import { ActionLink, Section, StateBox } from '@/components/screen';
+import { Badge, Button, Card, EmptyState, Input, Screen, Section } from '@/components/ui';
 import { useAuth } from '@/context/AuthContext';
+import { useTheme } from '@/hooks/use-theme';
 import { getAuthUserLabel } from '@/lib/auth';
+import { Fonts, FontSize, Radius, Spacing } from '@/constants/theme';
 
 function initials(label: string): string {
   return label.trim().slice(0, 1).toUpperCase() || 'U';
@@ -16,11 +19,40 @@ function formatDate(value?: string): string | undefined {
   return date.toLocaleDateString('fr-FR', { day: '2-digit', month: 'long', year: 'numeric' });
 }
 
+type NavItemProps = {
+  href: string | Href;
+  title: string;
+  description?: string;
+  last?: boolean;
+};
+
+function NavItem({ href, title, description, last = false }: NavItemProps) {
+  const colors = useTheme();
+  return (
+    <Link href={href as Href} asChild>
+      <Pressable
+        style={({ pressed }) => [
+          styles.navItem,
+          !last ? { borderBottomWidth: 1, borderBottomColor: colors.borderSubtle } : null,
+          pressed ? styles.navItemPressed : null,
+        ]}
+      >
+        <View style={styles.navItemText}>
+          <Text style={[styles.navItemTitle, { color: colors.text }]}>{title}</Text>
+          {description ? <Text style={[styles.navItemDesc, { color: colors.textMuted }]}>{description}</Text> : null}
+        </View>
+        <Text style={[styles.chevron, { color: colors.textMuted }]}>›</Text>
+      </Pressable>
+    </Link>
+  );
+}
+
 export default function AccountScreen() {
+  const colors = useTheme();
   const { user, loading: authLoading, signIn, signOut, refreshSession } = useAuth();
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
-  const [authStatus, setAuthStatus] = useState('Session non verifiee.');
+  const [authStatus, setAuthStatus] = useState('Session non vérifiée.');
   const [sessionHttpStatus, setSessionHttpStatus] = useState<number | null>(null);
   const [meHttpStatus, setMeHttpStatus] = useState<number | null>(null);
 
@@ -34,7 +66,7 @@ export default function AccountScreen() {
       if (__DEV__) {
         console.log('[Epion Mobile Auth] Session refresh failed', authError instanceof Error ? authError.message : String(authError));
       }
-      setAuthStatus('Impossible de verifier la session.');
+      setAuthStatus('Impossible de vérifier la session.');
     }
   }, [refreshSession]);
 
@@ -53,29 +85,29 @@ export default function AccountScreen() {
       setSessionHttpStatus(result.sessionStatus);
       setMeHttpStatus(result.meStatus);
       setPassword('');
-      setAuthStatus(result.ok && result.user ? 'Session valide.' : `Login echoue${result.errorMessage ? `: ${result.errorMessage}` : '.'}`);
+      setAuthStatus(result.ok && result.user ? 'Session valide.' : `Login échoué${result.errorMessage ? `: ${result.errorMessage}` : '.'}`);
     } catch (authError) {
       setPassword('');
       if (__DEV__) {
         console.log('[Epion Mobile Auth] Login failed', authError instanceof Error ? authError.message : String(authError));
       }
-      setAuthStatus('Erreur reseau pendant le login.');
+      setAuthStatus('Erreur réseau pendant le login.');
     }
   }, [email, password, signIn]);
 
   const logout = useCallback(async () => {
-    setAuthStatus('Deconnexion en cours...');
+    setAuthStatus('Déconnexion en cours...');
 
     try {
       const result = await signOut();
       setSessionHttpStatus(result.sessionStatus);
       setMeHttpStatus(result.meStatus);
-      setAuthStatus(result.ok ? 'Deconnecte.' : `Logout echoue: HTTP ${result.logoutStatus}`);
+      setAuthStatus(result.ok ? 'Déconnecté.' : `Logout échoué: HTTP ${result.logoutStatus}`);
     } catch (authError) {
       if (__DEV__) {
         console.log('[Epion Mobile Auth] Logout failed', authError instanceof Error ? authError.message : String(authError));
       }
-      setAuthStatus('Erreur reseau pendant le logout.');
+      setAuthStatus('Erreur réseau pendant le logout.');
     }
   }, [signOut]);
 
@@ -87,252 +119,203 @@ export default function AccountScreen() {
   const createdAt = formatDate(user?.createdAt);
 
   return (
-    <View style={styles.screen}>
-      <ScrollView contentContainerStyle={styles.content}>
-        <View style={styles.header}>
-          <Text style={styles.eyebrow}>Epion</Text>
-          <Text style={styles.title}>Account</Text>
-          <Text style={styles.subtitle}>Profil, session et raccourcis de compte.</Text>
-        </View>
-
-        {user ? (
-          <View style={styles.profileCard}>
-            <View style={styles.avatar}>
-              <Text style={styles.avatarText}>{initials(label)}</Text>
-            </View>
-            <View style={styles.profileBody}>
-              <Text style={styles.profileName}>{label}</Text>
-              {user.email ? <Text style={styles.profileMeta}>{user.email}</Text> : null}
-              {user.username ? <Text style={styles.profileMeta}>@{user.username}</Text> : null}
-              {createdAt ? <Text style={styles.profileMeta}>Membre depuis {createdAt}</Text> : null}
-              <View style={styles.badgeRow}>
-                <Text style={styles.badge}>{user.emailVerified ? 'Email verifie' : 'Email non verifie'}</Text>
-                {user.role ? <Text style={styles.badge}>{user.role}</Text> : null}
-              </View>
+    <Screen title="Compte" subtitle="Profil, session et raccourcis de compte.">
+      {user ? (
+        <View style={styles.profileSection}>
+          <View style={[styles.avatar, { backgroundColor: '#059669' }]}>
+            <Text style={styles.avatarText}>{initials(label)}</Text>
+          </View>
+          <View style={styles.profileInfo}>
+            <Text style={[styles.profileName, { color: colors.text, fontFamily: Fonts.display }]}>{label}</Text>
+            {user.username ? <Text style={[styles.profileHandle, { color: colors.textMuted }]}>@{user.username}</Text> : null}
+            {user.email ? <Text style={[styles.profileMeta, { color: colors.textTertiary }]}>{user.email}</Text> : null}
+            {createdAt ? <Text style={[styles.profileMeta, { color: colors.textMuted }]}>Membre depuis {createdAt}</Text> : null}
+            <View style={styles.badgeRow}>
+              <Badge label={user.emailVerified ? 'Vérifié' : 'Non vérifié'} />
+              {user.role ? <Badge label={user.role} /> : null}
             </View>
           </View>
-        ) : (
-          <View style={styles.authBox}>
-            <Text style={styles.sectionTitle}>Sign in</Text>
-            <Text style={styles.helpText}>Connectez-vous pour afficher votre profil, vos articles et votre activite.</Text>
-            <TextInput
-              style={styles.input}
-              value={email}
-              onChangeText={setEmail}
-              placeholder="Email"
-              autoCapitalize="none"
-              keyboardType="email-address"
-              textContentType="username"
-            />
-            <TextInput
-              style={styles.input}
-              value={password}
-              onChangeText={setPassword}
-              placeholder="Password"
-              secureTextEntry
-              textContentType="password"
-            />
-            <Pressable style={styles.authButton} onPress={login}>
-              <Text style={styles.authButtonText}>Login</Text>
-            </Pressable>
-          </View>
-        )}
-
-        <View style={styles.sessionBox}>
-          <View style={styles.sessionHeader}>
-            <Text style={styles.sectionTitle}>Session</Text>
-            {authLoading ? <ActivityIndicator size="small" color="#2563EB" /> : null}
-          </View>
-          <Text style={styles.authStatus}>{authStatus}</Text>
-          <Text style={styles.authMeta}>Session HTTP: {sessionHttpStatus ?? 'n/a'}</Text>
-          <Text style={styles.authMeta}>Me HTTP: {meHttpStatus ?? 'n/a'}</Text>
-          <View style={styles.authActions}>
-            <Pressable style={styles.secondaryButton} onPress={refreshAuthState}>
-              <Text style={styles.secondaryButtonText}>Refresh</Text>
-            </Pressable>
-            {user ? (
-              <Pressable style={styles.secondaryButton} onPress={logout}>
-                <Text style={styles.secondaryButtonText}>Logout</Text>
-              </Pressable>
-            ) : null}
-          </View>
+          <Button title="Modifier le profil" onPress={() => {}} variant="secondary" size="sm" rounded />
         </View>
+      ) : (
+        <Card>
+          <View style={styles.loginContent}>
+            <Text style={[styles.loginTitle, { color: colors.text }]}>Se connecter</Text>
+            <Text style={[styles.loginDesc, { color: colors.textSecondary }]}>
+              Connectez-vous pour accéder à votre profil, vos articles et votre activité.
+            </Text>
+            <View style={styles.formGap}>
+              <Input
+                value={email}
+                onChangeText={setEmail}
+                placeholder="Email"
+                autoCapitalize="none"
+                keyboardType="email-address"
+                textContentType="username"
+              />
+              <Input
+                value={password}
+                onChangeText={setPassword}
+                placeholder="Mot de passe"
+                secureTextEntry
+                textContentType="password"
+              />
+              <Button title="Se connecter" onPress={login} rounded />
+            </View>
+          </View>
+        </Card>
+      )}
 
-        {!user ? <StateBox title="Compte requis" text="Les sections articles, activite et reglages avances utilisent votre session Epion." /> : null}
+      <Card style={styles.sessionCard}>
+        <View style={styles.sessionHeader}>
+          <Text style={[styles.sessionTitle, { color: colors.text }]}>Session</Text>
+          {authLoading ? <ActivityIndicator size="small" color={colors.textMuted} /> : null}
+        </View>
+        <Text style={[styles.sessionStatus, { color: colors.textTertiary }]}>{authStatus}</Text>
+        <Text style={[styles.sessionMeta, { color: colors.textMuted }]}>Session HTTP: {sessionHttpStatus ?? '—'} · Me HTTP: {meHttpStatus ?? '—'}</Text>
+        <View style={styles.sessionActions}>
+          <Button title="Rafraîchir" onPress={refreshAuthState} variant="secondary" size="sm" rounded />
+          {user ? <Button title="Déconnexion" onPress={logout} variant="ghost" size="sm" /> : null}
+        </View>
+      </Card>
 
-        <Section title="Compte">
-          <ActionLink href="/account/articles" title="My articles" description="Articles crees depuis votre compte, avec filtres par statut." />
-          <ActionLink href="/saved" title="Saved articles" description="Articles sauvegardes sur votre compte." />
-          <ActionLink href="/news/favorites" title="Favorites" description="Vue favoris reprise du web, branchee sur les articles sauvegardes." />
-          <ActionLink href="/activity" title="Activity" description="Interactions sauvegardees, likes, reposts et commentaires." />
-          <ActionLink href="/settings/account" title="Account settings" description="Profil, email et options de compte." />
-          <ActionLink href="/settings/security" title="Security" description="Mot de passe, verification email et sessions." />
-        </Section>
-      </ScrollView>
-    </View>
+      {!user ? (
+        <EmptyState
+          title="Compte requis"
+          message="Les sections articles, activité et réglages avancés utilisent votre session Epion."
+        />
+      ) : null}
+
+      <View>
+        <Text style={[styles.navSectionTitle, { color: colors.text, fontFamily: Fonts.display }]}>Navigation</Text>
+        <View style={[styles.navList, { borderColor: colors.border, backgroundColor: colors.backgroundElevated }]}>
+          <NavItem href="/account/articles" title="Mes articles" description="Articles créés depuis votre compte." />
+          <NavItem href="/saved" title="Articles sauvegardés" description="Articles sauvegardés sur votre compte." />
+          <NavItem href="/news/favorites" title="Favoris" description="Vos articles favoris." />
+          <NavItem href="/activity" title="Activité" description="Interactions, likes et commentaires." />
+          <NavItem href="/settings/account" title="Paramètres du compte" description="Profil, email et options." />
+          <NavItem href="/settings/security" title="Sécurité" description="Mot de passe et sessions." last />
+        </View>
+      </View>
+    </Screen>
   );
 }
 
 const styles = StyleSheet.create({
-  screen: {
-    flex: 1,
-    backgroundColor: '#F7FAFC',
-  },
-  content: {
-    gap: 16,
-    paddingHorizontal: 20,
-    paddingBottom: 36,
-    paddingTop: 64,
-  },
-  header: {
-    marginBottom: 6,
-  },
-  eyebrow: {
-    color: '#2563EB',
-    fontSize: 14,
-    fontWeight: '700',
-    marginBottom: 8,
-    textTransform: 'uppercase',
-  },
-  title: {
-    color: '#111827',
-    fontSize: 32,
-    fontWeight: '800',
-    marginBottom: 10,
-  },
-  subtitle: {
-    color: '#4B5563',
-    fontSize: 16,
-    lineHeight: 23,
-  },
-  profileCard: {
-    backgroundColor: '#FFFFFF',
-    borderColor: '#E5E7EB',
-    borderRadius: 8,
-    borderWidth: 1,
-    flexDirection: 'row',
-    gap: 14,
-    padding: 18,
+  profileSection: {
+    alignItems: 'flex-start',
+    gap: Spacing.lg,
   },
   avatar: {
     alignItems: 'center',
-    backgroundColor: '#2563EB',
-    borderRadius: 28,
-    height: 56,
+    borderRadius: Radius.full,
+    height: 72,
     justifyContent: 'center',
-    width: 56,
+    width: 72,
   },
   avatarText: {
     color: '#FFFFFF',
-    fontSize: 24,
-    fontWeight: '800',
+    fontSize: 28,
+    fontWeight: '700',
   },
-  profileBody: {
-    flex: 1,
+  profileInfo: {
+    gap: 2,
   },
   profileName: {
-    color: '#111827',
-    fontSize: 21,
-    fontWeight: '800',
-    lineHeight: 27,
+    fontSize: FontSize['2xl'],
+    fontWeight: '700',
+    letterSpacing: -0.3,
+  },
+  profileHandle: {
+    fontSize: FontSize.md,
+    marginTop: 2,
   },
   profileMeta: {
-    color: '#4B5563',
-    fontSize: 14,
-    lineHeight: 21,
+    fontSize: FontSize.base,
     marginTop: 2,
   },
   badgeRow: {
     flexDirection: 'row',
     flexWrap: 'wrap',
-    gap: 8,
-    marginTop: 10,
+    gap: Spacing.sm,
+    marginTop: Spacing.sm,
   },
-  badge: {
-    backgroundColor: '#E5E7EB',
-    borderRadius: 999,
-    color: '#111827',
-    fontSize: 12,
-    fontWeight: '800',
-    paddingHorizontal: 10,
-    paddingVertical: 6,
+  loginContent: {
+    gap: Spacing.lg,
   },
-  authBox: {
-    backgroundColor: '#FFFFFF',
-    borderColor: '#E5E7EB',
-    borderRadius: 8,
-    borderWidth: 1,
-    gap: 12,
-    padding: 18,
+  loginTitle: {
+    fontSize: FontSize.xl,
+    fontWeight: '600',
   },
-  sessionBox: {
-    backgroundColor: '#FFFFFF',
-    borderColor: '#E5E7EB',
-    borderRadius: 8,
-    borderWidth: 1,
-    gap: 10,
-    padding: 18,
+  loginDesc: {
+    fontSize: FontSize.base,
+    lineHeight: 20,
+  },
+  formGap: {
+    gap: Spacing.md,
+  },
+  sessionCard: {
+    padding: Spacing.lg,
   },
   sessionHeader: {
     alignItems: 'center',
     flexDirection: 'row',
     justifyContent: 'space-between',
+    marginBottom: Spacing.sm,
   },
-  sectionTitle: {
-    color: '#111827',
-    fontSize: 20,
-    fontWeight: '800',
+  sessionTitle: {
+    fontSize: FontSize.lg,
+    fontWeight: '600',
   },
-  helpText: {
-    color: '#4B5563',
-    fontSize: 14,
-    lineHeight: 21,
+  sessionStatus: {
+    fontSize: FontSize.base,
+    lineHeight: 20,
   },
-  input: {
-    borderColor: '#D1D5DB',
-    borderRadius: 8,
-    borderWidth: 1,
-    color: '#111827',
-    fontSize: 16,
-    paddingHorizontal: 14,
-    paddingVertical: 12,
+  sessionMeta: {
+    fontSize: FontSize.sm,
+    marginTop: 4,
   },
-  authActions: {
+  sessionActions: {
     flexDirection: 'row',
     flexWrap: 'wrap',
-    gap: 10,
+    gap: Spacing.sm,
+    marginTop: Spacing.lg,
   },
-  authButton: {
-    alignSelf: 'flex-start',
-    backgroundColor: '#2563EB',
-    borderRadius: 8,
-    paddingHorizontal: 16,
-    paddingVertical: 11,
+  navSectionTitle: {
+    fontSize: FontSize['2xl'],
+    fontWeight: '500',
+    letterSpacing: -0.3,
+    marginBottom: Spacing.md,
   },
-  authButtonText: {
-    color: '#FFFFFF',
-    fontSize: 15,
-    fontWeight: '800',
+  navList: {
+    borderRadius: Radius.xl,
+    borderWidth: 1,
+    overflow: 'hidden',
   },
-  secondaryButton: {
-    backgroundColor: '#111827',
-    borderRadius: 8,
-    paddingHorizontal: 16,
-    paddingVertical: 11,
+  navItem: {
+    alignItems: 'center',
+    flexDirection: 'row',
+    gap: Spacing.md,
+    minHeight: 64,
+    paddingHorizontal: Spacing.lg,
+    paddingVertical: Spacing.md,
   },
-  secondaryButtonText: {
-    color: '#FFFFFF',
-    fontSize: 15,
-    fontWeight: '800',
+  navItemPressed: {
+    backgroundColor: 'rgba(0,0,0,0.03)',
   },
-  authStatus: {
-    color: '#374151',
-    fontSize: 15,
-    lineHeight: 22,
+  navItemText: {
+    flex: 1,
+    gap: 2,
   },
-  authMeta: {
-    color: '#6B7280',
-    fontSize: 13,
-    lineHeight: 19,
+  navItemTitle: {
+    fontSize: FontSize.base,
+    fontWeight: '600',
+  },
+  navItemDesc: {
+    fontSize: FontSize.sm,
+  },
+  chevron: {
+    fontSize: 22,
+    fontWeight: '300',
   },
 });
