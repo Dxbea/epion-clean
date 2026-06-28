@@ -501,3 +501,184 @@ export async function fetchChatSessions(): Promise<ChatSessionSummary[]> {
     })
     .filter((session): session is ChatSessionSummary => session !== null);
 }
+
+export type MyArticleStatus = 'ALL' | 'DRAFT' | 'PUBLISHED' | 'ARCHIVED';
+
+export type MyArticleStats = {
+  total: number;
+  draft: number;
+  published: number;
+  archived: number;
+};
+
+export type AccountSession = {
+  id: string;
+  createdAt: string;
+  expiresAt: string | null;
+  lastActiveAt?: string | null;
+  current: boolean;
+};
+
+export type ActivityType = 'SAVED' | 'LIKED' | 'DISLIKED' | 'REPOSTED' | 'COMMENTS';
+
+export type ActivityComment = {
+  id: string;
+  content: string;
+  createdAt?: string;
+  articleTitle?: string;
+  articleId?: string;
+  articleSlug?: string;
+};
+
+export type ActivityPage = {
+  items: Article[] | ActivityComment[];
+  nextCursor: string | null;
+};
+
+function normalizeCommentActivity(item: unknown): ActivityComment | null {
+  if (!item || typeof item !== 'object') {
+    return null;
+  }
+
+  const record = item as Record<string, unknown>;
+  const id = readOptionalText(record.id) ?? readOptionalText(record.commentId);
+  const content = readOptionalText(record.content) ?? readOptionalText(record.text);
+
+  if (!id || !content) {
+    return null;
+  }
+
+  const article = record.article && typeof record.article === 'object' ? (record.article as Record<string, unknown>) : null;
+
+  return {
+    id,
+    content,
+    ...(readOptionalText(record.createdAt) ? { createdAt: readOptionalText(record.createdAt) } : {}),
+    ...(article && readOptionalText(article.title) ? { articleTitle: readOptionalText(article.title) } : {}),
+    ...(article && readOptionalText(article.id) ? { articleId: readOptionalText(article.id) } : {}),
+    ...(article && readOptionalText(article.slug) ? { articleSlug: readOptionalText(article.slug) } : {}),
+  };
+}
+
+export async function fetchMyArticlesPage(options?: {
+  status?: MyArticleStatus;
+  query?: string;
+  cursor?: string | null;
+  take?: number;
+}): Promise<ArticlePage> {
+  const params = new URLSearchParams();
+  params.set('status', options?.status ?? 'ALL');
+  params.set('take', String(Math.min(options?.take ?? 24, 50)));
+  if (options?.query?.trim()) params.set('q', options.query.trim());
+  if (options?.cursor) params.set('cursor', options.cursor);
+
+  const response = await fetch(`${API_BASE}/api/me/articles?${params.toString()}`, {
+    credentials: 'include',
+    headers: {
+      Accept: 'application/json',
+    },
+  });
+
+  if (!response.ok) {
+    throw new Error(`HTTP ${response.status}`);
+  }
+
+  const payload = await readJson(response);
+  return {
+    items: getArticleItems(payload)
+      .map(normalizeArticle)
+      .filter((article): article is Article => article !== null),
+    nextCursor: getNextCursor(payload),
+  };
+}
+
+export async function fetchMyArticleStats(): Promise<MyArticleStats> {
+  const response = await fetch(`${API_BASE}/api/me/articles/stats`, {
+    credentials: 'include',
+    headers: {
+      Accept: 'application/json',
+    },
+  });
+
+  if (!response.ok) {
+    throw new Error(`HTTP ${response.status}`);
+  }
+
+  const payload = await readJson(response);
+  const record = payload && typeof payload === 'object' ? (payload as Record<string, unknown>) : {};
+
+  return {
+    total: readOptionalNumber(record.total) ?? 0,
+    draft: readOptionalNumber(record.draft) ?? 0,
+    published: readOptionalNumber(record.published) ?? 0,
+    archived: readOptionalNumber(record.archived) ?? 0,
+  };
+}
+
+export async function fetchAccountSessions(): Promise<AccountSession[]> {
+  const response = await fetch(`${API_BASE}/api/me/sessions`, {
+    credentials: 'include',
+    headers: {
+      Accept: 'application/json',
+    },
+  });
+
+  if (!response.ok) {
+    throw new Error(`HTTP ${response.status}`);
+  }
+
+  const payload = await readJson(response);
+  return getItems(payload)
+    .map((item): AccountSession | null => {
+      if (!item || typeof item !== 'object') {
+        return null;
+      }
+
+      const record = item as Record<string, unknown>;
+      const id = readOptionalText(record.id);
+      const createdAt = readOptionalText(record.createdAt);
+
+      if (!id || !createdAt) {
+        return null;
+      }
+
+      return {
+        id,
+        createdAt,
+        expiresAt: readOptionalText(record.expiresAt) ?? null,
+        ...(readOptionalText(record.lastActiveAt) ? { lastActiveAt: readOptionalText(record.lastActiveAt) } : {}),
+        current: Boolean(record.current),
+      };
+    })
+    .filter((session): session is AccountSession => session !== null);
+}
+
+export async function fetchActivityPage(type: ActivityType, options?: { cursor?: string | null; take?: number }): Promise<ActivityPage> {
+  const params = new URLSearchParams({
+    type,
+    take: String(Math.min(options?.take ?? 24, 50)),
+  });
+  if (options?.cursor) params.set('cursor', options.cursor);
+
+  const response = await fetch(`${API_BASE}/api/social/activity?${params.toString()}`, {
+    credentials: 'include',
+    headers: {
+      Accept: 'application/json',
+    },
+  });
+
+  if (!response.ok) {
+    throw new Error(`HTTP ${response.status}`);
+  }
+
+  const payload = await readJson(response);
+  const rawItems = getItems(payload);
+
+  return {
+    items:
+      type === 'COMMENTS'
+        ? rawItems.map(normalizeCommentActivity).filter((item): item is ActivityComment => item !== null)
+        : (rawItems as ArticleApiItem[]).map(normalizeArticle).filter((article): article is Article => article !== null),
+    nextCursor: getNextCursor(payload),
+  };
+}

@@ -1,9 +1,18 @@
 export type AuthUser = {
   id?: string;
   email?: string;
-  name?: string;
-  displayName?: string;
-  username?: string;
+  name?: string | null;
+  displayName?: string | null;
+  username?: string | null;
+  phone?: string | null;
+  avatarUrl?: string | null;
+  bannerUrl?: string | null;
+  bio?: string | null;
+  role?: string | null;
+  emailVerified?: boolean;
+  createdAt?: string;
+  followersCount?: number;
+  followingCount?: number;
 };
 
 export type AuthSessionResult = {
