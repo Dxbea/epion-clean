@@ -868,6 +868,29 @@ export async function toggleArticleReaction(articleId: string, type: 'LIKE' | 'D
   return normalizeReactionSummary(payload);
 }
 
+export async function toggleArticleRepost(articleId: string): Promise<{ reposted: boolean }> {
+  const response = await fetch(
+    `${API_BASE}/api/social/articles/${encodeURIComponent(articleId)}/repost`,
+    await withCsrf({
+      method: 'POST',
+      headers: {
+        Accept: 'application/json',
+        'Content-Type': 'application/json',
+      },
+      body: '{}',
+    }),
+  );
+
+  const payload = await readJson(response);
+
+  if (!response.ok) {
+    throw buildApiError(response, payload);
+  }
+
+  const record = payload && typeof payload === 'object' ? (payload as Record<string, unknown>) : {};
+  return { reposted: record.reposted === true };
+}
+
 export async function fetchArticleComments(articleId: string, cursor?: string | null): Promise<ArticleCommentsPage> {
   const params = new URLSearchParams({ take: '20' });
   if (cursor) params.set('cursor', cursor);
