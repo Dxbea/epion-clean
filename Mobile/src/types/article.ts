@@ -60,6 +60,71 @@ export type ArticleCommentsPage = {
   items: ArticleComment[];
   nextCursor: string | null;
 };
+export type ArticleContributionType = 'SOURCE' | 'NUANCE' | 'CONTRADICTION' | 'QUESTION' | 'CORRECTION';
+export type ArticleValidationType = 'WELL_SOURCED' | 'ADDS_NUANCE' | 'NEEDS_CHECK';
+export type ArticleInteractionsSortMode = 'top' | 'recent';
+export type ArticleContributionStatus = 'ACTIVE' | 'DELETED' | 'HIDDEN' | 'STALE';
+
+export type ArticleOpinionQuestion = {
+  id: string;
+  articleId: string;
+  question: string;
+  thesisA: string;
+  thesisB: string;
+};
+
+export type ArticleOpinionPosition = {
+  id: string;
+  selectedPosition: number | null;
+  lacksContext: boolean;
+  confirmedAt: string;
+  createdAt: string;
+  updatedAt: string;
+};
+
+export type ArticleOpinionDistribution = {
+  counts: Record<string, number>;
+  total: number;
+  lacksContextCount: number;
+};
+
+export type ArticleContributionAuthor = {
+  id: string;
+  name?: string;
+  username?: string;
+  avatarUrl?: string;
+};
+
+export type ArticleValidationSummary = Record<ArticleValidationType, number>;
+
+export type ArticleContribution = {
+  id: string;
+  targetContributionId: string | null;
+  status: ArticleContributionStatus;
+  type: ArticleContributionType;
+  text: string;
+  sourceUrl: string | null;
+  bridgingScore: number;
+  editedAt: string | null;
+  editCount: number;
+  createdAt: string;
+  updatedAt: string;
+  author: ArticleContributionAuthor | null;
+  validationSummary: ArticleValidationSummary;
+  currentUserValidations: ArticleValidationType[];
+  children: ArticleContribution[];
+};
+
+export type ArticleInteractions = {
+  opinionQuestion: ArticleOpinionQuestion | null;
+  allowedPositions: number[];
+  currentUserOpinionPosition: ArticleOpinionPosition | null;
+  hasInsufficientContext: boolean;
+  canContribute: boolean;
+  canValidateContributions: boolean;
+  opinionDistribution: ArticleOpinionDistribution;
+  contributions: ArticleContribution[];
+};
 export type ArticleApiItem = {
   id?: string | number;
   slug?: string;

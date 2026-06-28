@@ -4,8 +4,15 @@ import type {
   ArticleComment,
   ArticleCommentsPage,
   ArticleDetail,
+  ArticleContribution,
+  ArticleContributionType,
   ArticleDetailApiItem,
+  ArticleInteractions,
+  ArticleInteractionsSortMode,
+  ArticleOpinionDistribution,
   ArticleReactionSummary,
+  ArticleValidationSummary,
+  ArticleValidationType,
   ArticleSource,
 } from '@/types/article';
 
@@ -307,6 +314,153 @@ function normalizeReactionSummary(payload: unknown): ArticleReactionSummary {
     userReaction: rawReaction === 'LIKE' || rawReaction === 'DISLIKE' ? rawReaction : null,
     userReposted: record.userReposted === true,
   };
+}
+const EMPTY_OPINION_DISTRIBUTION: ArticleOpinionDistribution = {
+  counts: {},
+  total: 0,
+  lacksContextCount: 0,
+};
+
+function normalizeValidationSummary(value: unknown): ArticleValidationSummary {
+  const record = readRecord(value) ?? {};
+  return {
+    WELL_SOURCED: readOptionalNumber(record.WELL_SOURCED) ?? 0,
+    ADDS_NUANCE: readOptionalNumber(record.ADDS_NUANCE) ?? 0,
+    NEEDS_CHECK: readOptionalNumber(record.NEEDS_CHECK) ?? 0,
+  };
+}
+
+function normalizeOpinionDistribution(value: unknown): ArticleOpinionDistribution {
+  const record = readRecord(value);
+  const countsRecord = readRecord(record?.counts);
+  const counts: Record<string, number> = {};
+
+  if (countsRecord) {
+    for (const [key, count] of Object.entries(countsRecord)) {
+      if (typeof count === 'number' && Number.isFinite(count)) {
+        counts[key] = count;
+      }
+    }
+  }
+
+  return {
+    counts,
+    total: readOptionalNumber(record?.total) ?? EMPTY_OPINION_DISTRIBUTION.total,
+    lacksContextCount: readOptionalNumber(record?.lacksContextCount) ?? EMPTY_OPINION_DISTRIBUTION.lacksContextCount,
+  };
+}
+
+function normalizeContributionAuthor(value: unknown): ArticleContribution['author'] {
+  const record = readRecord(value);
+  if (!record) return null;
+
+  const id = readOptionalText(record.id);
+  if (!id) return null;
+
+  const name = readOptionalText(record.name);
+  const username = readOptionalText(record.username);
+  const avatarUrl = readOptionalText(record.avatarUrl);
+
+  return {
+    id,
+    ...(name ? { name } : {}),
+    ...(username ? { username } : {}),
+    ...(avatarUrl ? { avatarUrl } : {}),
+  };
+}
+
+function normalizeContributionType(value: unknown): ArticleContributionType {
+  const type = readOptionalText(value);
+  if (type === 'SOURCE' || type === 'NUANCE' || type === 'CONTRADICTION' || type === 'QUESTION' || type === 'CORRECTION') {
+    return type;
+  }
+  return 'NUANCE';
+}
+
+function normalizeValidationTypes(value: unknown): ArticleValidationType[] {
+  if (!Array.isArray(value)) return [];
+  return value.filter((item): item is ArticleValidationType => item === 'WELL_SOURCED' || item === 'ADDS_NUANCE' || item === 'NEEDS_CHECK');
+}
+
+function normalizeContribution(item: unknown): ArticleContribution | null {
+  const record = readRecord(item);
+  if (!record) return null;
+
+  const id = readOptionalText(record.id);
+  if (!id) return null;
+
+  const targetContributionId = readOptionalText(record.targetContributionId) ?? null;
+  const rawStatus = readOptionalText(record.status);
+  const status = rawStatus === 'DELETED' || rawStatus === 'HIDDEN' || rawStatus === 'STALE' ? rawStatus : 'ACTIVE';
+  const text = typeof record.text === 'string' ? record.text : '';
+  const sourceUrl = readOptionalText(record.sourceUrl) ?? null;
+  const createdAt = readOptionalText(record.createdAt) ?? new Date(0).toISOString();
+  const updatedAt = readOptionalText(record.updatedAt) ?? createdAt;
+  const editedAt = readOptionalText(record.editedAt) ?? null;
+
+  return {
+    id,
+    targetContributionId,
+    status,
+    type: normalizeContributionType(record.type),
+    text,
+    sourceUrl,
+    bridgingScore: readOptionalNumber(record.bridgingScore) ?? 0,
+    editedAt,
+    editCount: readOptionalNumber(record.editCount) ?? 0,
+    createdAt,
+    updatedAt,
+    author: normalizeContributionAuthor(record.author),
+    validationSummary: normalizeValidationSummary(record.validationSummary),
+    currentUserValidations: normalizeValidationTypes(record.currentUserValidations),
+    children: Array.isArray(record.children) ? record.children.map(normalizeContribution).filter((child): child is ArticleContribution => child !== null) : [],
+  };
+}
+
+function normalizeArticleInteractions(payload: unknown): ArticleInteractions {
+  const record = readRecord(payload) ?? {};
+  const questionRecord = readRecord(record.opinionQuestion);
+  const currentPositionRecord = readRecord(record.currentUserOpinionPosition);
+
+  return {
+    opinionQuestion: questionRecord
+      ? {
+          id: readOptionalText(questionRecord.id) ?? '',
+          articleId: readOptionalText(questionRecord.articleId) ?? '',
+          question: readOptionalText(questionRecord.question) ?? '',
+          thesisA: readOptionalText(questionRecord.thesisA) ?? '',
+          thesisB: readOptionalText(questionRecord.thesisB) ?? '',
+        }
+      : null,
+    allowedPositions: Array.isArray(record.allowedPositions) ? record.allowedPositions.filter((position): position is number => typeof position === 'number') : [-1, -0.6, -0.2, 0.2, 0.6, 1],
+    currentUserOpinionPosition: currentPositionRecord
+      ? {
+          id: readOptionalText(currentPositionRecord.id) ?? '',
+          selectedPosition: readOptionalNumber(currentPositionRecord.selectedPosition) ?? null,
+          lacksContext: currentPositionRecord.lacksContext === true,
+          confirmedAt: readOptionalText(currentPositionRecord.confirmedAt) ?? '',
+          createdAt: readOptionalText(currentPositionRecord.createdAt) ?? '',
+          updatedAt: readOptionalText(currentPositionRecord.updatedAt) ?? '',
+        }
+      : null,
+    hasInsufficientContext: record.hasInsufficientContext === true,
+    canContribute: record.canContribute === true,
+    canValidateContributions: record.canValidateContributions === true,
+    opinionDistribution: normalizeOpinionDistribution(record.opinionDistribution),
+    contributions: Array.isArray(record.contributions) ? record.contributions.map(normalizeContribution).filter((contribution): contribution is ArticleContribution => contribution !== null) : [],
+  };
+}
+
+function updateContributionTree(
+  contributions: ArticleContribution[],
+  contributionId: string,
+  updater: (contribution: ArticleContribution) => ArticleContribution,
+): ArticleContribution[] {
+  return contributions.map((contribution) => {
+    const children = contribution.children.length > 0 ? updateContributionTree(contribution.children, contributionId, updater) : contribution.children;
+    const next = children === contribution.children ? contribution : { ...contribution, children };
+    return next.id === contributionId ? updater(next) : next;
+  });
 }
 function normalizeChatSession(item: unknown): ChatSessionSummary | null {
   if (!item || typeof item !== 'object') {
@@ -766,6 +920,116 @@ export async function postArticleComment(articleId: string, content: string): Pr
 
   return comment;
 }
+export async function fetchArticleInteractions(articleSlug: string, sort: ArticleInteractionsSortMode = 'top'): Promise<ArticleInteractions> {
+  const response = await fetch(`${API_BASE}/api/articles/${encodeURIComponent(articleSlug)}/interactions?sort=${sort}`, {
+    credentials: 'include',
+    headers: {
+      Accept: 'application/json',
+    },
+  });
+
+  if (!response.ok) {
+    throw new Error(`HTTP ${response.status}`);
+  }
+
+  return normalizeArticleInteractions(await readJson(response));
+}
+
+export async function submitArticleOpinionPosition(
+  articleSlug: string,
+  selectedPosition: number | null,
+  lacksContext: boolean,
+): Promise<{ position: ArticleInteractions['currentUserOpinionPosition']; canContribute: boolean; canValidateContributions: boolean }> {
+  const response = await fetch(
+    `${API_BASE}/api/articles/${encodeURIComponent(articleSlug)}/opinion-position`,
+    await withCsrf({
+      method: 'POST',
+      headers: {
+        Accept: 'application/json',
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({ selectedPosition, lacksContext }),
+    }),
+  );
+
+  const payload = await readJson(response);
+
+  if (!response.ok) {
+    throw buildApiError(response, payload);
+  }
+
+  const normalized = normalizeArticleInteractions({ currentUserOpinionPosition: payload });
+  const record = readRecord(payload) ?? {};
+  return {
+    position: normalized.currentUserOpinionPosition,
+    canContribute: record.canContribute === true,
+    canValidateContributions: record.canValidateContributions === true,
+  };
+}
+
+export async function submitArticleContribution(
+  articleSlug: string,
+  type: ArticleContributionType,
+  text: string,
+  sourceUrl?: string,
+  targetContributionId?: string,
+): Promise<ArticleContribution> {
+  const response = await fetch(
+    `${API_BASE}/api/articles/${encodeURIComponent(articleSlug)}/contributions`,
+    await withCsrf({
+      method: 'POST',
+      headers: {
+        Accept: 'application/json',
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({ type, text, sourceUrl: sourceUrl || undefined, targetContributionId: targetContributionId || undefined }),
+    }),
+  );
+
+  const payload = await readJson(response);
+
+  if (!response.ok) {
+    throw buildApiError(response, payload);
+  }
+
+  const contribution = normalizeContribution(payload);
+  if (!contribution) {
+    throw new Error('Invalid contribution response');
+  }
+
+  return contribution;
+}
+
+export async function toggleArticleContributionValidation(
+  contributionId: string,
+  type: ArticleValidationType,
+): Promise<{ action: 'ADDED' | 'REMOVED'; validationSummary: ArticleValidationSummary }> {
+  const response = await fetch(
+    `${API_BASE}/api/articles/contributions/${encodeURIComponent(contributionId)}/validations`,
+    await withCsrf({
+      method: 'POST',
+      headers: {
+        Accept: 'application/json',
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({ type }),
+    }),
+  );
+
+  const payload = await readJson(response);
+
+  if (!response.ok) {
+    throw buildApiError(response, payload);
+  }
+
+  const record = readRecord(payload) ?? {};
+  return {
+    action: record.action === 'REMOVED' ? 'REMOVED' : 'ADDED',
+    validationSummary: normalizeValidationSummary(record.validationSummary),
+  };
+}
+
+export { updateContributionTree };
 export async function fetchCategories(): Promise<Category[]> {
   const response = await fetch(`${API_BASE}/api/categories`, {
     headers: {

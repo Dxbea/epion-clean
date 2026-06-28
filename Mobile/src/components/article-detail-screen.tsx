@@ -5,16 +5,31 @@ import { ActivityIndicator, Linking, Pressable, ScrollView, Share, StyleSheet, T
 import {
   WEB_ORIGIN,
   fetchArticleComments,
+  fetchArticleInteractions,
   fetchArticleReactions,
   fetchArticleStats,
   fetchFavoriteArticleIds,
   postArticleComment,
+  submitArticleContribution,
+  submitArticleOpinionPosition,
   recordArticleView,
   removeFavoriteArticle,
   saveFavoriteArticle,
+  toggleArticleContributionValidation,
   toggleArticleReaction,
+  updateContributionTree,
 } from '@/lib/api';
-import type { ArticleComment, ArticleDetail, ArticleReactionSummary, ArticleSource } from '@/types/article';
+import type {
+  ArticleComment,
+  ArticleContribution,
+  ArticleContributionType,
+  ArticleDetail,
+  ArticleInteractions,
+  ArticleInteractionsSortMode,
+  ArticleReactionSummary,
+  ArticleSource,
+  ArticleValidationType,
+} from '@/types/article';
 
 type ArticleDetailScreenProps = {
   loadArticle: () => Promise<ArticleDetail | null>;
@@ -28,7 +43,19 @@ const EMPTY_REACTIONS: ArticleReactionSummary = {
   userReaction: null,
   userReposted: false,
 };
-
+const POSITION_VALUES = [-1, -0.6, -0.2, 0.2, 0.6, 1];
+const CONTRIBUTION_TYPES: Array<{ type: ArticleContributionType; label: string; help: string }> = [
+  { type: 'SOURCE', label: 'Source', help: 'Ajouter une source verifiable.' },
+  { type: 'NUANCE', label: 'Nuance', help: 'Ajouter du contexte ou une distinction.' },
+  { type: 'CONTRADICTION', label: 'Contradiction', help: 'Signaler un conflit avec un element.' },
+  { type: 'QUESTION', label: 'Question', help: 'Ouvrir un point precis a clarifier.' },
+  { type: 'CORRECTION', label: 'Correction', help: 'Proposer une correction factuelle.' },
+];
+const VALIDATION_TYPES: Array<{ type: ArticleValidationType; label: string }> = [
+  { type: 'WELL_SOURCED', label: 'Bien source' },
+  { type: 'ADDS_NUANCE', label: 'Nuance' },
+  { type: 'NEEDS_CHECK', label: 'A verifier' },
+];
 function formatDate(value?: string): string | undefined {
   if (!value) return undefined;
   const date = new Date(value);
@@ -59,6 +86,27 @@ function authorLabel(comment: ArticleComment): string {
   return comment.authorName ?? 'Utilisateur Epion';
 }
 
+function contributionAuthorLabel(contribution: ArticleContribution): string {
+  return contribution.author?.name ?? contribution.author?.username ?? 'Contributeur Epion';
+}
+
+function contributionTypeLabel(type: ArticleContributionType): string {
+  return CONTRIBUTION_TYPES.find((item) => item.type === type)?.label ?? type;
+}
+
+function positionLabel(value: number | null): string {
+  if (value === null) return 'Sans position';
+  if (value <= -0.9) return 'These A forte';
+  if (value < -0.3) return 'These A moderee';
+  if (value < 0) return 'These A legere';
+  if (value < 0.3) return 'These B legere';
+  if (value < 0.9) return 'These B moderee';
+  return 'These B forte';
+}
+
+function validUrl(value: string): boolean {
+  return /^https?:\/\//i.test(value);
+}
 export function ArticleDetailScreenContent({ loadArticle, missingText = 'Aucun detail disponible pour cet article.' }: ArticleDetailScreenProps) {
   const router = useRouter();
   const [article, setArticle] = useState<ArticleDetail | null>(null);
@@ -75,6 +123,18 @@ export function ArticleDetailScreenContent({ loadArticle, missingText = 'Aucun d
   const [commentError, setCommentError] = useState<string | null>(null);
   const [isPostingComment, setIsPostingComment] = useState(false);
   const [interactionMessage, setInteractionMessage] = useState<string | null>(null);
+  const [advancedInteractions, setAdvancedInteractions] = useState<ArticleInteractions | null>(null);
+  const [advancedSort, setAdvancedSort] = useState<ArticleInteractionsSortMode>('top');
+  const [advancedLoading, setAdvancedLoading] = useState(false);
+  const [advancedError, setAdvancedError] = useState<string | null>(null);
+  const [selectedPosition, setSelectedPosition] = useState<number | null>(null);
+  const [lacksContext, setLacksContext] = useState(false);
+  const [isSubmittingPosition, setIsSubmittingPosition] = useState(false);
+  const [contributionType, setContributionType] = useState<ArticleContributionType>('NUANCE');
+  const [contributionText, setContributionText] = useState('');
+  const [contributionSourceUrl, setContributionSourceUrl] = useState('');
+  const [contributionTargetId, setContributionTargetId] = useState<string | null>(null);
+  const [isSubmittingContribution, setIsSubmittingContribution] = useState(false);
 
   const loadComments = useCallback(async (articleId: string, cursor?: string | null) => {
     setCommentsLoading(true);
@@ -92,22 +152,40 @@ export function ArticleDetailScreenContent({ loadArticle, missingText = 'Aucun d
     }
   }, []);
 
+  const loadAdvancedInteractions = useCallback(async (targetArticle: ArticleDetail, sort: ArticleInteractionsSortMode = advancedSort) => {
+    const articleSlug = targetArticle.slug ?? targetArticle.id;
+    setAdvancedLoading(true);
+    setAdvancedError(null);
+
+    try {
+      const data = await fetchArticleInteractions(articleSlug, sort);
+      setAdvancedInteractions(data);
+      setSelectedPosition(data.currentUserOpinionPosition?.selectedPosition ?? null);
+      setLacksContext(data.currentUserOpinionPosition?.lacksContext ?? false);
+    } catch {
+      setAdvancedInteractions(null);
+      setAdvancedError('Contributions et carte d opinion indisponibles pour le moment.');
+    } finally {
+      setAdvancedLoading(false);
+    }
+  }, [advancedSort]);
   const hydrateInteractions = useCallback(
-    async (articleId: string) => {
+    async (nextArticle: ArticleDetail) => {
       setInteractionMessage(null);
       setReactionError(null);
 
       void fetchFavoriteArticleIds()
-        .then((ids) => setIsSaved(ids.includes(articleId)))
+        .then((ids) => setIsSaved(ids.includes(nextArticle.id)))
         .catch(() => setIsSaved(false));
 
-      void fetchArticleReactions(articleId)
+      void fetchArticleReactions(nextArticle.id)
         .then(setReactions)
         .catch(() => setReactionError('Reactions indisponibles pour le moment.'));
 
-      void loadComments(articleId, null);
+      void loadComments(nextArticle.id, null);
+      void loadAdvancedInteractions(nextArticle);
     },
-    [loadComments],
+    [loadAdvancedInteractions, loadComments],
   );
 
   const load = useCallback(async () => {
@@ -117,6 +195,8 @@ export function ArticleDetailScreenContent({ loadArticle, missingText = 'Aucun d
     setCommentsCursor(null);
     setReactions(EMPTY_REACTIONS);
     setIsSaved(false);
+    setAdvancedInteractions(null);
+    setAdvancedError(null);
 
     try {
       const nextArticle = await loadArticle();
@@ -129,7 +209,7 @@ export function ArticleDetailScreenContent({ loadArticle, missingText = 'Aucun d
             setArticle((current) => (current?.id === nextArticle.id ? { ...current, viewsAll: stats.viewsAll } : current));
           }
         });
-        void hydrateInteractions(nextArticle.id);
+        void hydrateInteractions(nextArticle);
       }
     } catch {
       setArticle(null);
@@ -216,6 +296,128 @@ export function ArticleDetailScreenContent({ loadArticle, missingText = 'Aucun d
     }
   }, [article?.id, commentText, isPostingComment]);
 
+  const confirmedPosition = advancedInteractions?.currentUserOpinionPosition ?? null;
+  const canContribute = advancedInteractions?.canContribute === true;
+  const canValidate = advancedInteractions?.canValidateContributions === true;
+  const distribution = advancedInteractions?.opinionDistribution;
+  const maxOpinionCount = Math.max(1, ...POSITION_VALUES.map((position) => distribution?.counts[String(position)] ?? 0));
+
+  const confirmOpinionPosition = useCallback(async () => {
+    if (!article || confirmedPosition || isSubmittingPosition) return;
+    if (selectedPosition === null && !lacksContext) {
+      setAdvancedError('Choisissez une position ou indiquez un manque de contexte.');
+      return;
+    }
+
+    setIsSubmittingPosition(true);
+    setAdvancedError(null);
+
+    try {
+      const result = await submitArticleOpinionPosition(article.slug ?? article.id, selectedPosition, lacksContext);
+      setAdvancedInteractions((current) => current ? {
+        ...current,
+        currentUserOpinionPosition: result.position,
+        canContribute: result.canContribute,
+        canValidateContributions: result.canValidateContributions,
+      } : current);
+    } catch {
+      setAdvancedError('Connexion requise ou position deja confirmee.');
+      void loadAdvancedInteractions(article);
+    } finally {
+      setIsSubmittingPosition(false);
+    }
+  }, [article, confirmedPosition, isSubmittingPosition, lacksContext, loadAdvancedInteractions, selectedPosition]);
+
+  const submitContribution = useCallback(async () => {
+    if (!article || isSubmittingContribution) return;
+
+    const text = contributionText.trim();
+    const sourceUrl = contributionSourceUrl.trim();
+    const requiresSource = contributionType === 'SOURCE' || contributionTargetId !== null;
+
+    if (requiresSource && !sourceUrl) {
+      setAdvancedError('Une URL de source est requise pour ce type de contribution.');
+      return;
+    }
+    if (contributionType !== 'SOURCE' && !text) {
+      setAdvancedError('Ecrivez une contribution avant de publier.');
+      return;
+    }
+    if (sourceUrl && !validUrl(sourceUrl)) {
+      setAdvancedError('L URL doit commencer par http:// ou https://.');
+      return;
+    }
+
+    setIsSubmittingContribution(true);
+    setAdvancedError(null);
+
+    try {
+      const created = await submitArticleContribution(article.slug ?? article.id, contributionType, text || ' ', sourceUrl || undefined, contributionTargetId || undefined);
+      setAdvancedInteractions((current) => {
+        if (!current) return current;
+        if (!created.targetContributionId) return { ...current, contributions: [created, ...current.contributions] };
+        return {
+          ...current,
+          contributions: current.contributions.map((contribution) => contribution.id === created.targetContributionId ? { ...contribution, children: [...contribution.children, created] } : contribution),
+        };
+      });
+      setContributionText('');
+      setContributionSourceUrl('');
+      setContributionTargetId(null);
+      setContributionType('NUANCE');
+    } catch {
+      setAdvancedError('Connexion requise ou contribution refusee par l API.');
+    } finally {
+      setIsSubmittingContribution(false);
+    }
+  }, [article, contributionSourceUrl, contributionTargetId, contributionText, contributionType, isSubmittingContribution]);
+
+  const validateContribution = useCallback(async (contributionId: string, type: ArticleValidationType) => {
+    if (!canValidate) {
+      setAdvancedError('Confirmez une position avant de valider les contributions.');
+      return;
+    }
+
+    const previous = advancedInteractions;
+    setAdvancedError(null);
+
+    setAdvancedInteractions((current) => current ? {
+      ...current,
+      contributions: updateContributionTree(current.contributions, contributionId, (contribution) => {
+        const hadIt = contribution.currentUserValidations.includes(type);
+        return {
+          ...contribution,
+          currentUserValidations: hadIt ? contribution.currentUserValidations.filter((item) => item !== type) : [...contribution.currentUserValidations, type],
+          validationSummary: {
+            ...contribution.validationSummary,
+            [type]: Math.max(0, contribution.validationSummary[type] + (hadIt ? -1 : 1)),
+          },
+        };
+      }),
+    } : current);
+
+    try {
+      const result = await toggleArticleContributionValidation(contributionId, type);
+      setAdvancedInteractions((current) => current ? {
+        ...current,
+        contributions: updateContributionTree(current.contributions, contributionId, (contribution) => ({
+          ...contribution,
+          validationSummary: result.validationSummary,
+          currentUserValidations: result.action === 'ADDED'
+            ? [...contribution.currentUserValidations.filter((item) => item !== type), type]
+            : contribution.currentUserValidations.filter((item) => item !== type),
+        })),
+      } : current);
+    } catch {
+      setAdvancedInteractions(previous);
+      setAdvancedError('Validation impossible: connexion requise ou contribution non eligible.');
+    }
+  }, [advancedInteractions, canValidate]);
+
+  const changeAdvancedSort = useCallback((sort: ArticleInteractionsSortMode) => {
+    setAdvancedSort(sort);
+    if (article) void loadAdvancedInteractions(article, sort);
+  }, [article, loadAdvancedInteractions]);
   const shareArticle = useCallback(async () => {
     if (!article) return;
 
@@ -345,7 +547,170 @@ export function ArticleDetailScreenContent({ loadArticle, missingText = 'Aucun d
             </View>
 
             <View style={styles.infoBox}>
-              <Text style={styles.infoTitle}>Commentaires</Text>
+              <Text style={styles.infoTitle}>Carte d'opinion Epion</Text>
+              <Text style={styles.infoText}>Ce bloc reprend le systeme web: positionnement d'abord, puis contributions structurees et validations.</Text>
+              {advancedLoading ? <Text style={styles.placeholderText}>Chargement des contributions...</Text> : null}
+              {advancedError ? <Text style={styles.noticeText}>{advancedError}</Text> : null}
+              {advancedInteractions ? (
+                <View>
+                  <View style={styles.opinionBox}>
+                    <Text style={styles.sectionLabel}>Question de positionnement</Text>
+                    <Text style={styles.infoText}>{advancedInteractions.opinionQuestion?.question || 'Les faits presentes pointent-ils plutot vers un probleme ponctuel ou structurel ?'}</Text>
+                    <View style={styles.thesisRow}>
+                      <Text style={styles.sourceMeta}>{advancedInteractions.opinionQuestion?.thesisA || 'These A'}</Text>
+                      <Text style={styles.sourceMeta}>{advancedInteractions.opinionQuestion?.thesisB || 'These B'}</Text>
+                    </View>
+                    <View style={styles.positionGrid}>
+                      {POSITION_VALUES.map((position) => (
+                        <Pressable
+                          key={String(position)}
+                          style={[styles.positionButton, selectedPosition === position && !lacksContext ? styles.activeButton : null]}
+                          disabled={Boolean(confirmedPosition)}
+                          onPress={() => {
+                            setSelectedPosition(position);
+                            setLacksContext(false);
+                            setAdvancedError(null);
+                          }}>
+                          <Text style={styles.positionText}>{positionLabel(position)}</Text>
+                        </Pressable>
+                      ))}
+                    </View>
+                    <Pressable
+                      style={[styles.secondaryButton, lacksContext ? styles.activeButton : null]}
+                      disabled={Boolean(confirmedPosition)}
+                      onPress={() => {
+                        setSelectedPosition(null);
+                        setLacksContext(true);
+                        setAdvancedError(null);
+                      }}>
+                      <Text style={styles.secondaryButtonText}>Je manque de contexte</Text>
+                    </Pressable>
+                    <Pressable style={styles.retryButton} disabled={Boolean(confirmedPosition) || isSubmittingPosition} onPress={confirmOpinionPosition}>
+                      <Text style={styles.retryText}>{confirmedPosition ? 'Position confirmee' : isSubmittingPosition ? 'Confirmation...' : 'Confirmer ma position'}</Text>
+                    </Pressable>
+                  </View>
+
+                  <View style={styles.opinionBox}>
+                    <Text style={styles.sectionLabel}>Repartition communautaire</Text>
+                    <Text style={styles.placeholderText}>{distribution?.total ?? 0} positions confirmees - {distribution?.lacksContextCount ?? 0} manquent de contexte</Text>
+                    {POSITION_VALUES.map((position) => {
+                      const count = distribution?.counts[String(position)] ?? 0;
+                      return (
+                        <View key={String(position)} style={styles.distributionRow}>
+                          <Text style={styles.distributionLabel}>{positionLabel(position)}</Text>
+                          <View style={styles.distributionTrack}>
+                            <View style={[styles.distributionFill, { width: `${Math.max(5, (count / maxOpinionCount) * 100)}%` }]} />
+                          </View>
+                          <Text style={styles.distributionCount}>{count}</Text>
+                        </View>
+                      );
+                    })}
+                  </View>
+
+                  <View style={styles.opinionBox}>
+                    <Text style={styles.sectionLabel}>Contribuer intentionnellement</Text>
+                    {!canContribute ? <Text style={styles.placeholderText}>Confirmez une position pour publier une contribution. Si vous avez indique manquer de contexte, l'espace reste en lecture seule.</Text> : null}
+                    <View style={styles.typeGrid}>
+                      {CONTRIBUTION_TYPES.map((item) => (
+                        <Pressable key={item.type} style={[styles.typeButton, contributionType === item.type ? styles.activeButton : null]} disabled={!canContribute} onPress={() => setContributionType(item.type)}>
+                          <Text style={styles.secondaryButtonText}>{item.label}</Text>
+                          <Text style={styles.sourceMeta}>{item.help}</Text>
+                        </Pressable>
+                      ))}
+                    </View>
+                    {contributionTargetId ? <Text style={styles.noticeText}>Note de contexte pour une contribution existante. Une source est requise.</Text> : null}
+                    {contributionType !== 'SOURCE' ? (
+                      <TextInput
+                        style={styles.commentInput}
+                        multiline
+                        editable={canContribute}
+                        onChangeText={setContributionText}
+                        placeholder="Ecrire une contribution precise"
+                        placeholderTextColor="#9CA3AF"
+                        value={contributionText}
+                      />
+                    ) : null}
+                    <TextInput
+                      style={styles.singleLineInput}
+                      editable={canContribute}
+                      onChangeText={setContributionSourceUrl}
+                      placeholder={contributionType === 'SOURCE' || contributionTargetId ? 'Source URL requise' : 'Source URL facultative'}
+                      placeholderTextColor="#9CA3AF"
+                      value={contributionSourceUrl}
+                    />
+                    <Pressable style={styles.retryButton} disabled={!canContribute || isSubmittingContribution} onPress={submitContribution}>
+                      <Text style={styles.retryText}>{isSubmittingContribution ? 'Envoi...' : 'Soumettre la contribution'}</Text>
+                    </Pressable>
+                  </View>
+
+                  <View style={styles.sortRow}>
+                    <Pressable style={[styles.secondaryButton, advancedSort === 'top' ? styles.activeButton : null]} onPress={() => changeAdvancedSort('top')}>
+                      <Text style={styles.secondaryButtonText}>Top consensus</Text>
+                    </Pressable>
+                    <Pressable style={[styles.secondaryButton, advancedSort === 'recent' ? styles.activeButton : null]} onPress={() => changeAdvancedSort('recent')}>
+                      <Text style={styles.secondaryButtonText}>Plus recents</Text>
+                    </Pressable>
+                  </View>
+
+                  {advancedInteractions.contributions.length === 0 ? <Text style={styles.placeholderText}>Aucune contribution analytique pour le moment.</Text> : null}
+                  {advancedInteractions.contributions.map((contribution) => {
+                    const positive = contribution.validationSummary.WELL_SOURCED + contribution.validationSummary.ADDS_NUANCE;
+                    const needsCheck = contribution.validationSummary.NEEDS_CHECK;
+                    const isContested = needsCheck >= 3 && needsCheck > positive;
+                    return (
+                      <View key={contribution.id} style={[styles.contributionItem, isContested ? styles.contestedContribution : null]}>
+                        <View style={styles.metaRow}>
+                          <Text style={styles.contributionType}>{contributionTypeLabel(contribution.type)}</Text>
+                          <Text style={styles.meta}>{contributionAuthorLabel(contribution)}</Text>
+                          {contribution.editCount > 0 ? <Text style={styles.meta}>Modifie</Text> : null}
+                        </View>
+                        {isContested ? <Text style={styles.noticeText}>La communaute estime que cette contribution necessite une verification.</Text> : null}
+                        {contribution.text.trim() ? <Text style={styles.commentText}>{contribution.text}</Text> : <Text style={styles.placeholderText}>Source proposee sans commentaire.</Text>}
+                        {contribution.sourceUrl ? (
+                          <Pressable onPress={() => contribution.sourceUrl && void Linking.openURL(contribution.sourceUrl)}>
+                            <Text style={styles.linkText}>{contribution.sourceUrl}</Text>
+                          </Pressable>
+                        ) : null}
+                        <View style={styles.actionRow}>
+                          {VALIDATION_TYPES.map((validation) => {
+                            const isActive = contribution.currentUserValidations.includes(validation.type);
+                            const count = contribution.validationSummary[validation.type];
+                            return (
+                              <Pressable key={validation.type} style={[styles.validationButton, isActive ? styles.activeButton : null]} disabled={!canValidate} onPress={() => void validateContribution(contribution.id, validation.type)}>
+                                <Text style={styles.validationText}>{validation.label} {count}</Text>
+                              </Pressable>
+                            );
+                          })}
+                        </View>
+                        <Pressable
+                          style={styles.secondaryButton}
+                          disabled={!canValidate}
+                          onPress={() => {
+                            setContributionTargetId(contribution.id);
+                            setContributionType('CORRECTION');
+                            setContributionText('');
+                            setContributionSourceUrl('');
+                          }}>
+                          <Text style={styles.secondaryButtonText}>Ajouter un contexte / corriger</Text>
+                        </Pressable>
+                        {contribution.children.map((child) => (
+                          <View key={child.id} style={styles.childContribution}>
+                            <Text style={styles.sectionLabel}>Contexte communautaire</Text>
+                            <Text style={styles.commentText}>{child.text}</Text>
+                            {child.sourceUrl ? <Text style={styles.linkText}>{child.sourceUrl}</Text> : null}
+                          </View>
+                        ))}
+                      </View>
+                    );
+                  })}
+                  <Text style={styles.placeholderText}>Placeholders mobile: edition, suppression, signalement et moderation admin restent a transformer depuis le web.</Text>
+                </View>
+              ) : null}
+            </View>
+
+            <View style={styles.infoBox}>
+              <Text style={styles.infoTitle}>Commentaires simples</Text>
+              <Text style={styles.placeholderText}>Distinct des contributions Epion: fil social basique avec reponses/suppression encore en placeholder mobile.</Text>
               <TextInput
                 style={styles.commentInput}
                 multiline
@@ -596,7 +961,146 @@ const styles = StyleSheet.create({
     fontSize: 14,
     lineHeight: 21,
   },
-  commentInput: {
+  sectionLabel: {
+    color: '#111827',
+    fontSize: 13,
+    fontWeight: '800',
+    marginBottom: 8,
+    textTransform: 'uppercase',
+  },
+  opinionBox: {
+    backgroundColor: '#FFFFFF',
+    borderColor: '#E5E7EB',
+    borderRadius: 8,
+    borderWidth: 1,
+    marginTop: 14,
+    padding: 12,
+  },
+  thesisRow: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    gap: 12,
+    marginTop: 10,
+  },
+  positionGrid: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    gap: 8,
+    marginTop: 12,
+  },
+  positionButton: {
+    backgroundColor: '#F3F4F6',
+    borderColor: '#D1D5DB',
+    borderRadius: 8,
+    borderWidth: 1,
+    paddingHorizontal: 10,
+    paddingVertical: 9,
+    width: '47%',
+  },
+  positionText: {
+    color: '#111827',
+    fontSize: 12,
+    fontWeight: '800',
+  },
+  distributionRow: {
+    alignItems: 'center',
+    flexDirection: 'row',
+    gap: 8,
+    marginTop: 8,
+  },
+  distributionLabel: {
+    color: '#4B5563',
+    fontSize: 11,
+    width: 86,
+  },
+  distributionTrack: {
+    backgroundColor: '#E5E7EB',
+    borderRadius: 999,
+    flex: 1,
+    height: 8,
+    overflow: 'hidden',
+  },
+  distributionFill: {
+    backgroundColor: '#2563EB',
+    height: 8,
+  },
+  distributionCount: {
+    color: '#111827',
+    fontSize: 12,
+    fontWeight: '800',
+    width: 24,
+  },
+  typeGrid: {
+    gap: 8,
+    marginBottom: 12,
+  },
+  typeButton: {
+    backgroundColor: '#F3F4F6',
+    borderColor: '#D1D5DB',
+    borderRadius: 8,
+    borderWidth: 1,
+    padding: 10,
+  },
+  sortRow: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    gap: 8,
+    marginTop: 14,
+  },
+  contributionItem: {
+    backgroundColor: '#FFFFFF',
+    borderColor: '#E5E7EB',
+    borderRadius: 8,
+    borderWidth: 1,
+    marginTop: 12,
+    padding: 12,
+  },
+  contestedContribution: {
+    borderColor: '#F59E0B',
+  },
+  contributionType: {
+    color: '#2563EB',
+    fontSize: 12,
+    fontWeight: '800',
+    textTransform: 'uppercase',
+  },
+  linkText: {
+    color: '#2563EB',
+    fontSize: 13,
+    lineHeight: 19,
+    marginTop: 8,
+  },
+  validationButton: {
+    backgroundColor: '#F3F4F6',
+    borderColor: '#D1D5DB',
+    borderRadius: 999,
+    borderWidth: 1,
+    paddingHorizontal: 10,
+    paddingVertical: 7,
+  },
+  validationText: {
+    color: '#111827',
+    fontSize: 12,
+    fontWeight: '800',
+  },
+  childContribution: {
+    backgroundColor: '#EFF6FF',
+    borderColor: '#BFDBFE',
+    borderRadius: 8,
+    borderWidth: 1,
+    marginTop: 12,
+    padding: 10,
+  },
+  singleLineInput: {
+    backgroundColor: '#FFFFFF',
+    borderColor: '#D1D5DB',
+    borderRadius: 8,
+    borderWidth: 1,
+    color: '#111827',
+    fontSize: 15,
+    marginTop: 10,
+    padding: 12,
+  },  commentInput: {
     backgroundColor: '#FFFFFF',
     borderColor: '#D1D5DB',
     borderRadius: 8,
