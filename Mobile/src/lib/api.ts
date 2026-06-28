@@ -1,4 +1,13 @@
-import type { Article, ArticleApiItem, ArticleDetail, ArticleDetailApiItem } from '@/types/article';
+import type {
+  Article,
+  ArticleApiItem,
+  ArticleComment,
+  ArticleCommentsPage,
+  ArticleDetail,
+  ArticleDetailApiItem,
+  ArticleReactionSummary,
+  ArticleSource,
+} from '@/types/article';
 
 export const API_BASE = 'https://api.epion.app';
 export const WEB_ORIGIN = 'https://epion.app';
@@ -163,6 +172,141 @@ function getNextCursor(payload: unknown): string | null {
 
   const cursor = (payload as Record<string, unknown>).nextCursor;
   return readOptionalText(cursor) ?? null;
+}
+function readRecord(value: unknown): Record<string, unknown> | null {
+  return value && typeof value === 'object' && !Array.isArray(value) ? (value as Record<string, unknown>) : null;
+}
+
+function readNestedNumber(record: Record<string, unknown> | null, keys: string[]): number | undefined {
+  let current: unknown = record;
+
+  for (const key of keys) {
+    const currentRecord = readRecord(current);
+    if (!currentRecord) return undefined;
+    current = currentRecord[key];
+  }
+
+  return readOptionalNumber(current);
+}
+
+function parsePotentialSources(sources: unknown, factCheckData: unknown): unknown[] {
+  const candidates = [sources, factCheckData];
+
+  for (const candidate of candidates) {
+    if (Array.isArray(candidate)) return candidate;
+
+    if (typeof candidate === 'string' && candidate.trim()) {
+      try {
+        const parsed = JSON.parse(candidate) as unknown;
+        if (Array.isArray(parsed)) return parsed;
+        const parsedRecord = readRecord(parsed);
+        if (Array.isArray(parsedRecord?.sources)) return parsedRecord.sources;
+      } catch {
+        continue;
+      }
+    }
+
+    const record = readRecord(candidate);
+    if (Array.isArray(record?.sources)) return record.sources;
+  }
+
+  return [];
+}
+
+function resolveSourceDomain(record: Record<string, unknown>): string {
+  const domain = readOptionalText(record.domain) ?? readOptionalText(record.name);
+  if (domain) return domain;
+
+  const url = readOptionalText(record.url) ?? readOptionalText(record.link);
+  if (!url) return 'Source inconnue';
+
+  try {
+    return new URL(url).hostname.replace(/^www\./, '');
+  } catch {
+    return url;
+  }
+}
+
+function resolveSourceScore(record: Record<string, unknown>): number | undefined {
+  return (
+    readOptionalNumber(record.trustScore) ??
+    readNestedNumber(readRecord(record.metadata), ['dbScore']) ??
+    readOptionalNumber(record.dbScore) ??
+    readOptionalNumber(record.score)
+  );
+}
+
+function normalizeArticleSource(item: unknown, index: number): ArticleSource | null {
+  const record = readRecord(item);
+  if (!record) return null;
+
+  const domain = resolveSourceDomain(record);
+  const url = readOptionalText(record.url) ?? readOptionalText(record.link);
+  const trustScore = resolveSourceScore(record);
+  const id = readOptionalText(record.id) ?? readOptionalText(record.sourceId) ?? (url ? undefined : String(index));
+  const type = readOptionalText(record.type) ?? readOptionalText(record.category);
+  const description = readOptionalText(record.description) ?? readOptionalText(readRecord(record.metadata)?.description);
+
+  return {
+    ...(id ? { id } : {}),
+    name: domain,
+    domain,
+    ...(url ? { url } : {}),
+    ...(trustScore !== undefined ? { trustScore } : {}),
+    ...(type ? { type } : {}),
+    ...(description ? { description } : {}),
+  };
+}
+
+function normalizeArticleSources(sources: unknown, factCheckData: unknown): ArticleSource[] {
+  return parsePotentialSources(sources, factCheckData)
+    .map(normalizeArticleSource)
+    .filter((source): source is ArticleSource => source !== null);
+}
+
+function readFactCheckScore(item: ArticleDetailApiItem): number | undefined {
+  const factCheckData = readRecord(item.factCheckData);
+  return (
+    readOptionalNumber(item.factCheckScore) ??
+    readOptionalNumber(factCheckData?.score) ??
+    readOptionalNumber(factCheckData?.factScore)
+  );
+}
+
+function normalizeArticleComment(item: unknown): ArticleComment | null {
+  const record = readRecord(item);
+  if (!record) return null;
+
+  const id = readOptionalText(record.id);
+  const content = readOptionalText(record.content) ?? readOptionalText(record.text);
+  const createdAt = readOptionalText(record.createdAt);
+
+  if (!id || !content || !createdAt) return null;
+
+  const author = readRecord(record.author);
+  const authorName = author ? readOptionalText(author.name) ?? readOptionalText(author.username) ?? readOptionalText(author.email) : undefined;
+  const repliesCount = readOptionalNumber(record.repliesCount);
+
+  return {
+    id,
+    content,
+    createdAt,
+    ...(authorName ? { authorName } : {}),
+    ...(repliesCount !== undefined ? { repliesCount } : {}),
+  };
+}
+
+function normalizeReactionSummary(payload: unknown): ArticleReactionSummary {
+  const record = readRecord(payload) ?? {};
+  const rawReaction = readOptionalText(record.userReaction);
+
+  return {
+    likes: readOptionalNumber(record.likes) ?? 0,
+    dislikes: readOptionalNumber(record.dislikes) ?? 0,
+    reposts: readOptionalNumber(record.reposts) ?? 0,
+    userReaction: rawReaction === 'LIKE' || rawReaction === 'DISLIKE' ? rawReaction : null,
+    userReposted: record.userReposted === true,
+  };
 }
 function normalizeChatSession(item: unknown): ChatSessionSummary | null {
   if (!item || typeof item !== 'object') {
@@ -385,13 +529,14 @@ function normalizeArticleDetail(item: ArticleDetailApiItem | null, fallbackId: s
     return null;
   }
 
-  const factCheckScore = readOptionalNumber(item.factCheckScore);
+  const factCheckScore = readFactCheckScore(item);
   const factCheckStatus = readOptionalText(item.factCheckStatus);
   const body = readOptionalText(item.content) ?? readOptionalText(item.body);
   const aiSummary = readOptionalText(item.aiSummary);
   const generationPrompt = readOptionalText(item.generationPrompt);
   const authorName = readAuthorName(item.author);
-  const sourcesCount = countPotentialSources(item.sources, item.factCheckData);
+  const sources = normalizeArticleSources(item.sources, item.factCheckData);
+  const sourcesCount = sources.length || countPotentialSources(item.sources, item.factCheckData);
   const supportLevel = readSupportLevel(item.factCheckData, factCheckScore);
 
   return {
@@ -404,6 +549,7 @@ function normalizeArticleDetail(item: ArticleDetailApiItem | null, fallbackId: s
     ...(factCheckStatus ? { factCheckStatus } : {}),
     ...(supportLevel ? { supportLevel } : {}),
     ...(sourcesCount !== undefined ? { sourcesCount } : {}),
+    ...(sources.length > 0 ? { sources } : {}),
     ...(generationPrompt ? { generationPrompt } : {}),
     ...(item.structuredContent ? { structuredContentAvailable: true } : {}),
   };
@@ -534,6 +680,92 @@ export async function fetchArticleStats(articleId: string): Promise<{ viewsAll?:
   return viewsAll === undefined ? {} : { viewsAll };
 }
 
+export async function fetchArticleReactions(articleId: string): Promise<ArticleReactionSummary> {
+  const response = await fetch(`${API_BASE}/api/articles/${encodeURIComponent(articleId)}/reactions`, {
+    credentials: 'include',
+    headers: {
+      Accept: 'application/json',
+    },
+  });
+
+  if (!response.ok) {
+    throw new Error(`HTTP ${response.status}`);
+  }
+
+  return normalizeReactionSummary(await readJson(response));
+}
+
+export async function toggleArticleReaction(articleId: string, type: 'LIKE' | 'DISLIKE'): Promise<ArticleReactionSummary> {
+  const response = await fetch(
+    `${API_BASE}/api/articles/${encodeURIComponent(articleId)}/react`,
+    await withCsrf({
+      method: 'POST',
+      headers: {
+        Accept: 'application/json',
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({ type }),
+    }),
+  );
+
+  const payload = await readJson(response);
+
+  if (!response.ok) {
+    throw buildApiError(response, payload);
+  }
+
+  return normalizeReactionSummary(payload);
+}
+
+export async function fetchArticleComments(articleId: string, cursor?: string | null): Promise<ArticleCommentsPage> {
+  const params = new URLSearchParams({ take: '20' });
+  if (cursor) params.set('cursor', cursor);
+
+  const response = await fetch(`${API_BASE}/api/articles/${encodeURIComponent(articleId)}/comments?${params.toString()}`, {
+    credentials: 'include',
+    headers: {
+      Accept: 'application/json',
+    },
+  });
+
+  if (!response.ok) {
+    throw new Error(`HTTP ${response.status}`);
+  }
+
+  const payload = await readJson(response);
+
+  return {
+    items: getItems(payload).map(normalizeArticleComment).filter((comment): comment is ArticleComment => comment !== null),
+    nextCursor: getNextCursor(payload),
+  };
+}
+
+export async function postArticleComment(articleId: string, content: string): Promise<ArticleComment> {
+  const response = await fetch(
+    `${API_BASE}/api/articles/${encodeURIComponent(articleId)}/comments`,
+    await withCsrf({
+      method: 'POST',
+      headers: {
+        Accept: 'application/json',
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({ content }),
+    }),
+  );
+
+  const payload = await readJson(response);
+
+  if (!response.ok) {
+    throw buildApiError(response, payload);
+  }
+
+  const comment = normalizeArticleComment(payload);
+  if (!comment) {
+    throw new Error('Invalid comment response');
+  }
+
+  return comment;
+}
 export async function fetchCategories(): Promise<Category[]> {
   const response = await fetch(`${API_BASE}/api/categories`, {
     headers: {
@@ -618,6 +850,26 @@ export async function fetchFavoriteArticles(): Promise<Article[]> {
     .filter((article): article is Article => article !== null);
 }
 
+export async function fetchFavoriteArticleIds(): Promise<string[]> {
+  const response = await fetch(`${API_BASE}/api/favorites/ids`, {
+    credentials: 'include',
+    headers: {
+      Accept: 'application/json',
+    },
+  });
+
+  if (response.status === 401) {
+    return [];
+  }
+
+  if (!response.ok) {
+    throw new Error(`HTTP ${response.status}`);
+  }
+
+  const payload = await readJson(response);
+  const ids = payload && typeof payload === 'object' ? (payload as Record<string, unknown>).ids : undefined;
+  return Array.isArray(ids) ? ids.map(String) : [];
+}
 export async function saveFavoriteArticle(articleId: string): Promise<void> {
   const response = await fetch(
     `${API_BASE}/api/favorites/${encodeURIComponent(articleId)}`,

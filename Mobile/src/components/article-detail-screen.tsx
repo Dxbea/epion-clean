@@ -1,25 +1,38 @@
 import { useRouter } from 'expo-router';
-import { useCallback, useEffect, useState } from 'react';
-import { ActivityIndicator, Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
+import { useCallback, useEffect, useMemo, useState } from 'react';
+import { ActivityIndicator, Linking, Pressable, ScrollView, Share, StyleSheet, Text, TextInput, View } from 'react-native';
 
-import { fetchArticleStats, recordArticleView } from '@/lib/api';
-import type { ArticleDetail } from '@/types/article';
+import {
+  WEB_ORIGIN,
+  fetchArticleComments,
+  fetchArticleReactions,
+  fetchArticleStats,
+  fetchFavoriteArticleIds,
+  postArticleComment,
+  recordArticleView,
+  removeFavoriteArticle,
+  saveFavoriteArticle,
+  toggleArticleReaction,
+} from '@/lib/api';
+import type { ArticleComment, ArticleDetail, ArticleReactionSummary, ArticleSource } from '@/types/article';
 
 type ArticleDetailScreenProps = {
   loadArticle: () => Promise<ArticleDetail | null>;
   missingText?: string;
 };
 
+const EMPTY_REACTIONS: ArticleReactionSummary = {
+  likes: 0,
+  dislikes: 0,
+  reposts: 0,
+  userReaction: null,
+  userReposted: false,
+};
+
 function formatDate(value?: string): string | undefined {
-  if (!value) {
-    return undefined;
-  }
-
+  if (!value) return undefined;
   const date = new Date(value);
-
-  if (Number.isNaN(date.getTime())) {
-    return value;
-  }
+  if (Number.isNaN(date.getTime())) return value;
 
   return date.toLocaleDateString('fr-FR', {
     day: '2-digit',
@@ -37,15 +50,73 @@ function scoreStatusLabel(status?: string): string | undefined {
   return status;
 }
 
+function formatSourceScore(source: ArticleSource): string | undefined {
+  if (typeof source.trustScore !== 'number') return undefined;
+  return `TrustScore ${source.trustScore}`;
+}
+
+function authorLabel(comment: ArticleComment): string {
+  return comment.authorName ?? 'Utilisateur Epion';
+}
+
 export function ArticleDetailScreenContent({ loadArticle, missingText = 'Aucun detail disponible pour cet article.' }: ArticleDetailScreenProps) {
   const router = useRouter();
   const [article, setArticle] = useState<ArticleDetail | null>(null);
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const [isSaved, setIsSaved] = useState(false);
+  const [isSaving, setIsSaving] = useState(false);
+  const [reactions, setReactions] = useState<ArticleReactionSummary>(EMPTY_REACTIONS);
+  const [reactionError, setReactionError] = useState<string | null>(null);
+  const [comments, setComments] = useState<ArticleComment[]>([]);
+  const [commentsCursor, setCommentsCursor] = useState<string | null>(null);
+  const [commentsLoading, setCommentsLoading] = useState(false);
+  const [commentText, setCommentText] = useState('');
+  const [commentError, setCommentError] = useState<string | null>(null);
+  const [isPostingComment, setIsPostingComment] = useState(false);
+  const [interactionMessage, setInteractionMessage] = useState<string | null>(null);
+
+  const loadComments = useCallback(async (articleId: string, cursor?: string | null) => {
+    setCommentsLoading(true);
+    setCommentError(null);
+
+    try {
+      const page = await fetchArticleComments(articleId, cursor ?? null);
+      setComments((current) => (cursor ? [...current, ...page.items] : page.items));
+      setCommentsCursor(page.nextCursor);
+    } catch {
+      if (!cursor) setComments([]);
+      setCommentError('Commentaires indisponibles pour le moment.');
+    } finally {
+      setCommentsLoading(false);
+    }
+  }, []);
+
+  const hydrateInteractions = useCallback(
+    async (articleId: string) => {
+      setInteractionMessage(null);
+      setReactionError(null);
+
+      void fetchFavoriteArticleIds()
+        .then((ids) => setIsSaved(ids.includes(articleId)))
+        .catch(() => setIsSaved(false));
+
+      void fetchArticleReactions(articleId)
+        .then(setReactions)
+        .catch(() => setReactionError('Reactions indisponibles pour le moment.'));
+
+      void loadComments(articleId, null);
+    },
+    [loadComments],
+  );
 
   const load = useCallback(async () => {
     setIsLoading(true);
     setError(null);
+    setComments([]);
+    setCommentsCursor(null);
+    setReactions(EMPTY_REACTIONS);
+    setIsSaved(false);
 
     try {
       const nextArticle = await loadArticle();
@@ -58,6 +129,7 @@ export function ArticleDetailScreenContent({ loadArticle, missingText = 'Aucun d
             setArticle((current) => (current?.id === nextArticle.id ? { ...current, viewsAll: stats.viewsAll } : current));
           }
         });
+        void hydrateInteractions(nextArticle.id);
       }
     } catch {
       setArticle(null);
@@ -65,7 +137,7 @@ export function ArticleDetailScreenContent({ loadArticle, missingText = 'Aucun d
     } finally {
       setIsLoading(false);
     }
-  }, [loadArticle]);
+  }, [hydrateInteractions, loadArticle]);
 
   useEffect(() => {
     void load();
@@ -73,6 +145,90 @@ export function ArticleDetailScreenContent({ loadArticle, missingText = 'Aucun d
 
   const publishedAt = formatDate(article?.publishedAt);
   const statusLabel = scoreStatusLabel(article?.factCheckStatus);
+  const shareUrl = useMemo(() => {
+    if (!article) return WEB_ORIGIN;
+    return `${WEB_ORIGIN}/article/${article.slug ?? article.id}`;
+  }, [article]);
+
+  const toggleSave = useCallback(async () => {
+    if (!article?.id || isSaving) return;
+
+    const previous = isSaved;
+    setIsSaving(true);
+    setInteractionMessage(null);
+    setIsSaved(!previous);
+
+    try {
+      if (previous) {
+        await removeFavoriteArticle(article.id);
+      } else {
+        await saveFavoriteArticle(article.id);
+      }
+    } catch {
+      setIsSaved(previous);
+      setInteractionMessage('Connexion requise ou sauvegarde indisponible.');
+    } finally {
+      setIsSaving(false);
+    }
+  }, [article?.id, isSaved, isSaving]);
+
+  const react = useCallback(
+    async (type: 'LIKE' | 'DISLIKE') => {
+      if (!article?.id) return;
+      const previous = reactions;
+      setReactionError(null);
+
+      setReactions((current) => {
+        const hadSame = current.userReaction === type;
+        const hadOther = current.userReaction && current.userReaction !== type;
+        return {
+          ...current,
+          userReaction: hadSame ? null : type,
+          likes: type === 'LIKE' ? current.likes + (hadSame ? -1 : 1) : current.likes + (hadOther ? -1 : 0),
+          dislikes: type === 'DISLIKE' ? current.dislikes + (hadSame ? -1 : 1) : current.dislikes + (hadOther ? -1 : 0),
+        };
+      });
+
+      try {
+        setReactions(await toggleArticleReaction(article.id, type));
+      } catch {
+        setReactions(previous);
+        setReactionError('Connexion requise ou reaction indisponible.');
+      }
+    },
+    [article?.id, reactions],
+  );
+
+  const submitComment = useCallback(async () => {
+    if (!article?.id || !commentText.trim() || isPostingComment) return;
+
+    setIsPostingComment(true);
+    setCommentError(null);
+
+    try {
+      const created = await postArticleComment(article.id, commentText.trim());
+      setComments((current) => [created, ...current]);
+      setCommentText('');
+    } catch {
+      setCommentError('Connexion requise ou commentaire indisponible.');
+    } finally {
+      setIsPostingComment(false);
+    }
+  }, [article?.id, commentText, isPostingComment]);
+
+  const shareArticle = useCallback(async () => {
+    if (!article) return;
+
+    try {
+      await Share.share({
+        title: article.title,
+        message: `${article.title}\n${shareUrl}`,
+        url: shareUrl,
+      });
+    } catch {
+      setInteractionMessage('Partage indisponible sur cet appareil.');
+    }
+  }, [article, shareUrl]);
 
   return (
     <View style={styles.screen}>
@@ -109,11 +265,21 @@ export function ArticleDetailScreenContent({ loadArticle, missingText = 'Aucun d
               {article.category ? <Text style={styles.category}>{article.category}</Text> : null}
               {publishedAt ? <Text style={styles.meta}>{publishedAt}</Text> : null}
               {typeof article.viewsAll === 'number' ? <Text style={styles.meta}>{article.viewsAll} vues</Text> : null}
-              {article.authorName ? <Text style={styles.meta}>{article.authorName}</Text> : null}
+              {article.authorName ? <Text style={styles.meta}>Par {article.authorName}</Text> : null}
             </View>
 
             <Text style={styles.title}>{article.title}</Text>
             {article.excerpt ? <Text style={styles.excerpt}>{article.excerpt}</Text> : null}
+
+            <View style={styles.actionRow}>
+              <Pressable style={styles.secondaryButton} disabled={isSaving} onPress={toggleSave}>
+                <Text style={styles.secondaryButtonText}>{isSaving ? '...' : isSaved ? 'Sauvegarde' : 'Sauver'}</Text>
+              </Pressable>
+              <Pressable style={styles.secondaryButton} onPress={shareArticle}>
+                <Text style={styles.secondaryButtonText}>Partager</Text>
+              </Pressable>
+            </View>
+            {interactionMessage ? <Text style={styles.noticeText}>{interactionMessage}</Text> : null}
 
             <View style={styles.trustBox}>
               <Text style={styles.trustTitle}>Transparence</Text>
@@ -127,7 +293,25 @@ export function ArticleDetailScreenContent({ loadArticle, missingText = 'Aucun d
                 {typeof article.sourcesCount === 'number' ? <Text style={styles.trustPill}>{article.sourcesCount} sources</Text> : null}
               </View>
               {statusLabel ? <Text style={styles.placeholderText}>{statusLabel}</Text> : null}
-              <Text style={styles.placeholderText}>Placeholder mobile: detail des sources, modal de fiabilite et surlignage a adapter depuis le web.</Text>
+              {article.sources?.length ? (
+                <View style={styles.sourceList}>
+                  {article.sources.map((source, index) => (
+                    <Pressable
+                      key={source.id ?? source.url ?? `${source.domain}-${index}`}
+                      style={styles.sourceItem}
+                      onPress={() => {
+                        if (source.url) void Linking.openURL(source.url);
+                      }}>
+                      <Text style={styles.sourceTitle}>{source.domain}</Text>
+                      <Text style={styles.sourceMeta}>{[formatSourceScore(source), source.type].filter(Boolean).join(' - ') || 'Source referencee'}</Text>
+                      {source.description ? <Text style={styles.sourceText}>{source.description}</Text> : null}
+                    </Pressable>
+                  ))}
+                </View>
+              ) : (
+                <Text style={styles.placeholderText}>Aucune liste de sources exploitable dans la reponse actuelle.</Text>
+              )}
+              <Text style={styles.placeholderText}>Placeholder mobile: details avances du score, modal de fiabilite et surlignage des claims restent a adapter.</Text>
             </View>
 
             {article.aiSummary ? (
@@ -147,8 +331,48 @@ export function ArticleDetailScreenContent({ loadArticle, missingText = 'Aucun d
             {article.body ? <Text style={styles.body}>{article.body}</Text> : <Text style={styles.emptyText}>Aucun contenu disponible.</Text>}
 
             <View style={styles.infoBox}>
-              <Text style={styles.infoTitle}>Interactions</Text>
-              <Text style={styles.infoText}>Placeholder mobile: sauvegarde, reactions, commentaires, partage, chat avec l'article et prompt de generation existent cote web mais demandent une adaptation React Native dediee.</Text>
+              <Text style={styles.infoTitle}>Reactions</Text>
+              <View style={styles.actionRow}>
+                <Pressable style={[styles.secondaryButton, reactions.userReaction === 'LIKE' ? styles.activeButton : null]} onPress={() => void react('LIKE')}>
+                  <Text style={styles.secondaryButtonText}>J'aime {reactions.likes}</Text>
+                </Pressable>
+                <Pressable style={[styles.secondaryButton, reactions.userReaction === 'DISLIKE' ? styles.activeButton : null]} onPress={() => void react('DISLIKE')}>
+                  <Text style={styles.secondaryButtonText}>A verifier {reactions.dislikes}</Text>
+                </Pressable>
+              </View>
+              {reactionError ? <Text style={styles.noticeText}>{reactionError}</Text> : null}
+              <Text style={styles.placeholderText}>Placeholder mobile: repost et espace d'opinion avance restent a adapter.</Text>
+            </View>
+
+            <View style={styles.infoBox}>
+              <Text style={styles.infoTitle}>Commentaires</Text>
+              <TextInput
+                style={styles.commentInput}
+                multiline
+                onChangeText={setCommentText}
+                placeholder="Ajouter un commentaire"
+                placeholderTextColor="#9CA3AF"
+                value={commentText}
+              />
+              <Pressable style={styles.retryButton} disabled={isPostingComment || !commentText.trim()} onPress={submitComment}>
+                <Text style={styles.retryText}>{isPostingComment ? 'Envoi...' : 'Publier'}</Text>
+              </Pressable>
+              {commentError ? <Text style={styles.noticeText}>{commentError}</Text> : null}
+              {commentsLoading && comments.length === 0 ? <Text style={styles.placeholderText}>Chargement des commentaires...</Text> : null}
+              {comments.map((comment) => (
+                <View key={comment.id} style={styles.commentItem}>
+                  <Text style={styles.commentAuthor}>{authorLabel(comment)}</Text>
+                  <Text style={styles.commentDate}>{formatDate(comment.createdAt)}</Text>
+                  <Text style={styles.commentText}>{comment.content}</Text>
+                  {typeof comment.repliesCount === 'number' && comment.repliesCount > 0 ? <Text style={styles.sourceMeta}>{comment.repliesCount} reponses</Text> : null}
+                </View>
+              ))}
+              {!commentsLoading && comments.length === 0 ? <Text style={styles.placeholderText}>Aucun commentaire pour le moment.</Text> : null}
+              {commentsCursor ? (
+                <Pressable style={styles.secondaryButton} disabled={commentsLoading} onPress={() => article.id && void loadComments(article.id, commentsCursor)}>
+                  <Text style={styles.secondaryButtonText}>{commentsLoading ? 'Chargement...' : 'Afficher plus'}</Text>
+                </Pressable>
+              ) : null}
             </View>
           </View>
         ) : null}
@@ -201,8 +425,10 @@ const styles = StyleSheet.create({
     textAlign: 'center',
   },
   retryButton: {
+    alignSelf: 'flex-start',
     backgroundColor: '#111827',
     borderRadius: 8,
+    marginTop: 12,
     paddingHorizontal: 18,
     paddingVertical: 12,
   },
@@ -259,6 +485,36 @@ const styles = StyleSheet.create({
     lineHeight: 25,
     marginTop: 24,
   },
+  actionRow: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    gap: 10,
+    marginTop: 16,
+  },
+  secondaryButton: {
+    alignSelf: 'flex-start',
+    backgroundColor: '#F3F4F6',
+    borderColor: '#D1D5DB',
+    borderRadius: 8,
+    borderWidth: 1,
+    paddingHorizontal: 14,
+    paddingVertical: 10,
+  },
+  activeButton: {
+    backgroundColor: '#DBEAFE',
+    borderColor: '#93C5FD',
+  },
+  secondaryButtonText: {
+    color: '#111827',
+    fontSize: 14,
+    fontWeight: '800',
+  },
+  noticeText: {
+    color: '#B45309',
+    fontSize: 13,
+    lineHeight: 19,
+    marginTop: 10,
+  },
   trustBox: {
     backgroundColor: '#F9FAFB',
     borderColor: '#E5E7EB',
@@ -293,6 +549,34 @@ const styles = StyleSheet.create({
     lineHeight: 19,
     marginTop: 10,
   },
+  sourceList: {
+    gap: 10,
+    marginTop: 14,
+  },
+  sourceItem: {
+    backgroundColor: '#FFFFFF',
+    borderColor: '#E5E7EB',
+    borderRadius: 8,
+    borderWidth: 1,
+    padding: 12,
+  },
+  sourceTitle: {
+    color: '#111827',
+    fontSize: 14,
+    fontWeight: '800',
+  },
+  sourceMeta: {
+    color: '#6B7280',
+    fontSize: 12,
+    fontWeight: '700',
+    marginTop: 4,
+  },
+  sourceText: {
+    color: '#4B5563',
+    fontSize: 13,
+    lineHeight: 19,
+    marginTop: 8,
+  },
   infoBox: {
     backgroundColor: '#F9FAFB',
     borderColor: '#E5E7EB',
@@ -311,5 +595,41 @@ const styles = StyleSheet.create({
     color: '#4B5563',
     fontSize: 14,
     lineHeight: 21,
+  },
+  commentInput: {
+    backgroundColor: '#FFFFFF',
+    borderColor: '#D1D5DB',
+    borderRadius: 8,
+    borderWidth: 1,
+    color: '#111827',
+    fontSize: 15,
+    lineHeight: 21,
+    minHeight: 92,
+    padding: 12,
+    textAlignVertical: 'top',
+  },
+  commentItem: {
+    backgroundColor: '#FFFFFF',
+    borderColor: '#E5E7EB',
+    borderRadius: 8,
+    borderWidth: 1,
+    marginTop: 12,
+    padding: 12,
+  },
+  commentAuthor: {
+    color: '#111827',
+    fontSize: 14,
+    fontWeight: '800',
+  },
+  commentDate: {
+    color: '#6B7280',
+    fontSize: 12,
+    marginTop: 2,
+  },
+  commentText: {
+    color: '#374151',
+    fontSize: 14,
+    lineHeight: 21,
+    marginTop: 8,
   },
 });

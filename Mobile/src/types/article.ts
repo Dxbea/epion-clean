@@ -24,11 +24,42 @@ export type ArticleDetail = Article & {
   factCheckStatus?: string;
   supportLevel?: string;
   sourcesCount?: number;
+  sources?: ArticleSource[];
   generationPrompt?: string;
   structuredContentAvailable?: boolean;
   viewsAll?: number;
 };
 
+export type ArticleSource = {
+  id?: string;
+  name: string;
+  domain: string;
+  url?: string;
+  trustScore?: number;
+  type?: string;
+  description?: string;
+};
+
+export type ArticleReactionSummary = {
+  likes: number;
+  dislikes: number;
+  reposts: number;
+  userReaction: 'LIKE' | 'DISLIKE' | null;
+  userReposted: boolean;
+};
+
+export type ArticleComment = {
+  id: string;
+  content: string;
+  createdAt: string;
+  authorName?: string;
+  repliesCount?: number;
+};
+
+export type ArticleCommentsPage = {
+  items: ArticleComment[];
+  nextCursor: string | null;
+};
 export type ArticleApiItem = {
   id?: string | number;
   slug?: string;
