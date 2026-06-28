@@ -29,6 +29,8 @@ export default function SettingsScreen() {
       <Section title="Raccourcis">
         <ActionLink href="/account" title="My account" description="Profil, session et liens de compte." />
         <ActionLink href="/account/articles" title="My articles" description="Articles crees depuis votre compte." />
+        <ActionLink href="/saved" title="Saved articles" description="Articles sauvegardes sur votre compte." />
+        <ActionLink href="/news/favorites" title="Favorites" description="Vue favoris reprise du web." />
         <ActionLink href="/activity" title="Activity" description="Interactions et commentaires." />
       </Section>
     </Screen>

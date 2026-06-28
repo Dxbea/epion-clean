@@ -12,6 +12,54 @@ export async function readJson(response: Response): Promise<unknown> {
   return response.json().catch(() => null);
 }
 
+let cachedCsrfToken: string | null = null;
+let csrfInflight: Promise<string> | null = null;
+
+async function getCsrfToken(): Promise<string> {
+  if (cachedCsrfToken) return cachedCsrfToken;
+
+  if (!csrfInflight) {
+    csrfInflight = (async () => {
+      const response = await fetch(`${API_BASE}/api/csrf`, {
+        credentials: 'include',
+        headers: {
+          Accept: 'application/json',
+        },
+      });
+
+      if (!response.ok) {
+        throw new Error(`HTTP ${response.status}`);
+      }
+
+      const payload = await readJson(response);
+      const token = payload && typeof payload === 'object' ? readOptionalText((payload as Record<string, unknown>).token) : undefined;
+
+      if (!token) {
+        throw new Error('Missing CSRF token');
+      }
+
+      cachedCsrfToken = token;
+      return token;
+    })().finally(() => {
+      csrfInflight = null;
+    });
+  }
+
+  return csrfInflight;
+}
+
+async function withCsrf(init: RequestInit = {}): Promise<RequestInit> {
+  const token = await getCsrfToken();
+
+  return {
+    ...init,
+    credentials: 'include',
+    headers: {
+      ...(init.headers ?? {}),
+      'X-CSRF-Token': token,
+    },
+  };
+}
 export type Category = {
   id: string;
   name: string;
@@ -445,6 +493,37 @@ export async function fetchFavoriteArticles(): Promise<Article[]> {
     .filter((article): article is Article => article !== null);
 }
 
+export async function saveFavoriteArticle(articleId: string): Promise<void> {
+  const response = await fetch(
+    `${API_BASE}/api/favorites/${encodeURIComponent(articleId)}`,
+    await withCsrf({
+      method: 'POST',
+      headers: {
+        Accept: 'application/json',
+      },
+    }),
+  );
+
+  if (!response.ok) {
+    throw new Error(`HTTP ${response.status}`);
+  }
+}
+
+export async function removeFavoriteArticle(articleId: string): Promise<void> {
+  const response = await fetch(
+    `${API_BASE}/api/favorites/${encodeURIComponent(articleId)}`,
+    await withCsrf({
+      method: 'DELETE',
+      headers: {
+        Accept: 'application/json',
+      },
+    }),
+  );
+
+  if (!response.ok) {
+    throw new Error(`HTTP ${response.status}`);
+  }
+}
 export async function fetchMyArticles(): Promise<Article[]> {
   const response = await fetch(`${API_BASE}/api/me/articles?take=24`, {
     credentials: 'include',

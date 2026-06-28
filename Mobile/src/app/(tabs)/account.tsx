@@ -156,6 +156,8 @@ export default function AccountScreen() {
 
         <Section title="Compte">
           <ActionLink href="/account/articles" title="My articles" description="Articles crees depuis votre compte, avec filtres par statut." />
+          <ActionLink href="/saved" title="Saved articles" description="Articles sauvegardes sur votre compte." />
+          <ActionLink href="/news/favorites" title="Favorites" description="Vue favoris reprise du web, branchee sur les articles sauvegardes." />
           <ActionLink href="/activity" title="Activity" description="Interactions sauvegardees, likes, reposts et commentaires." />
           <ActionLink href="/settings/account" title="Account settings" description="Profil, email et options de compte." />
           <ActionLink href="/settings/security" title="Security" description="Mot de passe, verification email et sessions." />

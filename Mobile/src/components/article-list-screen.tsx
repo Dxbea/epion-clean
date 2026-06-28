@@ -3,6 +3,7 @@ import { useCallback, useEffect, useState } from 'react';
 import { ActivityIndicator, Pressable, StyleSheet, Text, View } from 'react-native';
 
 import { Screen, StateBox } from '@/components/screen';
+import { useAuth } from '@/context/AuthContext';
 import type { Article, ArticlePage } from '@/types/article';
 
 type ArticleListScreenProps = {
@@ -11,6 +12,11 @@ type ArticleListScreenProps = {
   emptyText: string;
   loadArticles?: () => Promise<Article[]>;
   loadPage?: (cursor?: string | null) => Promise<ArticlePage>;
+  onRemoveArticle?: (articleId: string) => Promise<void>;
+  removeActionLabel?: string;
+  requireAuth?: boolean;
+  authRequiredText?: string;
+  authActionText?: string;
 };
 
 function formatDate(value?: string): string | undefined {
@@ -25,16 +31,40 @@ function formatDate(value?: string): string | undefined {
   });
 }
 
-export function ArticleListScreen({ title, subtitle, emptyText, loadArticles, loadPage }: ArticleListScreenProps) {
+export function ArticleListScreen({
+  title,
+  subtitle,
+  emptyText,
+  loadArticles,
+  loadPage,
+  onRemoveArticle,
+  removeActionLabel = 'Retirer',
+  requireAuth = false,
+  authRequiredText = 'Connecte-toi pour voir tes articles sauvegardes',
+  authActionText = 'Aller au compte',
+}: ArticleListScreenProps) {
   const router = useRouter();
+  const { user, loading: authLoading } = useAuth();
   const [articles, setArticles] = useState<Article[]>([]);
   const [nextCursor, setNextCursor] = useState<string | null>(null);
   const [isLoading, setIsLoading] = useState(true);
   const [isLoadingMore, setIsLoadingMore] = useState(false);
+  const [removingArticleId, setRemovingArticleId] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
+
+  const canLoad = !requireAuth || Boolean(user);
 
   const load = useCallback(
     async (cursor?: string | null) => {
+      if (requireAuth && !user) {
+        setArticles([]);
+        setNextCursor(null);
+        setError(null);
+        setIsLoading(false);
+        setIsLoadingMore(false);
+        return;
+      }
+
       if (cursor) {
         setIsLoadingMore(true);
       } else {
@@ -62,29 +92,72 @@ export function ArticleListScreen({ title, subtitle, emptyText, loadArticles, lo
         setIsLoadingMore(false);
       }
     },
-    [loadArticles, loadPage],
+    [loadArticles, loadPage, requireAuth, user],
+  );
+
+  const removeArticle = useCallback(
+    async (articleId: string) => {
+      if (!onRemoveArticle) return;
+
+      setRemovingArticleId(articleId);
+      setError(null);
+
+      try {
+        await onRemoveArticle(articleId);
+        setArticles((current) => current.filter((article) => article.id !== articleId));
+      } catch {
+        setError('Impossible de mettre a jour vos articles sauvegardes.');
+      } finally {
+        setRemovingArticleId(null);
+      }
+    },
+    [onRemoveArticle],
   );
 
   useEffect(() => {
+    if (requireAuth && authLoading) {
+      return;
+    }
+
     void load(null);
-  }, [load]);
+  }, [authLoading, load, requireAuth]);
 
   return (
     <Screen title={title} subtitle={subtitle}>
-      {isLoading ? (
+      {requireAuth && authLoading ? (
+        <View style={styles.stateBox}>
+          <ActivityIndicator size="large" color="#2563EB" />
+          <Text style={styles.stateText}>Verification de la session...</Text>
+        </View>
+      ) : null}
+
+      {requireAuth && !authLoading && !user ? (
+        <View style={styles.stateBox}>
+          <Text style={styles.emptyText}>{authRequiredText}</Text>
+          <Pressable style={styles.retryButton} onPress={() => router.push('/account')}>
+            <Text style={styles.retryText}>{authActionText}</Text>
+          </Pressable>
+        </View>
+      ) : null}
+
+      {canLoad && isLoading ? (
         <View style={styles.stateBox}>
           <ActivityIndicator size="large" color="#2563EB" />
           <Text style={styles.stateText}>Chargement...</Text>
         </View>
       ) : null}
 
-      {!isLoading && error ? (
-        <StateBox title={error} text="Revenez plus tard ou verifiez votre session dans Compte." />
+      {canLoad && !isLoading && error ? <StateBox title={error} text="Revenez plus tard ou verifiez votre session dans Compte." /> : null}
+
+      {canLoad && !isLoading && error ? (
+        <Pressable style={styles.retryButton} onPress={() => void load(null)}>
+          <Text style={styles.retryText}>Reessayer</Text>
+        </Pressable>
       ) : null}
 
-      {!isLoading && !error && articles.length === 0 ? <StateBox title={emptyText} /> : null}
+      {canLoad && !isLoading && !error && articles.length === 0 ? <StateBox title={emptyText} /> : null}
 
-      {!isLoading && !error
+      {canLoad && !isLoading && !error
         ? articles.map((article) => {
             const date = formatDate(article.publishedAt);
             return (
@@ -99,12 +172,23 @@ export function ArticleListScreen({ title, subtitle, emptyText, loadArticles, lo
                 </View>
                 <Text style={styles.title}>{article.title}</Text>
                 {article.excerpt ? <Text style={styles.excerpt}>{article.excerpt}</Text> : null}
+                {onRemoveArticle ? (
+                  <Pressable
+                    style={styles.removeButton}
+                    disabled={removingArticleId === article.id}
+                    onPress={(event) => {
+                      event.stopPropagation();
+                      void removeArticle(article.id);
+                    }}>
+                    <Text style={styles.removeButtonText}>{removingArticleId === article.id ? 'Mise a jour...' : removeActionLabel}</Text>
+                  </Pressable>
+                ) : null}
               </Pressable>
             );
           })
         : null}
 
-      {!isLoading && !error && nextCursor ? (
+      {canLoad && !isLoading && !error && nextCursor ? (
         <Pressable
           style={({ pressed }) => [styles.loadMoreButton, pressed ? styles.pressed : null]}
           disabled={isLoadingMore}
@@ -113,7 +197,7 @@ export function ArticleListScreen({ title, subtitle, emptyText, loadArticles, lo
         </Pressable>
       ) : null}
 
-      {!isLoading && !error && articles.length > 0 && !nextCursor ? <Text style={styles.endText}>Fin des resultats</Text> : null}
+      {canLoad && !isLoading && !error && articles.length > 0 && !nextCursor ? <Text style={styles.endText}>Fin des resultats</Text> : null}
     </Screen>
   );
 }
@@ -171,6 +255,34 @@ const styles = StyleSheet.create({
     lineHeight: 22,
     marginTop: 10,
   },
+  retryButton: {
+    alignSelf: 'flex-start',
+    backgroundColor: '#111827',
+    borderRadius: 8,
+    marginTop: 4,
+    paddingHorizontal: 18,
+    paddingVertical: 12,
+  },
+  retryText: {
+    color: '#FFFFFF',
+    fontSize: 15,
+    fontWeight: '800',
+  },
+  removeButton: {
+    alignSelf: 'flex-start',
+    backgroundColor: '#F3F4F6',
+    borderColor: '#D1D5DB',
+    borderRadius: 8,
+    borderWidth: 1,
+    marginTop: 14,
+    paddingHorizontal: 14,
+    paddingVertical: 9,
+  },
+  removeButtonText: {
+    color: '#111827',
+    fontSize: 14,
+    fontWeight: '800',
+  },
   loadMoreButton: {
     alignSelf: 'center',
     backgroundColor: '#111827',
@@ -183,6 +295,11 @@ const styles = StyleSheet.create({
     color: '#FFFFFF',
     fontSize: 15,
     fontWeight: '800',
+  },
+  emptyText: {
+    color: '#4B5563',
+    fontSize: 15,
+    lineHeight: 22,
   },
   endText: {
     color: '#6B7280',
