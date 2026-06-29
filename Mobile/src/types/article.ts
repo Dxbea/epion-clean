@@ -28,6 +28,7 @@ export type ArticleDetail = Article & {
   generationPrompt?: string;
   structuredContentAvailable?: boolean;
   viewsAll?: number;
+  factCheckDetail?: ArticleFactCheckDetail;
 };
 
 export type ArticleSource = {
@@ -38,6 +39,43 @@ export type ArticleSource = {
   trustScore?: number;
   type?: string;
   description?: string;
+  // Enriched fields (from factCheckData / source enrichment)
+  politicalBias?: string;
+  reliability?: string;
+  country?: string;
+  reputationScore?: number;
+  analysisScore?: number;
+  isEnriching?: boolean;
+  metrics?: {
+    transparency: number;
+    editorial: number;
+    semantic: number;
+    logic: number;
+  };
+  flags?: {
+    hasFactCheckFailures?: boolean;
+    isClickbait?: boolean;
+    isAdsTxtValid?: boolean;
+  };
+  justification?: string;
+  liveScore?: number;
+};
+
+export type ArticleFactCheckDetail = {
+  globalScore: number;
+  rawSourceScore: number;
+  aiScore: number;
+  liveAnalysis?: {
+    contentIntent: string;
+    intentReasoning?: string;
+    pillarScores: {
+      transparency: { score: number; quote?: string; reasoning: string };
+      editorial: { score: number; quote?: string; reasoning: string };
+      semantic: { score: number; quote?: string; reasoning: string };
+      logic: { score: number; quote?: string; reasoning: string };
+    };
+    correctiveNotes?: string[];
+  } | null;
 };
 
 export type ArticleReactionSummary = {

@@ -1,9 +1,9 @@
 import { useRouter } from 'expo-router';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { ActivityIndicator, Linking, Pressable, ScrollView, Share, StyleSheet, Text, TextInput, View } from 'react-native';
+import { ActivityIndicator, Linking, Modal, PanResponder, Pressable, ScrollView, Share, StyleSheet, Text, TextInput, View } from 'react-native';
 import { Image } from 'expo-image';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
-import { Check, ChevronLeft, Forward, Heart, Highlighter, MessageSquare, Info, Star, ThumbsUp, ThumbsDown, Repeat2, X } from 'lucide-react-native';
+import { Check, ChevronLeft, Forward, Heart, Highlighter, MessageSquare, Info, Star, ThumbsUp, ThumbsDown, Repeat2, X, ShieldCheck, BrainCircuit, AlertTriangle, ShieldAlert } from 'lucide-react-native';
 
 import { useTheme } from '@/hooks/use-theme';
 import { Fonts, FontSize, Radius, Spacing } from '@/constants/theme';
@@ -31,6 +31,7 @@ import type {
   ArticleContribution,
   ArticleContributionType,
   ArticleDetail,
+  ArticleFactCheckDetail,
   ArticleInteractions,
   ArticleInteractionsSortMode,
   ArticleReactionSummary,
@@ -233,6 +234,781 @@ function renderMarkdownContent(body: string, textColor: string, headingColor: st
   return elements;
 }
 
+// --- TRUST SCORE MODAL ---
+
+type TrustScoreModalProps = {
+  visible: boolean;
+  onClose: () => void;
+  detail: ArticleFactCheckDetail;
+  sources: ArticleSource[];
+  colors: ReturnType<typeof useTheme>;
+};
+
+const PILLAR_CONFIGS = [
+  { key: 'transparency', label: 'Transparence', color: '#3B82F6' },
+  { key: 'editorial', label: 'Processus Éditorial', color: '#10B981' },
+  { key: 'semantic', label: 'Sémantique', color: '#8B5CF6' },
+  { key: 'logic', label: 'Intégrité Logique', color: '#F59E0B' },
+] as const;
+
+function ScoreArc({ score, color }: { score: number; color: string }) {
+  const r = 56;
+  const circ = 2 * Math.PI * r;
+  const offset = circ - (Math.max(0, Math.min(100, score)) / 100) * circ;
+  return (
+    <View style={tsm.arcContainer}>
+      {/* SVG workaround: use View arcs via border trick (React Native has no SVG built-in) */}
+      <View style={tsm.arcOuter}>
+        <View style={[tsm.arcTrack, { borderColor: color + '20' }]} />
+        <View style={[tsm.arcFill, {
+          borderColor: color,
+          borderTopColor: offset < circ * 0.25 ? color : 'transparent',
+          borderRightColor: offset < circ * 0.75 ? color : 'transparent',
+          borderBottomColor: offset < circ * 0.5 ? color : 'transparent',
+          borderLeftColor: color,
+        }]} />
+      </View>
+      <View style={tsm.arcCenter}>
+        <Text style={[tsm.arcScore, { color }]}>{score}</Text>
+        <Text style={tsm.arcLabel}>/100</Text>
+      </View>
+    </View>
+  );
+}
+
+function ScoreBar({ value, color }: { value: number; color: string }) {
+  const pct = Math.max(0, Math.min(100, value));
+  return (
+    <View style={tsm.barTrack}>
+      <View style={[tsm.barFill, { width: `${pct}%`, backgroundColor: color }]} />
+    </View>
+  );
+}
+
+function TrustScoreModal({ visible, onClose, detail, sources, colors }: TrustScoreModalProps) {
+  const [showSourceInfo, setShowSourceInfo] = useState(false);
+  const [showAiInfo, setShowAiInfo] = useState(false);
+  const [showPoliticalInfo, setShowPoliticalInfo] = useState(false);
+
+  const globalScore = Math.max(0, Math.min(100, Math.round(detail.rawSourceScore * 0.75 + detail.aiScore * 0.25)));
+  const scoreColor = getScoreColor(globalScore);
+
+  // Political spectrum
+  const politicalCounts = { left: 0, center: 0, right: 0, total: 0 };
+  sources.forEach((s) => {
+    const bias = (s.politicalBias || 'CENTER').toUpperCase();
+    if (bias.includes('LEFT')) politicalCounts.left++;
+    else if (bias.includes('RIGHT')) politicalCounts.right++;
+    else politicalCounts.center++;
+    politicalCounts.total++;
+  });
+  const total = politicalCounts.total || 1;
+  const leftPct = (politicalCounts.left / total) * 100;
+  const centerPct = (politicalCounts.center / total) * 100;
+  const rightPct = (politicalCounts.right / total) * 100;
+
+  return (
+    <Modal visible={visible} animationType="slide" transparent onRequestClose={onClose}>
+      <Pressable style={tsm.backdrop} onPress={onClose} />
+      <View style={[tsm.sheet, { backgroundColor: colors.backgroundElevated }]}>
+        {/* Header */}
+        <View style={[tsm.sheetHeader, { borderBottomColor: colors.borderSubtle }]}>
+          <Text style={[tsm.sheetTitle, { color: colors.text }]}>Détail du Score de Fiabilité</Text>
+          <Pressable onPress={onClose} style={tsm.closeBtn}>
+            <X size={20} color={colors.textMuted} />
+          </Pressable>
+        </View>
+        <ScrollView style={tsm.sheetBody} showsVerticalScrollIndicator={false}>
+          {/* Score circle */}
+          <View style={tsm.heroSection}>
+            <View style={tsm.circleWrap}>
+              {/* Circular ring via border (rough approximation) */}
+              <View style={[tsm.circleRing, { borderColor: scoreColor + '30' }]} />
+              <View style={[tsm.circleProgress, { borderTopColor: scoreColor, borderRightColor: globalScore > 50 ? scoreColor : 'transparent' }]} />
+              <View style={tsm.circleInner}>
+                <Text style={[tsm.circleScore, { color: scoreColor }]}>{globalScore}</Text>
+              </View>
+            </View>
+            <Text style={[tsm.heroCaption, { color: colors.textSecondary }]}>
+              Score calculé à <Text style={{ fontWeight: '700', color: colors.text }}>75% sur la fiabilité des sources</Text> et <Text style={{ fontWeight: '700', color: colors.text }}>25% sur l'IA</Text>.
+            </Text>
+          </View>
+
+          <View style={tsm.section}>
+            {/* Source reliability bar */}
+            <View style={[tsm.gaugeRow, { borderColor: colors.border, backgroundColor: colors.backgroundSubtle }]}>
+              <View style={tsm.gaugeTitleRow}>
+                <View style={{flexDirection: 'row', alignItems: 'center', gap: 8}}>
+                  <ShieldCheck size={16} color={colors.text} />
+                  <Text style={[tsm.gaugeTitle, { color: colors.text }]}>Fiabilité des Sources</Text>
+                </View>
+                <View style={tsm.gaugeRight}>
+                  <Text style={[tsm.gaugeValue, { color: scoreColor }]}>{detail.rawSourceScore}/100</Text>
+                  <Pressable onPress={() => setShowSourceInfo(!showSourceInfo)}>
+                    <Info size={14} color={colors.textMuted} />
+                  </Pressable>
+                </View>
+              </View>
+              <ScoreBar value={detail.rawSourceScore} color={scoreColor} />
+              {showSourceInfo ? (
+                <Text style={[tsm.infoText, { color: colors.textSecondary, backgroundColor: colors.backgroundElevated }]}>
+                  Moyenne des scores de fiabilité des sources utilisées dans cet article. Chaque source est notée individuellement sur sa réputation.
+                </Text>
+              ) : null}
+            </View>
+
+            {/* AI reliability bar */}
+            <View style={[tsm.gaugeRow, { borderColor: colors.border, backgroundColor: colors.backgroundSubtle }]}>
+              <View style={tsm.gaugeTitleRow}>
+                <View style={{flexDirection: 'row', alignItems: 'center', gap: 8}}>
+                  <BrainCircuit size={16} color={colors.text} />
+                  <Text style={[tsm.gaugeTitle, { color: colors.text }]}>Fiabilité de l'IA</Text>
+                </View>
+                <View style={tsm.gaugeRight}>
+                  <Text style={[tsm.gaugeValue, { color: '#6366F1' }]}>{detail.aiScore}/100</Text>
+                  <Pressable onPress={() => setShowAiInfo(!showAiInfo)}>
+                    <Info size={14} color={colors.textMuted} />
+                  </Pressable>
+                </View>
+              </View>
+              <ScoreBar value={detail.aiScore} color="#6366F1" />
+
+              {showAiInfo && detail.liveAnalysis ? (
+                <View style={tsm.liveAnalysisBox}>
+                  {/* Intent */}
+                  <View style={[tsm.intentBox, { backgroundColor: '#EEF2FF', borderColor: '#C7D2FE' }]}>
+                    <Text style={[tsm.intentLabel, { color: '#4F46E5' }]}>INTENTION DÉTECTÉE</Text>
+                    <Text style={[tsm.intentValue, { color: '#3730A3' }]}>{detail.liveAnalysis.contentIntent}</Text>
+                    {detail.liveAnalysis.intentReasoning ? (
+                      <Text style={[tsm.intentReasoning, { color: '#4338CA' }]}>"{detail.liveAnalysis.intentReasoning}"</Text>
+                    ) : null}
+                  </View>
+
+                  {/* Pillars grid (2 columns) */}
+                  <View style={tsm.pillarsGrid}>
+                    {PILLAR_CONFIGS.map((pillar) => {
+                      const data = detail.liveAnalysis!.pillarScores[pillar.key];
+                      return (
+                        <View key={pillar.key} style={[tsm.pillarCard, { borderColor: colors.border, backgroundColor: colors.backgroundElevated }]}>
+                          <View style={tsm.pillarCardHeader}>
+                            <Text style={[tsm.pillarLabel, { color: colors.text }]}>{pillar.label}</Text>
+                            <Text style={[tsm.pillarScore, { color: pillar.color }]}>{data.score}/100</Text>
+                          </View>
+                          {data.quote && data.quote !== 'None' ? (
+                            <Text style={[tsm.pillarQuote, { color: colors.textTertiary, borderLeftColor: pillar.color }]}>"{data.quote}"</Text>
+                          ) : null}
+                          <Text style={[tsm.pillarReasoning, { color: colors.textSecondary }]}>{data.reasoning}</Text>
+                        </View>
+                      );
+                    })}
+                  </View>
+
+                  {/* Corrective notes */}
+                  {detail.liveAnalysis.correctiveNotes?.length ? (
+                    <View style={[tsm.correctiveBox, { backgroundColor: '#FFF7ED', borderColor: '#FED7AA' }]}>
+                      <View style={{flexDirection: 'row', alignItems: 'center', gap: 4}}>
+                        <AlertTriangle size={14} color="#F97316" />
+                        <Text style={[tsm.correctiveTitle, { color: '#C2410C' }]}>INTERVENTION MISTRAL AI (AUDITEUR)</Text>
+                      </View>
+                      {detail.liveAnalysis.correctiveNotes.map((note, i) => (
+                        <Text key={i} style={[tsm.correctiveNote, { color: '#9A3412' }]}>{note}</Text>
+                      ))}
+                    </View>
+                  ) : null}
+                </View>
+              ) : showAiInfo ? (
+                <Text style={[tsm.infoText, { color: colors.textSecondary, backgroundColor: colors.backgroundElevated }]}>
+                  Évalue la précision du modèle IA ayant rédigé l'article. Ce score mesure le respect du contexte original.
+                </Text>
+              ) : null}
+            </View>
+
+            {/* Political spectrum */}
+            {sources.length > 0 ? (
+              <View style={[tsm.gaugeRow, { borderColor: colors.border, backgroundColor: colors.backgroundSubtle }]}>
+                <View style={tsm.gaugeTitleRow}>
+                  <Text style={[tsm.gaugeTitle, { color: colors.text }]}>Spectre Politique</Text>
+                  <View style={tsm.gaugeRight}>
+                    <Text style={[tsm.gaugeCaption, { color: colors.textMuted }]}>Basé sur {sources.length} sources</Text>
+                    <Pressable onPress={() => setShowPoliticalInfo(!showPoliticalInfo)}>
+                      <Info size={14} color={colors.textMuted} />
+                    </Pressable>
+                  </View>
+                </View>
+                {/* Segmented bar */}
+                <View style={tsm.spectrumBar}>
+                  {leftPct > 0 ? <View style={[tsm.spectrumLeft, { width: `${leftPct}%` }]} /> : null}
+                  {centerPct > 0 ? <View style={[tsm.spectrumCenter, { width: `${centerPct}%` }]} /> : null}
+                  {rightPct > 0 ? <View style={[tsm.spectrumRight, { width: `${rightPct}%` }]} /> : null}
+                </View>
+                <View style={tsm.spectrumLegend}>
+                  <Text style={tsm.spectrumLabelLeft}>Gauche ({politicalCounts.left})</Text>
+                  <Text style={[tsm.spectrumLabelCenter, { color: colors.textMuted }]}>Centre</Text>
+                  <Text style={tsm.spectrumLabelRight}>Droite ({politicalCounts.right})</Text>
+                </View>
+                {showPoliticalInfo ? (
+                  <Text style={[tsm.infoText, { color: colors.textSecondary, backgroundColor: colors.backgroundElevated }]}>
+                    Répartition des orientations politiques des sources citées : Gauche = progressistes, Centre = factuelles ou non-classées, Droite = conservatrices.
+                  </Text>
+                ) : null}
+              </View>
+            ) : null}
+          </View>
+
+          {/* Disclaimer */}
+          <View style={tsm.disclaimer}>
+            <Text style={[tsm.disclaimerText, { color: colors.textMuted }]}>L'IA peut commettre des erreurs de nuance. Vérifiez toujours les sources originales.</Text>
+          </View>
+        </ScrollView>
+      </View>
+    </Modal>
+  );
+}
+
+const tsm = StyleSheet.create({
+  backdrop: { flex: 1, backgroundColor: '#00000060' },
+  sheet: { position: 'absolute', bottom: 0, left: 0, right: 0, maxHeight: '90%', borderTopLeftRadius: 24, borderTopRightRadius: 24, overflow: 'hidden' },
+  sheetHeader: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', padding: 20, borderBottomWidth: 1 },
+  sheetTitle: { fontSize: 18, fontWeight: '700' },
+  closeBtn: { padding: 4 },
+  sheetBody: { paddingHorizontal: 20 },
+  heroSection: { paddingVertical: 24, alignItems: 'center', gap: 12 },
+  circleWrap: { width: 128, height: 128, alignItems: 'center', justifyContent: 'center' },
+  circleRing: { position: 'absolute', width: 120, height: 120, borderRadius: 60, borderWidth: 10 },
+  circleProgress: { position: 'absolute', width: 120, height: 120, borderRadius: 60, borderWidth: 10, borderBottomColor: 'transparent', borderLeftColor: 'transparent', transform: [{ rotate: '-90deg' }] },
+  circleInner: { alignItems: 'center', justifyContent: 'center' },
+  circleScore: { fontSize: 40, fontWeight: '900', lineHeight: 44 },
+  heroCaption: { fontSize: 13, textAlign: 'center', lineHeight: 20, paddingHorizontal: 8 },
+  arcContainer: {},
+  arcOuter: {},
+  arcTrack: {},
+  arcFill: {},
+  arcCenter: {},
+  arcScore: {},
+  arcLabel: {},
+  section: { gap: 12, paddingBottom: 16 },
+  gaugeRow: { borderRadius: 16, borderWidth: 1, padding: 14, gap: 10 },
+  gaugeTitleRow: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' },
+  gaugeTitle: { fontSize: 14, fontWeight: '600' },
+  gaugeRight: { flexDirection: 'row', alignItems: 'center', gap: 8 },
+  gaugeValue: { fontSize: 14, fontWeight: '700' },
+  gaugeCaption: { fontSize: 12 },
+  barTrack: { height: 8, backgroundColor: '#F3F4F6', borderRadius: 4, overflow: 'hidden' },
+  barFill: { height: 8, borderRadius: 4 },
+  infoText: { fontSize: 12, lineHeight: 18, borderRadius: 8, padding: 10 },
+  liveAnalysisBox: { gap: 12, paddingTop: 4 },
+  intentBox: { borderRadius: 12, borderWidth: 1, padding: 12, gap: 4 },
+  intentLabel: { fontSize: 10, fontWeight: '700', letterSpacing: 0.6 },
+  intentValue: { fontSize: 15, fontWeight: '700' },
+  intentReasoning: { fontSize: 12, fontStyle: 'italic', lineHeight: 18 },
+  pillarsGrid: { flexDirection: 'row', flexWrap: 'wrap', gap: 8 },
+  pillarCard: { borderRadius: 12, borderWidth: 1, padding: 10, gap: 4, width: '47%', flexGrow: 1 },
+  pillarCardHeader: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' },
+  pillarLabel: { fontSize: 11, fontWeight: '700', flex: 1 },
+  pillarScore: { fontSize: 12, fontWeight: '800' },
+  pillarQuote: { fontSize: 10, fontStyle: 'italic', lineHeight: 14, borderLeftWidth: 2, paddingLeft: 6 },
+  pillarReasoning: { fontSize: 10, lineHeight: 15 },
+  correctiveBox: { borderRadius: 12, borderWidth: 1, padding: 12, gap: 6 },
+  correctiveTitle: { fontSize: 11, fontWeight: '700', letterSpacing: 0.4 },
+  correctiveNote: { fontSize: 12, lineHeight: 18 },
+  spectrumBar: { flexDirection: 'row', height: 8, borderRadius: 4, overflow: 'hidden', backgroundColor: '#F3F4F6' },
+  spectrumLeft: { height: '100%', backgroundColor: '#DC2626' },
+  spectrumCenter: { height: '100%', backgroundColor: '#9CA3AF' },
+  spectrumRight: { height: '100%', backgroundColor: '#2563EB' },
+  spectrumLegend: { flexDirection: 'row', justifyContent: 'space-between' },
+  spectrumLabelLeft: { fontSize: 10, fontWeight: '700', color: '#DC2626' },
+  spectrumLabelCenter: { fontSize: 10 },
+  spectrumLabelRight: { fontSize: 10, fontWeight: '700', color: '#2563EB' },
+  disclaimer: { paddingVertical: 20, paddingBottom: 40, alignItems: 'center' },
+  disclaimerText: { fontSize: 12, textAlign: 'center', lineHeight: 18 },
+});
+
+// --- SOURCES MODAL ---
+
+type SourcesModalProps = {
+  visible: boolean;
+  onClose: () => void;
+  sources: ArticleSource[];
+  colors: ReturnType<typeof useTheme>;
+};
+
+function SourceItemCard({ source, colors }: { source: ArticleSource; colors: ReturnType<typeof useTheme> }) {
+  const [expanded, setExpanded] = useState(false);
+  const scoreColor = getScoreColor(source.trustScore);
+  const isPending = source.trustScore === undefined;
+
+  const categoryLabel = source.type ?? 'Source';
+  const hasDetails = !isPending && (source.description || source.politicalBias || source.country || source.metrics || source.justification);
+
+  return (
+    <View style={[sm.card, { borderColor: colors.border, backgroundColor: colors.backgroundElevated }]}>
+      {/* Header row */}
+      <Pressable
+        style={sm.cardHeader}
+        onPress={() => { if (hasDetails) setExpanded(!expanded); if (source.url) Linking.openURL(source.url).catch(() => {}); }}
+      >
+        {/* Logo / initials */}
+        <View style={[sm.logo, { backgroundColor: colors.backgroundSubtle }]}>
+          <Text style={[sm.logoText, { color: colors.textMuted }]}>{(source.name || source.domain || '?')[0].toUpperCase()}</Text>
+        </View>
+
+        {/* Name + domain */}
+        <View style={sm.nameBlock}>
+          <View style={sm.nameRow}>
+            <Text style={[sm.name, { color: colors.text }]} numberOfLines={1}>{source.name || source.domain}</Text>
+            <View style={[sm.catBadge, { backgroundColor: '#EFF6FF', borderColor: '#BFDBFE' }]}>
+              <Text style={sm.catBadgeText}>{categoryLabel}</Text>
+            </View>
+            {source.flags?.hasFactCheckFailures ? (
+              <View style={[sm.catBadge, { backgroundColor: '#FEF2F2', borderColor: '#FECACA', flexDirection: 'row', alignItems: 'center', gap: 4 }]}>
+                <ShieldAlert size={10} color="#B91C1C" />
+                <Text style={[sm.catBadgeText, { color: '#B91C1C' }]}>Alertes</Text>
+              </View>
+            ) : null}
+          </View>
+          <Text style={[sm.domain, { color: colors.textMuted }]} numberOfLines={1}>{source.domain}</Text>
+        </View>
+
+        {/* Score badge */}
+        {isPending ? (
+          <View style={[sm.scoreBadge, { backgroundColor: colors.backgroundSubtle }]}>
+            <Text style={[sm.scoreBadgeText, { color: colors.textMuted }]}>Analyse...</Text>
+          </View>
+        ) : (
+          <View style={[sm.scoreBadge, { backgroundColor: scoreColor }]}>
+            <Text style={sm.scoreBadgeText}>Fact Score</Text>
+            <View style={sm.scoreCircle}>
+              <Text style={sm.scoreCircleText}>{source.trustScore}</Text>
+            </View>
+          </View>
+        )}
+      </Pressable>
+
+      {/* Expanded details */}
+      {expanded && hasDetails ? (
+        <View style={[sm.details, { borderTopColor: colors.borderSubtle }]}>
+          {/* Score explanation */}
+          {typeof source.trustScore === 'number' ? (
+            <View style={[sm.scoreExplain, { backgroundColor: '#ECFDF5', borderColor: '#A7F3D0' }]}>
+              <View style={sm.scoreExplainHeader}>
+                <Text style={sm.scoreExplainLabel}>Score contextuel de la source</Text>
+                <Text style={sm.scoreExplainValue}>{source.trustScore}/100</Text>
+              </View>
+              <Text style={sm.scoreExplainText}>
+                {typeof source.reputationScore === 'number' && typeof source.analysisScore === 'number'
+                  ? `Ce score combine la réputation (${source.reputationScore}/100) et l'analyse contextuelle (${source.analysisScore}/100), pondération 70/30.`
+                  : typeof source.reputationScore === 'number'
+                    ? `Score basé sur la réputation de la source : ${source.reputationScore}/100.`
+                    : typeof source.analysisScore === 'number'
+                      ? `Score basé sur l'analyse contextuelle : ${source.analysisScore}/100.`
+                      : source.justification ?? 'Aucun détail de calcul disponible pour cette source.'}
+              </Text>
+            </View>
+          ) : null}
+
+          {/* Identity: country + political bias */}
+          {(source.country || source.politicalBias || source.reliability) ? (
+            <View style={[sm.identityRow, { backgroundColor: colors.backgroundSubtle, borderColor: colors.border }]}>
+              {source.country ? <Text style={[sm.identityChip, { color: colors.text }]}>{source.country}</Text> : null}
+              {source.politicalBias ? (
+                <Text style={[sm.identityChip, {
+                  color: source.politicalBias.toUpperCase().includes('LEFT') ? '#DC2626' : source.politicalBias.toUpperCase().includes('RIGHT') ? '#2563EB' : colors.textSecondary,
+                }]}>{source.politicalBias}</Text>
+              ) : null}
+              {source.reliability ? <Text style={[sm.identityChip, { color: colors.textSecondary }]}>{source.reliability}</Text> : null}
+            </View>
+          ) : null}
+
+          {/* Metrics bars */}
+          {source.metrics ? (
+            <View style={sm.metricsGrid}>
+              {[
+                { label: 'Transparence', value: source.metrics.transparency, color: '#3B82F6' },
+                { label: 'Éditorial', value: source.metrics.editorial, color: '#10B981' },
+                { label: 'Sémantique', value: source.metrics.semantic, color: '#8B5CF6' },
+                { label: 'Intégrité', value: source.metrics.logic, color: '#F59E0B' },
+              ].map((m) => (
+                <View key={m.label} style={sm.metricRow}>
+                  <Text style={[sm.metricLabel, { color: colors.textSecondary }]}>{m.label}</Text>
+                  <View style={sm.metricBarTrack}>
+                    <View style={[sm.metricBarFill, { width: `${m.value}%`, backgroundColor: m.color }]} />
+                  </View>
+                  <Text style={[sm.metricValue, { color: m.color }]}>{m.value}</Text>
+                </View>
+              ))}
+            </View>
+          ) : null}
+
+          {/* Description */}
+          {source.description ? (
+            <Text style={[sm.description, { color: colors.textSecondary }]}>{source.description}</Text>
+          ) : null}
+        </View>
+      ) : null}
+    </View>
+  );
+}
+
+function SourcesModal({ visible, onClose, sources, colors }: SourcesModalProps) {
+  return (
+    <Modal visible={visible} animationType="slide" transparent onRequestClose={onClose}>
+      <Pressable style={tsm.backdrop} onPress={onClose} />
+      <View style={[tsm.sheet, { backgroundColor: colors.backgroundElevated }]}>
+        <View style={[tsm.sheetHeader, { borderBottomColor: colors.borderSubtle }]}>
+          <Text style={[tsm.sheetTitle, { color: colors.text }]}>Sources analysées ({sources.length})</Text>
+          <Pressable onPress={onClose} style={tsm.closeBtn}>
+            <X size={20} color={colors.textMuted} />
+          </Pressable>
+        </View>
+        <ScrollView style={tsm.sheetBody} showsVerticalScrollIndicator={false} contentContainerStyle={{ gap: 10, paddingVertical: 16, paddingBottom: 40 }}>
+          {sources.length === 0 ? (
+            <Text style={[sm.empty, { color: colors.textMuted }]}>Aucune source analysée pour cet article.</Text>
+          ) : (
+            sources.map((source, i) => (
+              <SourceItemCard key={source.id ?? source.url ?? `${source.domain}-${i}`} source={source} colors={colors} />
+            ))
+          )}
+        </ScrollView>
+      </View>
+    </Modal>
+  );
+}
+
+const sm = StyleSheet.create({
+  card: { borderRadius: 16, borderWidth: 1, overflow: 'hidden' },
+  cardHeader: { flexDirection: 'row', alignItems: 'center', padding: 14, gap: 10 },
+  logo: { width: 36, height: 36, borderRadius: 8, alignItems: 'center', justifyContent: 'center', flexShrink: 0 },
+  logoText: { fontSize: 16, fontWeight: '700' },
+  nameBlock: { flex: 1, gap: 2, minWidth: 0 },
+  nameRow: { flexDirection: 'row', alignItems: 'center', gap: 6, flexWrap: 'wrap' },
+  name: { fontSize: 14, fontWeight: '700', flexShrink: 1 },
+  domain: { fontSize: 12 },
+  catBadge: { borderRadius: 4, borderWidth: 1, paddingHorizontal: 6, paddingVertical: 2 },
+  catBadgeText: { fontSize: 10, fontWeight: '600', color: '#1D4ED8' },
+  scoreBadge: { flexDirection: 'row', alignItems: 'center', gap: 6, borderRadius: 99, paddingHorizontal: 8, paddingVertical: 5, flexShrink: 0 },
+  scoreBadgeText: { fontSize: 9, fontWeight: '700', textTransform: 'uppercase', color: '#fff', letterSpacing: 0.4 },
+  scoreCircle: { width: 20, height: 20, borderRadius: 10, backgroundColor: 'rgba(255,255,255,0.25)', alignItems: 'center', justifyContent: 'center' },
+  scoreCircleText: { fontSize: 9, fontWeight: '800', color: '#fff' },
+  details: { borderTopWidth: 1, padding: 14, gap: 12 },
+  scoreExplain: { borderRadius: 12, borderWidth: 1, padding: 12, gap: 6 },
+  scoreExplainHeader: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' },
+  scoreExplainLabel: { fontSize: 11, fontWeight: '700', color: '#065F46', textTransform: 'uppercase', letterSpacing: 0.4 },
+  scoreExplainValue: { fontSize: 14, fontWeight: '800', color: '#065F46' },
+  scoreExplainText: { fontSize: 12, lineHeight: 18, color: '#047857' },
+  identityRow: { flexDirection: 'row', flexWrap: 'wrap', gap: 8, borderRadius: 12, borderWidth: 1, padding: 10 },
+  identityChip: { fontSize: 13, fontWeight: '500' },
+  metricsGrid: { gap: 8 },
+  metricRow: { flexDirection: 'row', alignItems: 'center', gap: 8 },
+  metricLabel: { width: 80, fontSize: 11, fontWeight: '500' },
+  metricBarTrack: { flex: 1, height: 6, backgroundColor: '#F3F4F6', borderRadius: 3, overflow: 'hidden' },
+  metricBarFill: { height: 6, borderRadius: 3 },
+  metricValue: { width: 28, fontSize: 11, fontWeight: '700', textAlign: 'right' },
+  description: { fontSize: 12, lineHeight: 18 },
+  empty: { textAlign: 'center', padding: 32, fontSize: 14 },
+});
+
+// --- OPINION SLIDER CARD COMPONENT ---
+
+type OpinionSliderCardProps = {
+  positions: number[];
+  selectedPosition: number | null;
+  lacksContext: boolean;
+  confirmedPosition: { selectedPosition: number | null; lacksContext: boolean } | null;
+  isSubmittingPosition: boolean;
+  opinionQuestion: { question: string; thesisA: string; thesisB: string } | null;
+  colors: ReturnType<typeof useTheme>;
+  onSelectPosition: (pos: number) => void;
+  onLacksContext: () => void;
+  onConfirm: () => void;
+};
+
+function OpinionSliderCard({
+  positions,
+  selectedPosition,
+  lacksContext,
+  confirmedPosition,
+  isSubmittingPosition,
+  opinionQuestion,
+  colors,
+  onSelectPosition,
+  onLacksContext,
+  onConfirm,
+}: OpinionSliderCardProps) {
+  const trackWidth = useRef(0);
+  const isDragging = useRef(false);
+  const [thumbRatio, setThumbRatio] = useState<number | null>(null);
+
+  const getSnapIndex = (ratio: number) =>
+    Math.max(0, Math.min(positions.length - 1, Math.round(ratio * (positions.length - 1))));
+
+  const panResponder = useRef(
+    PanResponder.create({
+      onStartShouldSetPanResponder: () => !confirmedPosition,
+      onMoveShouldSetPanResponder: () => !confirmedPosition,
+      onPanResponderGrant: (evt) => {
+        if (confirmedPosition || trackWidth.current <= 0) return;
+        isDragging.current = true;
+        const x = evt.nativeEvent.locationX - 16; // subtract left padding
+        const ratio = Math.max(0, Math.min(1, x / trackWidth.current));
+        setThumbRatio(ratio);
+      },
+      onPanResponderMove: (evt) => {
+        if (!isDragging.current || trackWidth.current <= 0) return;
+        const x = evt.nativeEvent.locationX - 16;
+        const ratio = Math.max(0, Math.min(1, x / trackWidth.current));
+        setThumbRatio(ratio);
+      },
+      onPanResponderRelease: (evt) => {
+        if (!isDragging.current || trackWidth.current <= 0) return;
+        isDragging.current = false;
+        const x = evt.nativeEvent.locationX - 16;
+        const ratio = Math.max(0, Math.min(1, x / trackWidth.current));
+        const index = getSnapIndex(ratio);
+        setThumbRatio(null);
+        onSelectPosition(positions[index]);
+      },
+      onPanResponderTerminate: () => {
+        isDragging.current = false;
+        setThumbRatio(null);
+      },
+    }),
+  ).current;
+
+  const selectedIndex = selectedPosition !== null && !lacksContext
+    ? positions.indexOf(selectedPosition)
+    : -1;
+  const snappedPercent = selectedIndex >= 0 ? (selectedIndex / (positions.length - 1)) * 100 : -1;
+  const thumbPercent = thumbRatio !== null ? thumbRatio * 100 : snappedPercent;
+  const hasThumb = thumbPercent >= 0 && !lacksContext;
+
+  const isConfirmed = !!confirmedPosition;
+
+  const positionLabel = (() => {
+    if (lacksContext) return 'Je manque de contexte';
+    if (selectedPosition !== null) return POSITION_LABELS[String(selectedPosition)] ?? '';
+    return '';
+  })();
+
+  return (
+    <View style={[ss.opinionCard, { borderColor: isConfirmed ? `${EPION_GREEN}40` : colors.border, backgroundColor: colors.backgroundElevated }]}>
+      {/* Header */}
+      <View style={ss.opinionCardHeader}>
+        <Text style={[ss.opinionCardTitle, { color: colors.text }]}>Positionnez-vous</Text>
+        {isConfirmed ? (
+          <View style={[ss.confirmedBadge, { backgroundColor: `${EPION_GREEN}12`, borderColor: `${EPION_GREEN}40` }]}>
+            <Text style={ss.confirmedBadgeText}>🔒 Position confirmée</Text>
+          </View>
+        ) : null}
+      </View>
+
+      {/* Question box */}
+      <View style={[ss.questionBox, { backgroundColor: colors.backgroundSubtle, borderColor: colors.borderSubtle }]}>
+        <Text style={[ss.questionLabel, { color: colors.textMuted }]}>QUESTION</Text>
+        <Text style={[ss.questionText, { color: colors.text }]}>
+          {opinionQuestion?.question || 'Les faits présentés pointent-ils plutôt vers un problème ponctuel ou structurel ?'}
+        </Text>
+      </View>
+
+      {/* Thesis labels — inline like frontend */}
+      <View style={ss.thesisInlineRow}>
+        <Text style={[ss.thesisLabel, { color: colors.textMuted }]} numberOfLines={2}>
+          {opinionQuestion?.thesisA || 'Thèse A'}
+        </Text>
+        <Text style={[ss.thesisLabel, ss.thesisLabelRight, { color: colors.textMuted }]} numberOfLines={2}>
+          {opinionQuestion?.thesisB || 'Thèse B'}
+        </Text>
+      </View>
+
+      {/* Slider track */}
+      <View
+        style={ss.sliderWrapper}
+        onLayout={(e) => { trackWidth.current = e.nativeEvent.layout.width - 32; }} // -32 for 16px padding each side
+        {...panResponder.panHandlers}
+      >
+        {/* Rail */}
+        <View style={[ss.sliderRail, { backgroundColor: isConfirmed ? `${EPION_GREEN}30` : colors.border + '80' }]} />
+
+        {/* Snap dots */}
+        {positions.map((pos, i) => {
+          const pct = (i / (positions.length - 1)) * 100;
+          const isSelected = pos === selectedPosition && thumbRatio === null && !lacksContext;
+          const isConfirmedHere = confirmedPosition?.selectedPosition === pos;
+          const active = isSelected || isConfirmedHere;
+          return (
+            <View
+              key={String(pos)}
+              style={[
+                ss.snapDot,
+                active ? ss.snapDotActive : { backgroundColor: colors.textMuted + '60' },
+                { left: `${pct}%` },
+              ]}
+            />
+          );
+        })}
+
+        {/* Thumb */}
+        {hasThumb ? (
+          <View style={[ss.thumbWrap, { left: `${thumbPercent}%` }]}>
+            <View style={[ss.thumb, { borderColor: EPION_GREEN, shadowColor: EPION_GREEN }]}>
+              <View style={ss.thumbDot} />
+            </View>
+          </View>
+        ) : null}
+      </View>
+
+      {/* Position label */}
+      <Text style={[ss.positionLabel, { color: positionLabel ? colors.text : colors.textMuted, fontWeight: positionLabel ? '600' : '400' }]}>
+        {positionLabel || 'Faites glisser pour vous positionner'}
+      </Text>
+
+      {/* Lacks context button */}
+      <Pressable
+        style={[ss.lacksContextBtn, {
+          borderColor: lacksContext ? '#0EA5E933' : colors.border,
+          backgroundColor: lacksContext ? '#F0F9FF' : 'transparent',
+        }]}
+        disabled={isConfirmed}
+        onPress={onLacksContext}
+      >
+        <Text style={[ss.lacksContextText, { color: lacksContext ? '#0369A1' : colors.textTertiary }]}>
+          🛡  Je manque d'éléments de contexte
+        </Text>
+      </Pressable>
+
+      {/* Confirm button */}
+      {!isConfirmed ? (
+        <Pressable
+          style={[ss.confirmBtn, {
+            backgroundColor: (selectedPosition !== null || lacksContext) && !isSubmittingPosition ? EPION_GREEN : colors.backgroundSubtle,
+          }]}
+          disabled={isSubmittingPosition || (selectedPosition === null && !lacksContext)}
+          onPress={onConfirm}
+        >
+          <Text style={[ss.confirmBtnText, { color: (selectedPosition !== null || lacksContext) ? '#000' : colors.textMuted }]}>
+            {isSubmittingPosition ? 'Confirmation...' : '✓  Confirmer ma position'}
+          </Text>
+        </Pressable>
+      ) : null}
+    </View>
+  );
+}
+
+// Styles for OpinionSliderCard (prefixed ss to avoid conflicts)
+const ss = StyleSheet.create({
+  opinionCard: {
+    borderRadius: 20,
+    borderWidth: 1,
+    padding: 16,
+    gap: 12,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 1 },
+    shadowOpacity: 0.04,
+    shadowRadius: 4,
+    elevation: 1,
+  },
+  opinionCardHeader: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', flexWrap: 'wrap', gap: 8 },
+  opinionCardTitle: { fontSize: 16, fontWeight: '600' },
+  confirmedBadge: { borderRadius: 99, borderWidth: 1, paddingHorizontal: 10, paddingVertical: 4 },
+  confirmedBadgeText: { color: '#065F46', fontSize: 12, fontWeight: '600' },
+  questionBox: { borderRadius: 12, borderWidth: 1, padding: 14, gap: 6 },
+  questionLabel: { fontSize: 10, fontWeight: '700', letterSpacing: 0.8 },
+  questionText: { fontSize: 15, fontWeight: '500', lineHeight: 22 },
+  thesisInlineRow: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'flex-start', gap: 8 },
+  thesisLabel: { flex: 1, fontSize: 12, fontWeight: '500', lineHeight: 16 },
+  thesisLabelRight: { textAlign: 'right' },
+  sliderWrapper: {
+    position: 'relative',
+    height: 56,
+    paddingHorizontal: 16,
+    justifyContent: 'center',
+  },
+  sliderRail: {
+    position: 'absolute',
+    left: 16,
+    right: 16,
+    height: 3,
+    borderRadius: 2,
+    top: '50%',
+    marginTop: -1.5,
+  },
+  snapDot: {
+    position: 'absolute',
+    width: 9,
+    height: 9,
+    borderRadius: 5,
+    marginLeft: -4.5,
+    top: '50%',
+    marginTop: -4.5,
+  },
+  snapDotActive: {
+    width: 13,
+    height: 13,
+    borderRadius: 7,
+    backgroundColor: EPION_GREEN,
+    marginLeft: -6.5,
+    marginTop: -6.5,
+    shadowColor: EPION_GREEN,
+    shadowOffset: { width: 0, height: 0 },
+    shadowOpacity: 0.4,
+    shadowRadius: 6,
+    elevation: 3,
+  },
+  thumbWrap: {
+    position: 'absolute',
+    top: '50%',
+    marginTop: -14,
+    marginLeft: -14,
+    width: 28,
+    height: 28,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  thumb: {
+    width: 24,
+    height: 24,
+    borderRadius: 12,
+    borderWidth: 2,
+    backgroundColor: '#fff',
+    alignItems: 'center',
+    justifyContent: 'center',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.25,
+    shadowRadius: 8,
+    elevation: 4,
+  },
+  thumbDot: {
+    width: 8,
+    height: 8,
+    borderRadius: 4,
+    backgroundColor: EPION_GREEN,
+  },
+  positionLabel: {
+    textAlign: 'center',
+    fontSize: 14,
+    lineHeight: 20,
+  },
+  lacksContextBtn: {
+    borderRadius: 12,
+    borderWidth: 1,
+    alignItems: 'center',
+    paddingVertical: 10,
+    paddingHorizontal: 12,
+  },
+  lacksContextText: {
+    fontSize: 14,
+    fontWeight: '500',
+  },
+  confirmBtn: {
+    borderRadius: 99,
+    alignItems: 'center',
+    paddingVertical: 12,
+  },
+  confirmBtnText: {
+    fontSize: 15,
+    fontWeight: '700',
+  },
+});
+
 // --- MAIN COMPONENT ---
 
 export function ArticleDetailScreenContent({ loadArticle, missingText = 'Aucun détail disponible pour cet article.' }: ArticleDetailScreenProps) {
@@ -267,11 +1043,15 @@ export function ArticleDetailScreenContent({ loadArticle, missingText = 'Aucun d
   const [contributionSourceUrl, setContributionSourceUrl] = useState('');
   const [contributionTargetId, setContributionTargetId] = useState<string | null>(null);
   const [isSubmittingContribution, setIsSubmittingContribution] = useState(false);
+  const [isGatewayOpen, setIsGatewayOpen] = useState(false);
+  const [submitMessage, setSubmitMessage] = useState<string | null>(null);
   const [sourcesExpanded, setSourcesExpanded] = useState(false);
   const [toolbarPanel, setToolbarPanel] = useState<'interactions' | 'share' | 'info' | null>(null);
   const [copyState, setCopyState] = useState<'idle' | 'copied' | 'error'>('idle');
   const [isHighlightActive, setIsHighlightActive] = useState(false);
   const [isChatLoading, setIsChatLoading] = useState(false);
+  const [showTrustModal, setShowTrustModal] = useState(false);
+  const [showSourcesModal, setShowSourcesModal] = useState(false);
 
   // --- DATA LOADING ---
 
@@ -488,6 +1268,8 @@ export function ArticleDetailScreenContent({ loadArticle, missingText = 'Aucun d
       setContributionSourceUrl('');
       setContributionTargetId(null);
       setContributionType('NUANCE');
+      setIsGatewayOpen(false);
+      setSubmitMessage('Contribution soumise avec succès.');
     } catch {
       setAdvancedError("Connexion requise ou contribution refusée par l'API.");
     } finally {
@@ -796,9 +1578,12 @@ export function ArticleDetailScreenContent({ loadArticle, missingText = 'Aucun d
               {/* Trust header — vivid badge like web */}
               <View style={[s.trustCard, { borderColor: colors.border, backgroundColor: colors.backgroundElevated }]}>
                 {typeof article.factCheckScore === 'number' ? (
-                  <View style={[s.trustScoreBadge, { backgroundColor: getScoreColor(article.factCheckScore) }]}>
+                  <Pressable 
+                    style={[s.trustScoreBadge, { backgroundColor: getScoreColor(article.factCheckScore) }]}
+                    onPress={() => { if (article.factCheckDetail) setShowTrustModal(true); }}
+                  >
                     <Text style={s.trustScoreText}>Fiabilité : {article.factCheckScore}%</Text>
-                  </View>
+                  </Pressable>
                 ) : (
                   <View style={[s.trustScoreBadge, { backgroundColor: colors.backgroundSubtle }]}>
                     <Text style={[s.trustScoreTextMuted, { color: colors.textMuted }]}>Score indisponible</Text>
@@ -810,8 +1595,8 @@ export function ArticleDetailScreenContent({ loadArticle, missingText = 'Aucun d
                       {getScoreLabel(article.factCheckScore)} · {getSupportLabel(article.factCheckScore)}
                     </Text>
                   ) : null}
-                  {typeof article.sourcesCount === 'number' ? (
-                    <Pressable style={[s.trustSourcesBtn, { borderColor: colors.border }]} onPress={() => setSourcesExpanded(!sourcesExpanded)}>
+                  {typeof article.sourcesCount === 'number' && article.sourcesCount > 0 ? (
+                    <Pressable style={[s.trustSourcesBtn, { borderColor: colors.border }]} onPress={() => setShowSourcesModal(true)}>
                       <Text style={[s.trustSourcesBtnText, { color: colors.textTertiary }]}>{article.sourcesCount} sources analysées</Text>
                     </Pressable>
                   ) : (
@@ -884,85 +1669,23 @@ export function ArticleDetailScreenContent({ loadArticle, missingText = 'Aucun d
               {visibleAdvancedInteractions ? (
                 <>
                   {/* ---- OPINION MAP ---- */}
-                  <View style={[s.opinionCard, { borderColor: confirmedPosition ? `${EPION_GREEN}40` : colors.border, backgroundColor: colors.backgroundElevated }]}>
-                    <Text style={[s.opinionCardTitle, { color: colors.text }]}>Positionnez-vous</Text>
-
-                    {confirmedPosition ? (
-                      <View style={[s.confirmedBadge, { backgroundColor: `${EPION_GREEN}12`, borderColor: `${EPION_GREEN}40` }]}>
-                        <Text style={s.confirmedBadgeText}>✓ Position confirmée</Text>
-                      </View>
-                    ) : null}
-
-                    {/* Question */}
-                    <View style={[s.questionBox, { backgroundColor: colors.backgroundSubtle, borderColor: colors.borderSubtle }]}>
-                      <Text style={[s.questionText, { color: colors.text }]}>
-                        {visibleAdvancedInteractions.opinionQuestion?.question || 'Les faits présentés pointent-ils plutôt vers un problème ponctuel ou structurel ?'}
-                      </Text>
-                    </View>
-
-                    {/* Thesis labels */}
-                    <View style={s.thesisRow}>
-                      <View style={[s.thesisPill, { borderColor: colors.border }]}>
-                        <Text style={[s.thesisPillText, { color: colors.text }]}>{visibleAdvancedInteractions.opinionQuestion?.thesisA || 'Thèse A'}</Text>
-                      </View>
-                      <View style={[s.thesisPill, { borderColor: colors.border }]}>
-                        <Text style={[s.thesisPillText, { color: colors.text }]}>{visibleAdvancedInteractions.opinionQuestion?.thesisB || 'Thèse B'}</Text>
-                      </View>
-                    </View>
-
-                    {/* Position slider/dots */}
-                    <View style={s.positionTrack}>
-                      <View style={[s.positionRail, { backgroundColor: colors.border }]} />
-                      {POSITION_VALUES.map((pos) => {
-                        const isSelected = selectedPosition === pos && !lacksContext;
-                        const isConfirmedHere = confirmedPosition?.selectedPosition === pos;
-                        return (
-                          <Pressable
-                            key={String(pos)}
-                            style={[
-                              s.positionDot,
-                              isSelected || isConfirmedHere
-                                ? s.positionDotActive
-                                : { backgroundColor: colors.textMuted + '40' },
-                            ]}
-                            disabled={Boolean(confirmedPosition)}
-                            onPress={() => { setSelectedPosition(pos); setLacksContext(false); setAdvancedError(null); }}
-                          />
-                        );
-                      })}
-                    </View>
-
-                    {/* Position label */}
-                    {selectedPosition !== null && !lacksContext ? (
-                      <Text style={[s.positionLabelText, { color: colors.text }]}>{POSITION_LABELS[String(selectedPosition)] ?? ''}</Text>
-                    ) : null}
-
-                    {/* Lacks context */}
-                    <Pressable
-                      style={[s.lacksContextBtn, {
-                        borderColor: lacksContext ? '#0EA5E933' : colors.border,
-                        backgroundColor: lacksContext ? '#0EA5E90D' : 'transparent',
-                      }]}
-                      disabled={Boolean(confirmedPosition)}
-                      onPress={() => { setSelectedPosition(null); setLacksContext(true); setAdvancedError(null); }}
-                    >
-                      <Text style={[s.lacksContextText, { color: lacksContext ? '#0369A1' : colors.textTertiary }]}>🛡 Je manque d'éléments</Text>
-                    </Pressable>
-
-                    {/* Confirm button */}
-                    {!confirmedPosition ? (
-                      <Pressable style={[s.confirmBtn, { backgroundColor: EPION_GREEN }]} disabled={isSubmittingPosition} onPress={confirmOpinionPosition}>
-                        <Text style={s.confirmBtnText}>{isSubmittingPosition ? 'Confirmation...' : 'Confirmer ma position'}</Text>
-                      </Pressable>
-                    ) : null}
-                  </View>
+                  <OpinionSliderCard
+                    positions={POSITION_VALUES}
+                    selectedPosition={selectedPosition}
+                    lacksContext={lacksContext}
+                    confirmedPosition={confirmedPosition}
+                    isSubmittingPosition={isSubmittingPosition}
+                    opinionQuestion={visibleAdvancedInteractions.opinionQuestion}
+                    colors={colors}
+                    onSelectPosition={(pos) => { setSelectedPosition(pos); setLacksContext(false); setAdvancedError(null); }}
+                    onLacksContext={() => { setSelectedPosition(null); setLacksContext(true); setAdvancedError(null); }}
+                    onConfirm={confirmOpinionPosition}
+                  />
 
                   {/* ---- DISTRIBUTION (only after confirming position) ---- */}
-                  {confirmedPosition && distribution && distribution.total > 0 ? (
+                  {confirmedPosition && distribution ? (
                     <View style={[s.distributionCard, { backgroundColor: colors.backgroundSubtle, borderColor: colors.borderSubtle }]}>
-                      <Text style={[s.distributionTitle, { color: colors.textTertiary }]}>
-                        {distribution.total} positions · {distribution.lacksContextCount} manquent d'éléments
-                      </Text>
+                      <Text style={[s.distributionLabel, { color: colors.textTertiary }]}>CARTE DE LA COMMUNAUTÉ</Text>
                       <View style={s.distributionBars}>
                         {POSITION_VALUES.map((pos) => {
                           const count = distribution.counts[String(pos)] ?? 0;
@@ -970,15 +1693,11 @@ export function ArticleDetailScreenContent({ loadArticle, missingText = 'Aucun d
                           return (
                             <View key={String(pos)} style={s.distributionCol}>
                               <View style={[s.distributionBar, { height, backgroundColor: `${EPION_GREEN}25` }]} />
-                              <Text style={[s.distributionBarLabel, { color: colors.textMuted }]}>{count}</Text>
                             </View>
                           );
                         })}
                       </View>
-                      <View style={s.distributionLegend}>
-                        <Text style={[s.distributionLegendText, { color: colors.textMuted }]}>← {visibleAdvancedInteractions.opinionQuestion?.thesisA || 'A'}</Text>
-                        <Text style={[s.distributionLegendText, { color: colors.textMuted }]}>{visibleAdvancedInteractions.opinionQuestion?.thesisB || 'B'} →</Text>
-                      </View>
+                      <Text style={[s.distributionHint, { color: colors.textMuted }]}>Répartition des positions de la communauté</Text>
                     </View>
                   ) : null}
 
@@ -986,14 +1705,45 @@ export function ArticleDetailScreenContent({ loadArticle, missingText = 'Aucun d
 
                   {/* ---- CONTRIBUTE GATEWAY ---- */}
                   <View style={[s.contributeCard, { borderColor: colors.border, backgroundColor: colors.backgroundElevated }]}>
-                    <Text style={[s.contributeTitle, { color: colors.text }]}>Contribuer au débat</Text>
-                    {!canContribute ? (
+                    <View style={s.contributeHeader}>
+                      <View style={s.contributeHeaderText}>
+                        <Text style={[s.contributeTitle, { color: colors.text }]}>Contribuer au débat</Text>
+                        <Text style={[s.contributeSubtitle, { color: colors.textSecondary }]}>Sourcez, nuancez, corrigez ou posez une question.</Text>
+                      </View>
+                      {canContribute && !visibleAdvancedInteractions.hasInsufficientContext ? (
+                        <Pressable
+                          style={[s.gatewayToggleBtn, {
+                            backgroundColor: isGatewayOpen ? colors.backgroundSubtle : EPION_GREEN,
+                            borderColor: isGatewayOpen ? colors.border : 'transparent',
+                          }]}
+                          onPress={() => { setIsGatewayOpen(!isGatewayOpen); setSubmitMessage(null); setContributionTargetId(null); }}
+                        >
+                          <Text style={[s.gatewayToggleBtnText, { color: isGatewayOpen ? colors.text : '#000' }]}>
+                            {isGatewayOpen ? '✕  Fermer' : '+  Contribuer'}
+                          </Text>
+                        </Pressable>
+                      ) : null}
+                    </View>
+
+                    {visibleAdvancedInteractions.hasInsufficientContext ? (
+                      <View style={[s.insufficientContextBox, { backgroundColor: '#F0F9FF', borderColor: '#BAE6FD' }]}>
+                        <Text style={[s.insufficientContextText, { color: '#0369A1' }]}>Vous avez indiqué manquer d'éléments de contexte. Contribuez d'abord une source ou revenez après avoir confirmé une position.</Text>
+                      </View>
+                    ) : !canContribute ? (
                       <View style={[s.contributeLocked, { backgroundColor: colors.backgroundSubtle, borderColor: colors.borderSubtle }]}>
                         <Text style={[s.contributeLockedText, { color: colors.textMuted }]}>Confirmez une position pour publier une contribution sourcée.</Text>
                       </View>
-                    ) : (
-                      <>
-                        {/* Type grid — colored per type */}
+                    ) : null}
+
+                    {submitMessage ? (
+                      <View style={[s.submitMessageBox, { backgroundColor: '#ECFDF5', borderColor: '#A7F3D0' }]}>
+                        <Text style={[s.submitMessageText, { color: '#065F46' }]}>{submitMessage}</Text>
+                      </View>
+                    ) : null}
+
+                    {isGatewayOpen && canContribute ? (
+                      <View style={s.gatewayContent}>
+                        {/* Type grid — 2 columns like web */}
                         <View style={s.typeGrid}>
                           {CONTRIBUTION_TYPES.map((item) => {
                             const isActive = contributionType === item.type;
@@ -1002,7 +1752,7 @@ export function ArticleDetailScreenContent({ loadArticle, missingText = 'Aucun d
                                 key={item.type}
                                 style={[s.typeBtn, {
                                   borderColor: isActive ? item.colors.border : colors.border,
-                                  backgroundColor: isActive ? item.colors.bg : 'transparent',
+                                  backgroundColor: isActive ? item.colors.bg : colors.backgroundSubtle,
                                 }]}
                                 onPress={() => setContributionType(item.type)}
                               >
@@ -1022,60 +1772,74 @@ export function ArticleDetailScreenContent({ loadArticle, missingText = 'Aucun d
                           </View>
                         ) : null}
 
-                        {contributionType !== 'SOURCE' ? (
+                        <View style={[s.formBox, { borderColor: colors.border, backgroundColor: colors.backgroundSubtle }]}>
+                          {contributionType !== 'SOURCE' ? (
+                            <TextInput
+                              style={[s.textArea, { borderColor: colors.border, backgroundColor: colors.backgroundElevated, color: colors.text }]}
+                              multiline
+                              onChangeText={(t) => { setContributionText(t); setAdvancedError(null); }}
+                              placeholder="Écrire une contribution précise et vérifiable..."
+                              placeholderTextColor={colors.textMuted}
+                              value={contributionText}
+                            />
+                          ) : null}
                           <TextInput
-                            style={[s.textArea, { borderColor: colors.border, backgroundColor: colors.backgroundElevated, color: colors.text }]}
-                            multiline
-                            onChangeText={setContributionText}
-                            placeholder="Écrire une contribution précise et vérifiable..."
+                            style={[s.textInput, { borderColor: colors.border, backgroundColor: colors.backgroundElevated, color: colors.text }]}
+                            onChangeText={(t) => { setContributionSourceUrl(t); setAdvancedError(null); }}
+                            placeholder={contributionType === 'SOURCE' || contributionTargetId ? 'URL source (requise) — https://' : 'URL source (facultatif) — https://'}
                             placeholderTextColor={colors.textMuted}
-                            value={contributionText}
+                            value={contributionSourceUrl}
+                            autoCapitalize="none"
+                            keyboardType="url"
                           />
-                        ) : null}
-                        <TextInput
-                          style={[s.textInput, { borderColor: colors.border, backgroundColor: colors.backgroundElevated, color: colors.text }]}
-                          onChangeText={setContributionSourceUrl}
-                          placeholder={contributionType === 'SOURCE' || contributionTargetId ? 'URL source (requise)' : 'URL source (facultatif)'}
-                          placeholderTextColor={colors.textMuted}
-                          value={contributionSourceUrl}
-                          autoCapitalize="none"
-                          keyboardType="url"
-                        />
-                        <Pressable style={[s.submitBtn, { backgroundColor: EPION_GREEN }]} disabled={isSubmittingContribution} onPress={submitContribution}>
-                          <Text style={s.submitBtnText}>{isSubmittingContribution ? 'Envoi...' : 'Soumettre la contribution'}</Text>
-                        </Pressable>
-                      </>
-                    )}
+                          <View style={s.formActions}>
+                            <Pressable
+                              style={[s.cancelBtn, { borderColor: colors.border }]}
+                              onPress={() => { setIsGatewayOpen(false); setContributionText(''); setContributionSourceUrl(''); setContributionTargetId(null); }}
+                            >
+                              <Text style={[s.cancelBtnText, { color: colors.text }]}>Annuler</Text>
+                            </Pressable>
+                            <Pressable style={[s.submitBtn, { backgroundColor: EPION_GREEN }]} disabled={isSubmittingContribution} onPress={submitContribution}>
+                              <Text style={s.submitBtnText}>{isSubmittingContribution ? 'Envoi...' : 'Soumettre'}</Text>
+                            </Pressable>
+                          </View>
+                        </View>
+                      </View>
+                    ) : null}
                   </View>
 
                   {/* ---- CONTRIBUTIONS LIST ---- */}
-                  <View style={s.contributionsListHeader}>
-                    <Text style={[s.contributionsListTitle, { color: colors.text }]}>
-                      Contributions ({visibleAdvancedInteractions.contributions.length})
-                    </Text>
-                    <View style={[s.sortRow, { borderColor: colors.border }]}>
-                      <Pressable
-                        style={[s.sortBtn, advancedSort === 'top' ? { backgroundColor: colors.primary } : null]}
-                        onPress={() => changeAdvancedSort('top')}
-                      >
-                        <Text style={[s.sortBtnText, { color: advancedSort === 'top' ? colors.background : colors.textMuted }]}>Consensus</Text>
-                      </Pressable>
-                      <Pressable
-                        style={[s.sortBtn, advancedSort === 'recent' ? { backgroundColor: colors.primary } : null]}
-                        onPress={() => changeAdvancedSort('recent')}
-                      >
-                        <Text style={[s.sortBtnText, { color: advancedSort === 'recent' ? colors.background : colors.textMuted }]}>Récents</Text>
-                      </Pressable>
-                    </View>
-                  </View>
-
-                  {advancedLoading ? <ActivityIndicator color={colors.textMuted} style={{ marginVertical: 12 }} /> : null}
-                  {visibleAdvancedInteractions.contributions.length === 0 && !advancedLoading ? (
+                  {visibleAdvancedInteractions.contributions.length > 0 ? (
+                    <>
+                      <View style={s.contributionsListHeader}>
+                        <Text style={[s.contributionsListTitle, { color: colors.text }]}>
+                          Contributions ({visibleAdvancedInteractions.contributions.length})
+                        </Text>
+                        <View style={[s.sortRow, { borderColor: colors.border }]}>
+                          <Pressable
+                            style={[s.sortBtn, advancedSort === 'top' ? { backgroundColor: colors.backgroundSubtle } : null]}
+                            onPress={() => changeAdvancedSort('top')}
+                          >
+                            <Text style={[s.sortBtnText, { color: advancedSort === 'top' ? colors.text : colors.textMuted, fontWeight: advancedSort === 'top' ? '600' : '400' }]}>Consensus</Text>
+                          </Pressable>
+                          <Pressable
+                            style={[s.sortBtn, advancedSort === 'recent' ? { backgroundColor: colors.backgroundSubtle } : null]}
+                            onPress={() => changeAdvancedSort('recent')}
+                          >
+                            <Text style={[s.sortBtnText, { color: advancedSort === 'recent' ? colors.text : colors.textMuted, fontWeight: advancedSort === 'recent' ? '600' : '400' }]}>Récents</Text>
+                          </Pressable>
+                        </View>
+                      </View>
+                      <View style={s.contributionsList}>
+                        {advancedLoading ? <ActivityIndicator color={colors.textMuted} style={{ marginVertical: 12 }} /> : null}
+                        {visibleAdvancedInteractions.contributions.map(renderContribution)}
+                      </View>
+                    </>
+                  ) : !advancedLoading ? (
                     <View style={[s.emptyContributions, { borderColor: colors.borderSubtle }]}>
                       <Text style={[s.emptyText, { color: colors.textMuted }]}>Aucune contribution pour le moment. Soyez le premier à contribuer.</Text>
                     </View>
                   ) : null}
-                  {visibleAdvancedInteractions.contributions.map(renderContribution)}
                 </>
               ) : null}
             </View>
@@ -1303,6 +2067,25 @@ export function ArticleDetailScreenContent({ loadArticle, missingText = 'Aucun d
       ) : null}
       {interactionMessage ? <Text style={[s.floatingNotice, { color: '#B45309', bottom: insets.bottom + 80 }]}>{interactionMessage}</Text> : null}
       {reactionError ? <Text style={[s.floatingNotice, { color: '#B45309', bottom: insets.bottom + 80 }]}>{reactionError}</Text> : null}
+
+      {/* Modals for Trust & Sources */}
+      {article?.factCheckDetail && (
+        <TrustScoreModal
+          visible={showTrustModal}
+          onClose={() => setShowTrustModal(false)}
+          detail={article.factCheckDetail}
+          sources={article.sources ?? []}
+          colors={colors}
+        />
+      )}
+      {article?.sources && (
+        <SourcesModal
+          visible={showSourcesModal}
+          onClose={() => setShowSourcesModal(false)}
+          sources={article.sources}
+          colors={colors}
+        />
+      )}
     </View>
   );
 }
@@ -1415,21 +2198,33 @@ const s = StyleSheet.create({
 
   // Distribution
   distributionCard: { borderRadius: Radius.xl, borderWidth: 1, padding: Spacing.lg, gap: Spacing.md },
-  distributionTitle: { fontSize: FontSize.sm },
-  distributionBars: { flexDirection: 'row', alignItems: 'flex-end', justifyContent: 'space-between', height: 56, gap: 6 },
-  distributionCol: { flex: 1, alignItems: 'center', justifyContent: 'flex-end', gap: 4 },
-  distributionBar: { width: '100%', borderRadius: 4 },
-  distributionBarLabel: { fontSize: FontSize.xs },
-  distributionLegend: { flexDirection: 'row', justifyContent: 'space-between' },
-  distributionLegendText: { fontSize: FontSize.xs },
+  distributionLabel: { fontSize: FontSize.xs, fontWeight: '700', letterSpacing: 0.6 },
+  distributionHint: { fontSize: FontSize.xs, textAlign: 'center' },
+  distributionBars: { flexDirection: 'row', alignItems: 'flex-end', justifyContent: 'space-between', height: 48, gap: 4 },
+  distributionCol: { flex: 1, alignItems: 'center', justifyContent: 'flex-end' },
+  distributionBar: { width: '100%', borderRadius: 3 },
 
   // Contribute
   contributeCard: { borderRadius: Radius.xl, borderWidth: 1, padding: Spacing.lg, gap: Spacing.md, shadowColor: '#000', shadowOffset: { width: 0, height: 1 }, shadowOpacity: 0.04, shadowRadius: 4, elevation: 1 },
+  contributeHeader: { flexDirection: 'row', alignItems: 'flex-start', justifyContent: 'space-between', gap: Spacing.sm },
+  contributeHeaderText: { flex: 1, gap: 2 },
   contributeTitle: { fontSize: FontSize.lg, fontWeight: '600' },
+  contributeSubtitle: { fontSize: FontSize.sm, lineHeight: 18 },
+  gatewayToggleBtn: { borderRadius: Radius.full, borderWidth: 1, paddingHorizontal: Spacing.md, paddingVertical: 8 },
+  gatewayToggleBtnText: { fontSize: FontSize.sm, fontWeight: '600' },
+  gatewayContent: { gap: Spacing.md },
+  formBox: { borderRadius: Radius.xl, borderWidth: 1, padding: Spacing.md, gap: Spacing.md },
+  formActions: { flexDirection: 'row', justifyContent: 'flex-end', gap: Spacing.sm },
+  cancelBtn: { borderRadius: Radius.full, borderWidth: 1, paddingHorizontal: Spacing.lg, paddingVertical: 10 },
+  cancelBtnText: { fontSize: FontSize.sm, fontWeight: '500' },
+  submitMessageBox: { borderRadius: Radius.lg, borderWidth: 1, padding: Spacing.md },
+  submitMessageText: { fontSize: FontSize.sm, fontWeight: '500', lineHeight: 18 },
+  insufficientContextBox: { borderRadius: Radius.lg, borderWidth: 1, padding: Spacing.md },
+  insufficientContextText: { fontSize: FontSize.sm, lineHeight: 18 },
   contributeLocked: { borderRadius: Radius.lg, borderWidth: 1, borderStyle: 'dashed', padding: Spacing.lg, alignItems: 'center' },
   contributeLockedText: { fontSize: FontSize.base, lineHeight: 20, textAlign: 'center' },
-  typeGrid: { gap: Spacing.sm },
-  typeBtn: { borderRadius: Radius.lg, borderWidth: 1, padding: Spacing.md, gap: 2 },
+  typeGrid: { flexDirection: 'row', flexWrap: 'wrap', gap: Spacing.sm },
+  typeBtn: { borderRadius: Radius.lg, borderWidth: 1, padding: Spacing.md, gap: 2, width: '47%', flexGrow: 1 },
   typeBtnLabel: { fontSize: FontSize.base, fontWeight: '600' },
   typeBtnHelp: { fontSize: FontSize.sm, lineHeight: 18 },
   targetInfo: { flexDirection: 'row', alignItems: 'center', borderRadius: Radius.lg, borderWidth: 1, paddingHorizontal: Spacing.md, paddingVertical: Spacing.sm, gap: Spacing.sm },
@@ -1437,15 +2232,16 @@ const s = StyleSheet.create({
   targetInfoDismiss: { color: '#0369A1', fontSize: FontSize.lg, fontWeight: '600' },
   textArea: { borderRadius: Radius.lg, borderWidth: 1, fontSize: FontSize.md, lineHeight: 21, minHeight: 80, padding: Spacing.md, textAlignVertical: 'top' },
   textInput: { borderRadius: Radius.lg, borderWidth: 1, fontSize: FontSize.md, padding: Spacing.md },
-  submitBtn: { borderRadius: Radius.full, alignItems: 'center', paddingVertical: 12 },
-  submitBtnText: { color: '#FFFFFF', fontSize: FontSize.base, fontWeight: '700' },
+  submitBtn: { borderRadius: Radius.full, alignItems: 'center', paddingVertical: 10, paddingHorizontal: Spacing.xl },
+  submitBtnText: { color: '#000000', fontSize: FontSize.base, fontWeight: '700' },
 
   // Contributions list header
   contributionsListHeader: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' },
   contributionsListTitle: { fontSize: FontSize.md, fontWeight: '600' },
-  sortRow: { flexDirection: 'row', borderRadius: Radius.full, borderWidth: 1, overflow: 'hidden' },
-  sortBtn: { paddingHorizontal: Spacing.md, paddingVertical: 6, borderRadius: Radius.full },
-  sortBtnText: { fontSize: FontSize.xs, fontWeight: '600' },
+  contributionsList: { gap: Spacing.sm },
+  sortRow: { flexDirection: 'row', borderRadius: Radius.lg, borderWidth: 1, overflow: 'hidden', padding: 2 },
+  sortBtn: { paddingHorizontal: Spacing.md, paddingVertical: 5, borderRadius: Radius.md },
+  sortBtnText: { fontSize: FontSize.xs },
 
   // Contribution cards
   contributionCard: { borderRadius: Radius.xl, borderWidth: 1, padding: Spacing.lg, gap: Spacing.md },

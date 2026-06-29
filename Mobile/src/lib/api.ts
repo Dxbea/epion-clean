@@ -7,6 +7,7 @@ import type {
   ArticleContribution,
   ArticleContributionType,
   ArticleDetailApiItem,
+  ArticleFactCheckDetail,
   ArticleInteractions,
   ArticleInteractionsSortMode,
   ArticleOpinionDistribution,
@@ -254,6 +255,30 @@ function normalizeArticleSource(item: unknown, index: number): ArticleSource | n
   const type = readOptionalText(record.type) ?? readOptionalText(record.category);
   const description = readOptionalText(record.description) ?? readOptionalText(readRecord(record.metadata)?.description);
 
+  // Enriched fields
+  const politicalBias = readOptionalText(record.politicalBias);
+  const reliability = readOptionalText(record.reliability);
+  const country = readOptionalText(record.country);
+  const reputationScore = readOptionalNumber(record.reputationScore) ?? readNestedNumber(readRecord(record.metadata), ['reputationScore']);
+  const analysisScore = readOptionalNumber(record.analysisScore) ?? readNestedNumber(readRecord(record.metadata), ['analysisScore']);
+  const liveScore = readOptionalNumber(record.liveScore);
+  const justification = readOptionalText(record.justification);
+
+  const metricsRec = readRecord(record.metrics);
+  const metrics = metricsRec && typeof metricsRec.transparency === 'number' ? {
+    transparency: readOptionalNumber(metricsRec.transparency) ?? 50,
+    editorial: readOptionalNumber(metricsRec.editorial) ?? 50,
+    semantic: readOptionalNumber(metricsRec.semantic) ?? 50,
+    logic: readOptionalNumber(metricsRec.logic) ?? readOptionalNumber((metricsRec as Record<string, unknown>).pluralism) ?? 50,
+  } : undefined;
+
+  const flagsRec = readRecord(record.flags);
+  const flags = flagsRec ? {
+    hasFactCheckFailures: flagsRec.hasFactCheckFailures === true,
+    isClickbait: flagsRec.isClickbait === true,
+    isAdsTxtValid: flagsRec.isAdsTxtValid !== false,
+  } : undefined;
+
   return {
     ...(id ? { id } : {}),
     name: domain,
@@ -262,6 +287,15 @@ function normalizeArticleSource(item: unknown, index: number): ArticleSource | n
     ...(trustScore !== undefined ? { trustScore } : {}),
     ...(type ? { type } : {}),
     ...(description ? { description } : {}),
+    ...(politicalBias ? { politicalBias } : {}),
+    ...(reliability ? { reliability } : {}),
+    ...(country ? { country } : {}),
+    ...(reputationScore !== undefined ? { reputationScore } : {}),
+    ...(analysisScore !== undefined ? { analysisScore } : {}),
+    ...(liveScore !== undefined ? { liveScore } : {}),
+    ...(justification ? { justification } : {}),
+    ...(metrics ? { metrics } : {}),
+    ...(flags ? { flags } : {}),
   };
 }
 
@@ -672,6 +706,44 @@ function readAuthorName(author: unknown): string | undefined {
   return readOptionalText(record.name) ?? readOptionalText(record.username) ?? readOptionalText(record.email);
 }
 
+function readLiveAnalysis(factCheckData: Record<string, unknown> | null): ArticleFactCheckDetail['liveAnalysis'] {
+  if (!factCheckData) return null;
+  const liveRec = readRecord(factCheckData.liveAnalysis);
+  if (!liveRec) return null;
+
+  const contentIntent = readOptionalText(liveRec.contentIntent) ?? 'INFORMATIVE';
+  const intentReasoning = readOptionalText(liveRec.intentReasoning);
+  const pillarRec = readRecord(liveRec.pillarScores);
+
+  if (!pillarRec) return null;
+
+  const readPillar = (key: string) => {
+    const p = readRecord(pillarRec[key]);
+    return {
+      score: readOptionalNumber(p?.score) ?? 0,
+      reasoning: readOptionalText(p?.reasoning) ?? '',
+      ...(readOptionalText(p?.quote) ? { quote: readOptionalText(p?.quote) } : {}),
+    };
+  };
+
+  const correctiveNotesRaw = liveRec.correctiveNotes;
+  const correctiveNotes = Array.isArray(correctiveNotesRaw)
+    ? correctiveNotesRaw.filter((n): n is string => typeof n === 'string')
+    : undefined;
+
+  return {
+    contentIntent,
+    ...(intentReasoning ? { intentReasoning } : {}),
+    pillarScores: {
+      transparency: readPillar('transparency'),
+      editorial: readPillar('editorial'),
+      semantic: readPillar('semantic'),
+      logic: readPillar('logic'),
+    },
+    ...(correctiveNotes?.length ? { correctiveNotes } : {}),
+  };
+}
+
 function normalizeArticleDetail(item: ArticleDetailApiItem | null, fallbackId: string): ArticleDetail | null {
   if (!item) {
     return null;
@@ -693,6 +765,20 @@ function normalizeArticleDetail(item: ArticleDetailApiItem | null, fallbackId: s
   const sourcesCount = sources.length || countPotentialSources(item.sources, item.factCheckData);
   const supportLevel = readSupportLevel(item.factCheckData, factCheckScore);
 
+  // Build factCheckDetail from factCheckData
+  const fcd = readRecord(item.factCheckData);
+  const calcRec = readRecord(fcd?.calculation);
+  const rawSourceScore = readOptionalNumber(calcRec?.sourcesMean) ?? readOptionalNumber(fcd?.sourcesMean) ?? 0;
+  const aiScore = readOptionalNumber(calcRec?.contentScore) ?? readOptionalNumber(calcRec?.liveScore) ?? readOptionalNumber(fcd?.liveScore) ?? 0;
+  const globalScore = factCheckScore ?? Math.round(rawSourceScore * 0.75 + aiScore * 0.25);
+  const liveAnalysis = readLiveAnalysis(fcd);
+  const factCheckDetail: ArticleFactCheckDetail | undefined = fcd || globalScore > 0 ? {
+    globalScore,
+    rawSourceScore,
+    aiScore,
+    liveAnalysis: liveAnalysis ?? null,
+  } : undefined;
+
   return {
     ...article,
     id: String(item.id ?? fallbackId),
@@ -706,6 +792,7 @@ function normalizeArticleDetail(item: ArticleDetailApiItem | null, fallbackId: s
     ...(sources.length > 0 ? { sources } : {}),
     ...(generationPrompt ? { generationPrompt } : {}),
     ...(item.structuredContent ? { structuredContentAvailable: true } : {}),
+    ...(factCheckDetail ? { factCheckDetail } : {}),
   };
 }
 
