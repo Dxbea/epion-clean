@@ -8,3 +8,5 @@ export { ArticleCard } from './ArticleCard';
 export { EmptyState } from './EmptyState';
 export { ErrorState } from './ErrorState';
 export { LoadingState } from './LoadingState';
+export { GradientAccent } from './GradientAccent';
+export { EpionSelect } from './EpionSelect';

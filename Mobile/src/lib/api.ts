@@ -114,6 +114,71 @@ export type ArticlePage = {
   nextCursor: string | null;
 };
 
+export type GenerateArticleTone = 'neutral' | 'explainer' | 'short' | 'indepth';
+
+export type GenerateArticleLanguage = 'fr' | 'en';
+
+export type GenerateArticleParams = {
+  topic: string;
+  language: GenerateArticleLanguage;
+  style: GenerateArticleTone;
+  category?: string;
+  categoryName?: string;
+  categoryId?: string;
+  generateImage: boolean;
+  imageUrl?: string;
+};
+
+export type GeneratedArticleResult = {
+  article?: {
+    id?: string;
+    slug?: string;
+  };
+  message?: string;
+};
+
+export type EditableArticleStatus = 'DRAFT' | 'PUBLISHED' | 'ARCHIVED';
+
+export type EditableArticle = {
+  id: string;
+  slug: string | null;
+  title: string;
+  summary: string;
+  content: string;
+  imageUrl: string | null;
+  status: EditableArticleStatus;
+  categoryId: string | null;
+  categoryName: string | null;
+  categorySlug: string | null;
+  authorId: string | null;
+};
+
+export type UpdateEditableArticleParams = {
+  title: string;
+  summary: string | null;
+  content: string | null;
+  imageUrl: string | null;
+  categoryId: string | null;
+  status: EditableArticleStatus;
+};
+
+export type EditArticleWithAIParams = {
+  instruction: string;
+  currentContent: string;
+  field: 'title' | 'summary' | 'content' | 'items';
+};
+
+export type EditArticleWithAIResult = {
+  result: string;
+};
+
+export type ImageProposal = {
+  url: string;
+  source: string;
+  credit: string;
+  description: string;
+};
+
 function readOptionalText(value: unknown): string | undefined {
   return typeof value === 'string' && value.trim().length > 0 ? value.trim() : undefined;
 }
@@ -796,6 +861,41 @@ function normalizeArticleDetail(item: ArticleDetailApiItem | null, fallbackId: s
   };
 }
 
+function readEditableArticleStatus(value: unknown): EditableArticleStatus {
+  const status = readOptionalText(value);
+  if (status === 'PUBLISHED' || status === 'ARCHIVED') return status;
+  return 'DRAFT';
+}
+
+function normalizeEditableArticle(payload: unknown, fallbackId: string): EditableArticle | null {
+  const item = getArticlePayload(payload);
+  if (!item) return null;
+
+  const id = readOptionalText(item.id) ?? fallbackId;
+  const title = readOptionalText(item.title);
+
+  if (!id || !title) {
+    return null;
+  }
+
+  const category = readRecord(item.category);
+  const author = readRecord(item.author);
+
+  return {
+    id,
+    slug: readOptionalText(item.slug) ?? null,
+    title,
+    summary: readOptionalText(item.summary) ?? readOptionalText(item.description) ?? '',
+    content: readOptionalText(item.content) ?? readOptionalText(item.body) ?? '',
+    imageUrl: readOptionalText(item.imageUrl) ?? null,
+    status: readEditableArticleStatus((item as Record<string, unknown>).status),
+    categoryId: readOptionalText(category?.id) ?? null,
+    categoryName: readOptionalText(category?.name) ?? null,
+    categorySlug: readOptionalText(category?.slug) ?? null,
+    authorId: readOptionalText(author?.id) ?? null,
+  };
+}
+
 async function fetchArticlePage(path: string): Promise<ArticlePage> {
   const response = await fetch(`${API_BASE}${path}`, {
     headers: {
@@ -878,6 +978,135 @@ export async function fetchArticleDetail(articleId: string): Promise<ArticleDeta
 
   const payload = await readJson(response);
   return normalizeArticleDetail(getArticlePayload(payload), articleId);
+}
+
+export async function fetchEditableArticle(idOrSlug: string): Promise<EditableArticle | null> {
+  const encoded = encodeURIComponent(idOrSlug);
+  const primary = await fetch(`${API_BASE}/api/articles/slug/${encoded}`, {
+    credentials: 'include',
+    headers: {
+      Accept: 'application/json',
+    },
+  });
+
+  let response = primary;
+
+  if (primary.status === 404) {
+    response = await fetch(`${API_BASE}/api/articles/${encoded}`, {
+      credentials: 'include',
+      headers: {
+        Accept: 'application/json',
+      },
+    });
+  }
+
+  const payload = await readJson(response);
+
+  if (!response.ok) {
+    throw buildApiError(response, payload);
+  }
+
+  return normalizeEditableArticle(payload, idOrSlug);
+}
+
+export async function fetchArticleImageProposals(articleId: string): Promise<ImageProposal[]> {
+  const response = await fetch(`${API_BASE}/api/articles/${encodeURIComponent(articleId)}/image-proposals`, {
+    credentials: 'include',
+    headers: {
+      Accept: 'application/json',
+    },
+  });
+
+  const payload = await readJson(response);
+
+  if (!response.ok) {
+    throw buildApiError(response, payload);
+  }
+
+  const record = readRecord(payload) ?? {};
+  const proposals = Array.isArray(record.proposals) ? record.proposals : [];
+
+  return proposals
+    .map((proposal): ImageProposal | null => {
+      const item = readRecord(proposal);
+      const url = readOptionalText(item?.url);
+      if (!url) return null;
+
+      return {
+        url,
+        source: readOptionalText(item?.source) ?? '',
+        credit: readOptionalText(item?.credit) ?? '',
+        description: readOptionalText(item?.description) ?? '',
+      };
+    })
+    .filter((proposal): proposal is ImageProposal => proposal !== null);
+}
+
+export async function updateEditableArticle(articleId: string, data: UpdateEditableArticleParams): Promise<{ id: string; slug: string | null }> {
+  const response = await fetch(
+    `${API_BASE}/api/articles/${encodeURIComponent(articleId)}`,
+    await withCsrf({
+      method: 'PUT',
+      headers: {
+        Accept: 'application/json',
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify(data),
+    }),
+  );
+
+  const payload = await readJson(response);
+
+  if (!response.ok) {
+    throw buildApiError(response, payload);
+  }
+
+  const record = readRecord(payload) ?? {};
+  return {
+    id: readOptionalText(record.id) ?? articleId,
+    slug: readOptionalText(record.slug) ?? null,
+  };
+}
+
+export async function deleteEditableArticle(articleId: string): Promise<void> {
+  const response = await fetch(
+    `${API_BASE}/api/articles/${encodeURIComponent(articleId)}`,
+    await withCsrf({
+      method: 'DELETE',
+      headers: {
+        Accept: 'application/json',
+      },
+    }),
+  );
+
+  const payload = response.status === 204 ? null : await readJson(response);
+
+  if (!response.ok && response.status !== 204) {
+    throw buildApiError(response, payload);
+  }
+}
+
+export async function editArticleWithAI(articleId: string, data: EditArticleWithAIParams): Promise<EditArticleWithAIResult> {
+  const response = await fetch(
+    `${API_BASE}/api/articles/${encodeURIComponent(articleId)}/edit-ai`,
+    await withCsrf({
+      method: 'POST',
+      headers: {
+        Accept: 'application/json',
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify(data),
+    }),
+  );
+
+  const payload = await readJson(response);
+
+  if (!response.ok) {
+    throw buildApiError(response, payload);
+  }
+
+  const record = readRecord(payload) ?? {};
+  return { result: readOptionalText(record.result) ?? '' };
 }
 
 export async function fetchArticleBySlug(slug: string): Promise<ArticleDetail | null> {
@@ -1137,6 +1366,44 @@ export async function toggleArticleContributionValidation(
 }
 
 export { updateContributionTree };
+export async function generateArticleWithAI(data: GenerateArticleParams): Promise<GeneratedArticleResult> {
+  const response = await fetch(
+    `${API_BASE}/api/articles/generate`,
+    await withCsrf({
+      method: 'POST',
+      headers: {
+        Accept: 'application/json',
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify(data),
+    }),
+  );
+
+  const payload = await readJson(response);
+
+  if (!response.ok) {
+    throw buildApiError(response, payload);
+  }
+
+  const record = readRecord(payload) ?? {};
+  const article = readRecord(record.article);
+  const articleId = article ? readOptionalText(article.id) : undefined;
+  const articleSlug = article ? readOptionalText(article.slug) : undefined;
+  const message = readOptionalText(record.message);
+
+  return {
+    ...(article
+      ? {
+          article: {
+            ...(articleId ? { id: articleId } : {}),
+            ...(articleSlug ? { slug: articleSlug } : {}),
+          },
+        }
+      : {}),
+    ...(message ? { message } : {}),
+  };
+}
+
 export async function fetchCategories(): Promise<Category[]> {
   const response = await fetch(`${API_BASE}/api/categories`, {
     headers: {

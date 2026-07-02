@@ -50,6 +50,10 @@ export default function RootLayout() {
           name="account/articles/index"
           options={{ headerShown: true, headerBackTitle: 'Retour', title: 'Mes articles' }}
         />
+        <Stack.Screen
+          name="account/articles/[id]/edit"
+          options={{ headerShown: true, headerBackTitle: 'Mes articles', title: 'Edit article' }}
+        />
 
         {/* Activity */}
         <Stack.Screen
