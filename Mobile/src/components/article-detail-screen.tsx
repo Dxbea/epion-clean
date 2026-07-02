@@ -1144,6 +1144,8 @@ export function ArticleDetailScreenContent({ loadArticle, missingText = 'Aucun d
     if (!article) return WEB_ORIGIN;
     return `${WEB_ORIGIN}/article/${article.slug ?? article.id}`;
   }, [article]);
+  const sourceCount = article?.sources?.length ?? article?.sourcesCount ?? 0;
+  const hasHighlightableCitations = useMemo(() => Boolean(article?.body && CITATION_RE.test(article.body)), [article?.body]);
 
   const visibleAdvancedInteractions = advancedInteractions ?? (!advancedLoading ? EMPTY_ADVANCED_INTERACTIONS : null);
   const confirmedPosition = visibleAdvancedInteractions?.currentUserOpinionPosition ?? null;
@@ -1635,6 +1637,16 @@ export function ArticleDetailScreenContent({ loadArticle, missingText = 'Aucun d
               {/* Body content — rendered markdown */}
               {article.body ? (
                 <View style={s.bodyContainer}>
+                  {isHighlightActive ? (
+                    <View style={[s.highlightNotice, { borderColor: `${EPION_GREEN}66`, backgroundColor: `${EPION_GREEN}10` }]}>
+                      <Highlighter size={16} color={EPION_GREEN} />
+                      <Text style={[s.highlightNoticeText, { color: colors.textSecondary }]}>
+                        {hasHighlightableCitations
+                          ? 'Mode surlignage actif : les passages avec citations sont mis en avant.'
+                          : 'Mode surlignage actif. Le surlignage exact source-texte sera disponible quand les citations structurees seront presentes dans le texte.'}
+                      </Text>
+                    </View>
+                  ) : null}
                   {renderMarkdownContent(article.body, colors.text, colors.text, colors.textTertiary, colors.border, isHighlightActive)}
                 </View>
               ) : (
@@ -2045,9 +2057,20 @@ export function ArticleDetailScreenContent({ loadArticle, missingText = 'Aucun d
                   <MessageSquare size={20} color={isChatLoading ? EPION_GREEN : colors.textTertiary} />
                 </Pressable>
 
+                {/* Sources */}
+                <Pressable
+                  style={[s.floatingBtn, showSourcesModal ? s.floatingBtnActive : null]}
+                  accessibilityLabel={`Sources analysees (${sourceCount})`}
+                  onPress={() => { setToolbarPanel(null); setShowSourcesModal(true); }}
+                >
+                  <ShieldCheck size={20} color={showSourcesModal ? '#FFFFFF' : colors.textTertiary} />
+                </Pressable>
+
                 {/* Highlight sources */}
                 <Pressable
                   style={[s.floatingBtn, isHighlightActive ? s.floatingBtnActive : null]}
+                  accessibilityLabel="Surligner les passages sources"
+                  accessibilityState={{ selected: isHighlightActive }}
                   onPress={() => { setToolbarPanel(null); setIsHighlightActive(!isHighlightActive); }}
                 >
                   <Highlighter size={20} color={isHighlightActive ? '#FFFFFF' : '#14B8A6'} />
@@ -2078,14 +2101,14 @@ export function ArticleDetailScreenContent({ loadArticle, missingText = 'Aucun d
           colors={colors}
         />
       )}
-      {article?.sources && (
+      {article ? (
         <SourcesModal
           visible={showSourcesModal}
           onClose={() => setShowSourcesModal(false)}
-          sources={article.sources}
+          sources={article.sources ?? []}
           colors={colors}
         />
-      )}
+      ) : null}
     </View>
   );
 }
@@ -2149,6 +2172,8 @@ const s = StyleSheet.create({
 
   // Body
   bodyContainer: { gap: 0 },
+  highlightNotice: { borderRadius: Radius.lg, borderWidth: 1, flexDirection: 'row', gap: Spacing.sm, marginBottom: Spacing.md, paddingHorizontal: Spacing.md, paddingVertical: Spacing.sm },
+  highlightNoticeText: { flex: 1, fontSize: FontSize.sm, lineHeight: 19 },
 
   // Sources (expandable)
   sourcesSection: { gap: Spacing.sm },
