@@ -15,6 +15,7 @@ export const Brand = {
 } as const;
 
 export type ThemeColors = {
+  scheme: 'light' | 'dark';
   text: string;
   textSecondary: string;
   textTertiary: string;
@@ -22,9 +23,18 @@ export type ThemeColors = {
   background: string;
   backgroundElevated: string;
   backgroundSubtle: string;
+  inputBackground: string;
+  inputPlaceholder: string;
+  imagePlaceholder: string;
+  headerBackground: string;
+  tabBarBackground: string;
+  tabBarActive: string;
+  tabBarPressed: string;
+  shadow: string;
   border: string;
   borderSubtle: string;
   primary: string;
+  primaryText: string;
   accent: string;
   error: string;
   errorBackground: string;
@@ -33,6 +43,7 @@ export type ThemeColors = {
 
 export const Colors: { light: ThemeColors; dark: ThemeColors } = {
   light: {
+    scheme: 'light',
     text: '#000000',
     textSecondary: 'rgba(0,0,0,0.8)',
     textTertiary: '#525252',
@@ -40,28 +51,47 @@ export const Colors: { light: ThemeColors; dark: ThemeColors } = {
     background: '#FAFAF5',
     backgroundElevated: '#FFFFFF',
     backgroundSubtle: 'rgba(0,0,0,0.02)',
+    inputBackground: '#FFFFFF',
+    inputPlaceholder: '#737373',
+    imagePlaceholder: '#F3F4F6',
+    headerBackground: 'rgba(250,250,245,0.96)',
+    tabBarBackground: 'rgba(255,255,255,0.96)',
+    tabBarActive: 'rgba(0,0,0,0.06)',
+    tabBarPressed: 'rgba(0,0,0,0.04)',
+    shadow: '#0F172A',
     border: 'rgba(0,0,0,0.10)',
     borderSubtle: 'rgba(0,0,0,0.05)',
     primary: '#000000',
+    primaryText: '#FFFFFF',
     accent: Brand.blue,
     error: '#DC2626',
     errorBackground: '#FEF2F2',
     success: '#059669',
   },
   dark: {
-    text: '#FFFFFF',
-    textSecondary: 'rgba(255,255,255,0.8)',
-    textTertiary: '#A3A3A3',
-    textMuted: '#737373',
-    background: '#0A0A0A',
-    backgroundElevated: '#0A0A0A',
-    backgroundSubtle: 'rgba(255,255,255,0.02)',
-    border: 'rgba(255,255,255,0.10)',
-    borderSubtle: 'rgba(255,255,255,0.05)',
-    primary: '#FFFFFF',
-    accent: '#60A5FA',
-    error: '#EF4444',
-    errorBackground: 'rgba(127,29,29,0.2)',
+    scheme: 'dark',
+    text: '#F8FAFC',
+    textSecondary: 'rgba(248,250,252,0.84)',
+    textTertiary: '#C8CED8',
+    textMuted: '#9AA4B2',
+    background: '#0E1116',
+    backgroundElevated: '#171B22',
+    backgroundSubtle: 'rgba(255,255,255,0.06)',
+    inputBackground: '#12161D',
+    inputPlaceholder: '#9AA4B2',
+    imagePlaceholder: '#202632',
+    headerBackground: 'rgba(14,17,22,0.96)',
+    tabBarBackground: 'rgba(23,27,34,0.96)',
+    tabBarActive: 'rgba(248,250,252,0.12)',
+    tabBarPressed: 'rgba(248,250,252,0.08)',
+    shadow: '#000000',
+    border: 'rgba(255,255,255,0.16)',
+    borderSubtle: 'rgba(255,255,255,0.10)',
+    primary: '#F8FAFC',
+    primaryText: '#0E1116',
+    accent: '#8CB8FF',
+    error: '#F87171',
+    errorBackground: 'rgba(127,29,29,0.28)',
     success: '#34D399',
   },
 };

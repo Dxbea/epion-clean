@@ -100,6 +100,13 @@ export type ChatSessionDetail = ChatSessionSummary & {
   mode?: ChatRigor;
 };
 
+export type ChatFolder = {
+  id: string;
+  name: string;
+  createdAt?: string;
+  updatedAt?: string;
+};
+
 export type ChatMessageItem = {
   id: string;
   role: 'user' | 'assistant';
@@ -598,6 +605,30 @@ function normalizeChatSessionDetail(payload: unknown): ChatSessionDetail | null 
   return {
     ...session,
     ...(mode === 'fast' || mode === 'balanced' || mode === 'precise' ? { mode } : {}),
+  };
+}
+
+function normalizeChatFolder(item: unknown): ChatFolder | null {
+  if (!item || typeof item !== 'object') {
+    return null;
+  }
+
+  const record = item as Record<string, unknown>;
+  const id = readOptionalText(record.id);
+  const name = readOptionalText(record.name);
+
+  if (!id || !name) {
+    return null;
+  }
+
+  const createdAt = readOptionalText(record.createdAt);
+  const updatedAt = readOptionalText(record.updatedAt);
+
+  return {
+    id,
+    name,
+    ...(createdAt ? { createdAt } : {}),
+    ...(updatedAt ? { updatedAt } : {}),
   };
 }
 
@@ -1534,8 +1565,13 @@ export async function removeFavoriteArticle(articleId: string): Promise<void> {
   }
 }
 
-export async function fetchChatSessions(): Promise<ChatSessionSummary[]> {
-  const response = await fetch(`${API_BASE}/api/chat/sessions?take=20`, {
+export async function fetchChatSessions(options?: { take?: number; folderId?: string | null }): Promise<ChatSessionSummary[]> {
+  const params = new URLSearchParams({
+    take: String(Math.min(options?.take ?? 50, 50)),
+  });
+  if (options?.folderId) params.set('folderId', options.folderId);
+
+  const response = await fetch(`${API_BASE}/api/chat/sessions?${params.toString()}`, {
     credentials: 'include',
     headers: {
       Accept: 'application/json',
@@ -1553,6 +1589,140 @@ export async function fetchChatSessions(): Promise<ChatSessionSummary[]> {
     .filter((session): session is ChatSessionSummary => session !== null);
 }
 
+export async function updateChatSession(
+  sessionId: string,
+  data: { title?: string; mode?: ChatRigor; folderId?: string | null },
+): Promise<ChatSessionDetail> {
+  const response = await fetch(
+    `${API_BASE}/api/chat/sessions/${encodeURIComponent(sessionId)}`,
+    await withCsrf({
+      method: 'PATCH',
+      headers: {
+        Accept: 'application/json',
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify(data),
+    }),
+  );
+
+  const payload = await readJson(response);
+
+  if (!response.ok) {
+    throw buildApiError(response, payload);
+  }
+
+  const session = normalizeChatSessionDetail(payload);
+  if (!session) {
+    throw new Error('Invalid chat session response');
+  }
+
+  return session;
+}
+
+export async function deleteChatSession(sessionId: string): Promise<void> {
+  const response = await fetch(
+    `${API_BASE}/api/chat/sessions/${encodeURIComponent(sessionId)}`,
+    await withCsrf({
+      method: 'DELETE',
+      headers: {
+        Accept: 'application/json',
+      },
+    }),
+  );
+
+  if (!response.ok && response.status !== 204 && response.status !== 404) {
+    throw buildApiError(response, await readJson(response));
+  }
+}
+
+export async function fetchChatFolders(): Promise<ChatFolder[]> {
+  const response = await fetch(`${API_BASE}/api/chat/folders`, {
+    credentials: 'include',
+    headers: {
+      Accept: 'application/json',
+    },
+  });
+
+  const payload = await readJson(response);
+
+  if (!response.ok) {
+    throw buildApiError(response, payload);
+  }
+
+  return getItems(payload)
+    .map(normalizeChatFolder)
+    .filter((folder): folder is ChatFolder => folder !== null);
+}
+
+export async function createChatFolder(name: string): Promise<ChatFolder> {
+  const response = await fetch(
+    `${API_BASE}/api/chat/folders`,
+    await withCsrf({
+      method: 'POST',
+      headers: {
+        Accept: 'application/json',
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({ name }),
+    }),
+  );
+
+  const payload = await readJson(response);
+
+  if (!response.ok) {
+    throw buildApiError(response, payload);
+  }
+
+  const folder = normalizeChatFolder(payload);
+  if (!folder) {
+    throw new Error('Invalid chat folder response');
+  }
+
+  return folder;
+}
+
+export async function renameChatFolder(folderId: string, name: string): Promise<ChatFolder> {
+  const response = await fetch(
+    `${API_BASE}/api/chat/folders/${encodeURIComponent(folderId)}`,
+    await withCsrf({
+      method: 'PATCH',
+      headers: {
+        Accept: 'application/json',
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({ name }),
+    }),
+  );
+
+  const payload = await readJson(response);
+
+  if (!response.ok) {
+    throw buildApiError(response, payload);
+  }
+
+  const folder = normalizeChatFolder(payload);
+  if (!folder) {
+    throw new Error('Invalid chat folder response');
+  }
+
+  return folder;
+}
+
+export async function deleteChatFolder(folderId: string): Promise<void> {
+  const response = await fetch(
+    `${API_BASE}/api/chat/folders/${encodeURIComponent(folderId)}`,
+    await withCsrf({
+      method: 'DELETE',
+      headers: {
+        Accept: 'application/json',
+      },
+    }),
+  );
+
+  if (!response.ok && response.status !== 204) {
+    throw buildApiError(response, await readJson(response));
+  }
+}
 export async function createChatSession(options?: { title?: string; mode?: ChatRigor }): Promise<ChatSessionDetail> {
   const body = {
     ...(options?.title ? { title: options.title } : {}),
@@ -1633,6 +1803,9 @@ export async function sendChatMessage(
     model?: 'sonar' | 'sonar-pro';
     mode?: ChatRigor;
     responseStyle?: ChatResponseStyle;
+    sourceRestricted?: boolean;
+    neutralityForced?: boolean;
+    timeRecent?: boolean;
   },
 ): Promise<{ streamedText: string }> {
   const response = await fetch(
@@ -1647,9 +1820,9 @@ export async function sendChatMessage(
         content,
         model: options?.model ?? 'sonar',
         mode: options?.mode ?? 'balanced',
-        sourceRestricted: true,
-        neutralityForced: true,
-        timeRecent: false,
+        sourceRestricted: options?.sourceRestricted ?? true,
+        neutralityForced: options?.neutralityForced ?? true,
+        timeRecent: options?.timeRecent ?? false,
         responseStyle: options?.responseStyle ?? 'normal',
       }),
     }),
@@ -1820,6 +1993,166 @@ export async function fetchAccountSessions(): Promise<AccountSession[]> {
     .filter((session): session is AccountSession => session !== null);
 }
 
+export type UpdateAccountProfileParams = {
+  displayName: string;
+  username: string;
+  phone?: string | null;
+  avatarUrl?: string | null;
+};
+
+export async function checkUsernameAvailable(username: string): Promise<boolean> {
+  const response = await fetch(`${API_BASE}/api/me/username/available?u=${encodeURIComponent(username)}`, {
+    credentials: 'include',
+    headers: {
+      Accept: 'application/json',
+    },
+  });
+
+  if (!response.ok) {
+    throw new Error(`HTTP ${response.status}`);
+  }
+
+  const payload = await readJson(response);
+  const record = readRecord(payload) ?? {};
+  return record.available === true;
+}
+
+export async function updateAccountProfile(data: UpdateAccountProfileParams): Promise<import('@/types/user').AuthUser> {
+  const response = await fetch(
+    `${API_BASE}/api/me`,
+    await withCsrf({
+      method: 'PUT',
+      headers: {
+        Accept: 'application/json',
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify(data),
+    }),
+  );
+
+  const payload = await readJson(response);
+
+  if (!response.ok) {
+    throw buildApiError(response, payload);
+  }
+
+  return payload as import('@/types/user').AuthUser;
+}
+
+export async function deleteAccountSession(id: string): Promise<{ ok: boolean; current?: boolean }> {
+  const response = await fetch(
+    `${API_BASE}/api/me/sessions/${encodeURIComponent(id)}`,
+    await withCsrf({
+      method: 'DELETE',
+      headers: {
+        Accept: 'application/json',
+      },
+    }),
+  );
+
+  const payload = await readJson(response);
+
+  if (!response.ok) {
+    throw buildApiError(response, payload);
+  }
+
+  const record = readRecord(payload) ?? {};
+  return { ok: record.ok === true, current: record.current === true };
+}
+
+export async function deleteOtherAccountSessions(): Promise<{ ok: boolean; deleted: number }> {
+  const response = await fetch(
+    `${API_BASE}/api/me/sessions/others`,
+    await withCsrf({
+      method: 'DELETE',
+      headers: {
+        Accept: 'application/json',
+      },
+    }),
+  );
+
+  const payload = await readJson(response);
+
+  if (!response.ok) {
+    throw buildApiError(response, payload);
+  }
+
+  const record = readRecord(payload) ?? {};
+  return {
+    ok: record.ok === true,
+    deleted: readOptionalNumber(record.deleted) ?? 0,
+  };
+}
+
+export async function requestAccountEmailChange(newEmail: string): Promise<void> {
+  const response = await fetch(`${API_BASE}/api/auth/change-email`, {
+    method: 'POST',
+    credentials: 'include',
+    headers: {
+      Accept: 'application/json',
+      'Content-Type': 'application/json',
+      Origin: WEB_ORIGIN,
+      Referer: `${WEB_ORIGIN}/`,
+    },
+    body: JSON.stringify({
+      newEmail,
+      callbackURL: AUTH_CALLBACK_URL,
+    }),
+  });
+
+  const payload = await readJson(response);
+
+  if (!response.ok) {
+    throw buildApiError(response, payload);
+  }
+}
+
+export async function changeAccountPassword(currentPassword: string, newPassword: string): Promise<void> {
+  const response = await fetch(`${API_BASE}/api/auth/change-password`, {
+    method: 'POST',
+    credentials: 'include',
+    headers: {
+      Accept: 'application/json',
+      'Content-Type': 'application/json',
+      Origin: WEB_ORIGIN,
+      Referer: `${WEB_ORIGIN}/`,
+    },
+    body: JSON.stringify({
+      currentPassword,
+      newPassword,
+      revokeOtherSessions: true,
+    }),
+  });
+
+  const payload = await readJson(response);
+
+  if (!response.ok) {
+    throw buildApiError(response, payload);
+  }
+}
+
+export async function requestAccountPasswordReset(email: string): Promise<void> {
+  const response = await fetch(`${API_BASE}/api/auth/request-password-reset`, {
+    method: 'POST',
+    credentials: 'include',
+    headers: {
+      Accept: 'application/json',
+      'Content-Type': 'application/json',
+      Origin: WEB_ORIGIN,
+      Referer: `${WEB_ORIGIN}/`,
+    },
+    body: JSON.stringify({
+      email,
+      redirectTo: `${WEB_ORIGIN}/reset-password`,
+    }),
+  });
+
+  const payload = await readJson(response);
+
+  if (!response.ok) {
+    throw buildApiError(response, payload);
+  }
+}
 export async function fetchActivityPage(type: ActivityType, options?: { cursor?: string | null; take?: number }): Promise<ActivityPage> {
   const params = new URLSearchParams({
     type,

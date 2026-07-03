@@ -50,6 +50,11 @@ export default function SearchScreen() {
         value={query}
         onChangeText={setQuery}
         placeholder="Recherche..."
+        keyboardType="default"
+        autoCapitalize="sentences"
+        autoCorrect
+        spellCheck
+        textContentType="none"
         returnKeyType="search"
         onSubmitEditing={submitSearch}
       />

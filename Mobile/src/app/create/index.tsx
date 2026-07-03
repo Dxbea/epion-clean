@@ -13,6 +13,7 @@ import {
 } from '@/lib/api';
 import { EpionSelect, GradientAccent } from '@/components/ui';
 import { Fonts } from '@/constants/theme';
+import { useTheme } from '@/hooks/use-theme';
 
 const MAX_PROMPT_CHARS = 2000;
 
@@ -38,6 +39,7 @@ function getErrorMessage(error: unknown, fallback: string): string {
 
 export default function CreateArticleScreen() {
   const router = useRouter();
+  const colors = useTheme();
   const insets = useSafeAreaInsets();
   const { user, loading: authLoading } = useAuth();
   const [prompt, setPrompt] = useState('');
@@ -131,26 +133,26 @@ export default function CreateArticleScreen() {
 
   if (authLoading) {
     return (
-      <View style={[styles.screen, styles.centered, { paddingTop: insets.top + 32 }]}>
-        <ActivityIndicator color="#000000" />
-        <Text style={styles.loadingText}>Loading...</Text>
+      <View style={[styles.screen, styles.centered, { backgroundColor: colors.background, paddingTop: insets.top + 32 }]}>
+        <ActivityIndicator color={colors.accent} />
+        <Text style={[styles.loadingText, { color: colors.textMuted }]}>Loading...</Text>
       </View>
     );
   }
 
   if (!user) {
     return (
-      <View style={styles.screen}>
+      <View style={[styles.screen, { backgroundColor: colors.background }]}>
         <ScrollView contentContainerStyle={[styles.content, { paddingTop: insets.top + 32 }]} showsVerticalScrollIndicator={false}>
           <Header />
-          <View style={styles.card}>
-            <Text style={styles.cardText}>You need an account to create articles with Epion.</Text>
+          <View style={[styles.card, { backgroundColor: colors.backgroundElevated, borderColor: colors.border }]}>
+            <Text style={[styles.cardText, { color: colors.textSecondary }]}>You need an account to create articles with Epion.</Text>
             <View style={styles.actions}>
-              <Pressable style={styles.primaryButton} onPress={() => router.push('/account')}>
-                <Text style={styles.primaryButtonText}>Sign in / Create account</Text>
+              <Pressable style={[styles.primaryButton, { backgroundColor: colors.primary }]} onPress={() => router.push('/account')}>
+                <Text style={[styles.primaryButtonText, { color: colors.primaryText }]}>Sign in / Create account</Text>
               </Pressable>
               <Pressable style={styles.ghostButton} onPress={() => router.push('/news')}>
-                <Text style={styles.ghostButtonText}>Back to news</Text>
+                <Text style={[styles.ghostButtonText, { color: colors.text }]}>Back to news</Text>
               </Pressable>
             </View>
           </View>
@@ -161,19 +163,19 @@ export default function CreateArticleScreen() {
 
   if (emailNotVerified) {
     return (
-      <View style={styles.screen}>
+      <View style={[styles.screen, { backgroundColor: colors.background }]}>
         <ScrollView contentContainerStyle={[styles.content, { paddingTop: insets.top + 32 }]} showsVerticalScrollIndicator={false}>
           <Header />
-          <View style={styles.card}>
-            <Text style={styles.cardText}>
+          <View style={[styles.card, { backgroundColor: colors.backgroundElevated, borderColor: colors.border }]}>
+            <Text style={[styles.cardText, { color: colors.textSecondary }]}>
               You need to verify your email address before creating articles. Go to Settings / Account to resend the verification link.
             </Text>
             <View style={styles.actions}>
-              <Pressable style={styles.primaryButton} onPress={() => router.push('/settings/account')}>
-                <Text style={styles.primaryButtonText}>Go to account</Text>
+              <Pressable style={[styles.primaryButton, { backgroundColor: colors.primary }]} onPress={() => router.push('/settings/account')}>
+                <Text style={[styles.primaryButtonText, { color: colors.primaryText }]}>Go to account</Text>
               </Pressable>
               <Pressable style={styles.ghostButton} onPress={() => router.push('/news')}>
-                <Text style={styles.ghostButtonText}>Back to news</Text>
+                <Text style={[styles.ghostButtonText, { color: colors.text }]}>Back to news</Text>
               </Pressable>
             </View>
           </View>
@@ -183,7 +185,7 @@ export default function CreateArticleScreen() {
   }
 
   return (
-    <View style={styles.screen}>
+    <View style={[styles.screen, { backgroundColor: colors.background }]}>
       <ScrollView
         keyboardShouldPersistTaps="handled"
         contentContainerStyle={[styles.content, { paddingTop: insets.top + 32 }]}
@@ -193,27 +195,32 @@ export default function CreateArticleScreen() {
 
         <View style={styles.form}>
           {error ? (
-            <View style={styles.errorBox}>
-              <Text style={styles.errorText}>{error}</Text>
+            <View style={[styles.errorBox, { backgroundColor: colors.errorBackground, borderColor: colors.error }]}>
+              <Text style={[styles.errorText, { color: colors.error }]}>{error}</Text>
             </View>
           ) : null}
 
           <View style={styles.fieldGroup}>
-            <Text style={styles.label}>What should Epion write? *</Text>
+            <Text style={[styles.label, { color: colors.textSecondary }]}>What should Epion write? *</Text>
             <TextInput
               value={prompt}
               onChangeText={setPrompt}
               editable={!isGenerating}
               multiline
+              keyboardType="default"
+              autoCapitalize="sentences"
+              autoCorrect
+              spellCheck
+              textContentType="none"
               textAlignVertical="top"
               maxLength={MAX_PROMPT_CHARS + 200}
               placeholder="Ex: Fais-moi un article de 600 mots sur l'arrivee de la norme Euro 7 pour le grand public. Ajoute une section 'Pourquoi ca compte ?' et une 'Ce qu'il faut surveiller'."
-              placeholderTextColor="#8A8A80"
-              style={[styles.textarea, promptTooLong ? styles.textareaError : null]}
+              placeholderTextColor={colors.inputPlaceholder}
+              style={[styles.textarea, { backgroundColor: colors.inputBackground, borderColor: promptTooLong ? colors.error : colors.border, color: colors.text }, promptTooLong ? styles.textareaError : null]}
             />
             <View style={styles.promptMetaRow}>
-              <Text style={styles.helper}>Decris le resultat attendu. Tu pourras affiner sur l'ecran suivant.</Text>
-              <Text style={[styles.counter, promptTooLong ? styles.counterError : null]}>
+              <Text style={[styles.helper, { color: colors.textMuted }]}>Decris le resultat attendu. Tu pourras affiner sur l'ecran suivant.</Text>
+              <Text style={[styles.counter, { color: promptTooLong ? colors.error : colors.textMuted }, promptTooLong ? styles.counterError : null]}>
                 {prompt.length} / {MAX_PROMPT_CHARS}
               </Text>
             </View>
@@ -233,7 +240,7 @@ export default function CreateArticleScreen() {
               options={[{ value: '', label: '-- None --' }, ...categories.map((category) => ({ value: category.id, label: category.name }))]}
             />
             {!categoriesLoading && categories.length === 0 ? (
-              <Text style={styles.helper}>Categories could not be loaded right now.</Text>
+              <Text style={[styles.helper, { color: colors.textMuted }]}>Categories could not be loaded right now.</Text>
             ) : null}
           </View>
 
@@ -241,14 +248,14 @@ export default function CreateArticleScreen() {
             <Pressable
               disabled={formDisabled}
               onPress={() => void handleGenerate()}
-              style={({ pressed }) => [styles.primaryButton, formDisabled ? styles.buttonDisabled : null, pressed ? styles.pressed : null]}
+              style={({ pressed }) => [styles.primaryButton, { backgroundColor: colors.primary }, formDisabled ? styles.buttonDisabled : null, pressed ? styles.pressed : null]}
             >
-              {isGenerating ? <ActivityIndicator color="#FFFFFF" size="small" /> : null}
-              <Text style={styles.primaryButtonText}>{isGenerating ? 'Generating...' : 'Generate with AI'}</Text>
+              {isGenerating ? <ActivityIndicator color={colors.primaryText} size="small" /> : null}
+              <Text style={[styles.primaryButtonText, { color: colors.primaryText }]}>{isGenerating ? 'Generating...' : 'Generate with AI'}</Text>
             </Pressable>
 
             <Pressable disabled={isGenerating} onPress={() => router.push('/news')} style={({ pressed }) => [styles.ghostButton, pressed ? styles.pressed : null]}>
-              <Text style={styles.ghostButtonText}>Cancel</Text>
+              <Text style={[styles.ghostButtonText, { color: colors.text }]}>Cancel</Text>
             </Pressable>
           </View>
 
@@ -259,10 +266,11 @@ export default function CreateArticleScreen() {
 }
 
 function Header() {
+  const colors = useTheme();
   return (
     <View style={styles.header}>
-      <Text style={styles.breadcrumb}>news / Create</Text>
-      <Text style={[styles.title, { fontFamily: Fonts.display }]}>Create an article (AI-first)</Text>
+      <Text style={[styles.breadcrumb, { color: colors.textMuted }]}>news / Create</Text>
+      <Text style={[styles.title, { color: colors.text, fontFamily: Fonts.display }]}>Create an article (AI-first)</Text>
       <GradientAccent />
 
     </View>

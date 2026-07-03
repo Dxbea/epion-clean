@@ -34,7 +34,7 @@ export function Button({
   const variants = {
     primary: {
       bg: colors.primary,
-      text: colors.background,
+      text: colors.primaryText,
       border: colors.primary,
     },
     secondary: {

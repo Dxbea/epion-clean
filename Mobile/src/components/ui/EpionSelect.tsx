@@ -3,6 +3,7 @@ import { ActivityIndicator, Pressable, ScrollView, StyleSheet, Text, View } from
 import { ChevronDown } from 'lucide-react-native';
 
 import { FontSize, Radius, Spacing } from '@/constants/theme';
+import { useTheme } from '@/hooks/use-theme';
 
 type EpionSelectOption = {
   value: string;
@@ -28,6 +29,7 @@ export function EpionSelect({
   disabled = false,
   loading = false,
 }: EpionSelectProps) {
+  const colors = useTheme();
   const [isOpen, setIsOpen] = useState(false);
   const selectedLabel = useMemo(
     () => options.find((option) => option.value === value)?.label ?? placeholder,
@@ -47,26 +49,26 @@ export function EpionSelect({
 
   return (
     <View style={styles.container}>
-      {label ? <Text style={styles.label}>{label}</Text> : null}
+      {label ? <Text style={[styles.label, { color: colors.text }]}>{label}</Text> : null}
       <Pressable
         disabled={isDisabled}
         onPress={toggleOpen}
         style={({ pressed }) => [
           styles.trigger,
-          isOpen ? styles.triggerOpen : null,
+          { backgroundColor: colors.inputBackground, borderColor: isOpen ? colors.primary : colors.border, shadowColor: colors.shadow },
           isDisabled ? styles.triggerDisabled : null,
           pressed ? styles.pressed : null,
         ]}
       >
-        <Text style={[styles.triggerText, !value ? styles.placeholderText : null]} numberOfLines={1}>
+        <Text style={[styles.triggerText, { color: value ? colors.text : colors.inputPlaceholder }, !value ? styles.placeholderText : null]} numberOfLines={1}>
           {loading ? 'Loading...' : selectedLabel}
         </Text>
         {loading ? (
-          <ActivityIndicator color="rgba(0,0,0,0.45)" size="small" />
+          <ActivityIndicator color={colors.textMuted} size="small" />
         ) : (
           <ChevronDown
             size={16}
-            color="rgba(0,0,0,0.50)"
+            color={colors.textMuted}
             strokeWidth={2}
             style={isOpen ? styles.chevronOpen : undefined}
           />
@@ -74,7 +76,7 @@ export function EpionSelect({
       </Pressable>
 
       {isOpen ? (
-        <View style={styles.menu}>
+        <View style={[styles.menu, { backgroundColor: colors.backgroundElevated, borderColor: colors.border, shadowColor: colors.shadow }]}>
           <ScrollView nestedScrollEnabled keyboardShouldPersistTaps="handled" style={styles.menuScroll}>
             {options.map((option) => {
               const active = option.value === value;
@@ -82,9 +84,9 @@ export function EpionSelect({
                 <Pressable
                   key={option.value || '__empty'}
                   onPress={() => selectValue(option.value)}
-                  style={({ pressed }) => [styles.option, active ? styles.optionActive : null, pressed ? styles.optionPressed : null]}
+                  style={({ pressed }) => [styles.option, active ? { backgroundColor: colors.tabBarActive } : null, pressed ? { backgroundColor: colors.tabBarPressed } : null]}
                 >
-                  <Text style={[styles.optionText, active ? styles.optionTextActive : null]}>{option.label}</Text>
+                  <Text style={[styles.optionText, { color: colors.text }, active ? styles.optionTextActive : null]}>{option.label}</Text>
                 </Pressable>
               );
             })}
@@ -102,14 +104,11 @@ const styles = StyleSheet.create({
     width: '100%',
   },
   label: {
-    color: '#374151',
     fontSize: FontSize.base,
     fontWeight: '500',
   },
   trigger: {
     alignItems: 'center',
-    backgroundColor: '#FFFFFF',
-    borderColor: 'rgba(0,0,0,0.05)',
     borderRadius: Radius.xl,
     borderWidth: 1,
     flexDirection: 'row',
@@ -117,45 +116,32 @@ const styles = StyleSheet.create({
     minHeight: 44,
     paddingHorizontal: Spacing.lg,
     paddingVertical: 10,
-    shadowColor: '#000000',
     shadowOffset: { width: 0, height: 1 },
     shadowOpacity: 0.06,
     shadowRadius: 2,
   },
-  triggerOpen: {
-    borderColor: '#000000',
-    shadowColor: '#000000',
-    shadowOffset: { width: 0, height: 0 },
-    shadowOpacity: 0.18,
-    shadowRadius: 0,
-  },
   triggerDisabled: {
-    backgroundColor: '#F5F5F4',
     opacity: 0.55,
     shadowOpacity: 0,
   },
   triggerText: {
-    color: '#111827',
     flex: 1,
     fontSize: FontSize.base,
     marginRight: Spacing.sm,
   },
   placeholderText: {
-    opacity: 0.5,
+    opacity: 0.7,
   },
   chevronOpen: {
     transform: [{ rotate: '180deg' }],
   },
   menu: {
-    backgroundColor: '#FFFFFF',
-    borderColor: 'rgba(0,0,0,0.05)',
     borderRadius: Radius.xl,
     borderWidth: 1,
     gap: 2,
     marginTop: Spacing.xs,
     maxHeight: 240,
     padding: 4,
-    shadowColor: '#000000',
     shadowOffset: { width: 0, height: 10 },
     shadowOpacity: 0.1,
     shadowRadius: 30,
@@ -168,14 +154,7 @@ const styles = StyleSheet.create({
     paddingHorizontal: Spacing.md,
     paddingVertical: 10,
   },
-  optionActive: {
-    backgroundColor: 'rgba(0,0,0,0.05)',
-  },
-  optionPressed: {
-    backgroundColor: 'rgba(0,0,0,0.08)',
-  },
   optionText: {
-    color: '#111827',
     fontSize: FontSize.base,
   },
   optionTextActive: {

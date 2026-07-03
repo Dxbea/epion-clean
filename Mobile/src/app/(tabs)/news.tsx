@@ -1,4 +1,4 @@
-﻿import { useRouter, type Href } from 'expo-router';
+import { useRouter, type Href } from 'expo-router';
 import { Search } from 'lucide-react-native';
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import { Pressable, StyleSheet, Text, TextInput, View } from 'react-native';
@@ -287,6 +287,11 @@ export default function NewsScreen() {
               value={query}
               onChangeText={setQuery}
               onSubmitEditing={submitSearch}
+              keyboardType="default"
+              autoCapitalize="sentences"
+              autoCorrect
+              spellCheck
+              textContentType="none"
               placeholder="Chercher un article..."
               placeholderTextColor={colors.textMuted}
               returnKeyType="search"

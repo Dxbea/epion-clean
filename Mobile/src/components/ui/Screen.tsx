@@ -22,15 +22,17 @@ export function Screen({ title, subtitle, children, headerRight }: ScreenProps) 
         contentContainerStyle={[styles.content, { paddingTop: insets.top + Spacing['2xl'] }]}
         showsVerticalScrollIndicator={false}
       >
-        <View style={styles.header}>
-          <View style={styles.headerRow}>
-            <View style={styles.headerText}>
-              <Text style={[styles.title, { color: colors.text, fontFamily: Fonts.display }]}>{title}</Text>
-              {subtitle ? <Text style={[styles.subtitle, { color: colors.textSecondary }]}>{subtitle}</Text> : null}
+        {title || subtitle || headerRight ? (
+          <View style={styles.header}>
+            <View style={styles.headerRow}>
+              <View style={styles.headerText}>
+                {title ? <Text style={[styles.title, { color: colors.text, fontFamily: Fonts.display }]}>{title}</Text> : null}
+                {subtitle ? <Text style={[styles.subtitle, { color: colors.textSecondary }]}>{subtitle}</Text> : null}
+              </View>
+              {headerRight ?? null}
             </View>
-            {headerRight ?? null}
           </View>
-        </View>
+        ) : null}
         {children}
       </ScrollView>
     </View>

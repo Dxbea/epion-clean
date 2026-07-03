@@ -27,12 +27,12 @@ export function ArticleCard({ title, excerpt, category, imageUrl, date, views, c
       <Pressable
         style={({ pressed }) => [
           styles.compactCard,
-          { backgroundColor: colors.backgroundElevated, borderColor: colors.borderSubtle },
+          { backgroundColor: colors.backgroundElevated, borderColor: colors.border, shadowColor: colors.shadow },
           pressed ? styles.pressed : null,
         ]}
         onPress={onPress}
       >
-        <Image source={{ uri: source }} style={styles.compactImage} contentFit="cover" transition={180} />
+        <Image source={{ uri: source }} style={[styles.compactImage, { backgroundColor: colors.imagePlaceholder }]} contentFit="cover" transition={180} />
         <View style={styles.compactContent}>
           {category ? <Badge label={category} variant="category" category={category} /> : null}
           <Text style={[styles.compactTitle, { color: colors.text }]} numberOfLines={2}>{title}</Text>
@@ -49,12 +49,12 @@ export function ArticleCard({ title, excerpt, category, imageUrl, date, views, c
     <Pressable
       style={({ pressed }) => [
         hero ? styles.heroCard : styles.card,
-        { backgroundColor: colors.backgroundElevated, borderColor: colors.borderSubtle },
+        { backgroundColor: colors.backgroundElevated, borderColor: colors.border, shadowColor: colors.shadow },
         pressed ? styles.pressed : null,
       ]}
       onPress={onPress}
     >
-      <Image source={{ uri: source }} style={hero ? styles.heroImage : styles.image} contentFit="cover" transition={180} />
+      <Image source={{ uri: source }} style={[hero ? styles.heroImage : styles.image, { backgroundColor: colors.imagePlaceholder }]} contentFit="cover" transition={180} />
       <View style={hero ? styles.heroBody : styles.body}>
         {category ? <Badge label={category} variant="category" category={category} style={styles.badge} /> : null}
         <Text style={[hero ? styles.heroTitle : styles.title, { color: colors.text }]}>{title}</Text>

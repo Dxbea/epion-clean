@@ -1,7 +1,7 @@
 import { StyleSheet, Text, TextInput, View, type TextInputProps } from 'react-native';
 
 import { useTheme } from '@/hooks/use-theme';
-import { FontSize, Radius, Spacing } from '@/constants/theme';
+import { FontSize, Fonts, Radius, Spacing } from '@/constants/theme';
 
 type InputProps = TextInputProps & {
   label?: string;
@@ -18,13 +18,18 @@ export function Input({ label, error, style, ...props }: InputProps) {
         style={[
           styles.input,
           {
-            backgroundColor: colors.backgroundElevated,
+            backgroundColor: colors.inputBackground,
             borderColor: error ? colors.error : colors.border,
             color: colors.text,
           },
           style,
         ]}
-        placeholderTextColor={colors.textMuted}
+        keyboardType={props.keyboardType ?? 'default'}
+        autoCapitalize={props.autoCapitalize ?? 'sentences'}
+        autoCorrect={props.autoCorrect ?? !props.secureTextEntry}
+        spellCheck={props.spellCheck ?? !props.secureTextEntry}
+        textContentType={props.textContentType ?? (props.secureTextEntry ? 'password' : props.keyboardType === 'email-address' ? 'emailAddress' : 'none')}
+        placeholderTextColor={colors.inputPlaceholder}
         {...props}
       />
       {error ? <Text style={[styles.error, { color: colors.error }]}>{error}</Text> : null}
@@ -46,6 +51,7 @@ const styles = StyleSheet.create({
     fontSize: FontSize.md,
     paddingHorizontal: Spacing.md,
     paddingVertical: 10,
+    fontFamily: Fonts.body,
   },
   error: {
     fontSize: FontSize.xs,

@@ -105,6 +105,11 @@ export default function MyArticlesScreen() {
                 value={query}
                 onChangeText={setQuery}
                 placeholder="Search in my articles..."
+                keyboardType="default"
+                autoCapitalize="sentences"
+                autoCorrect
+                spellCheck
+                textContentType="none"
                 returnKeyType="search"
                 onSubmitEditing={() => setSubmittedQuery(query.trim())}
               />

@@ -24,8 +24,8 @@ export function Badge({ label, variant = 'default', size = 'sm', category, style
     const slug = category.toLowerCase().normalize('NFD').replace(/[̀-ͯ]/g, '');
     const cat = CategoryColors[slug];
     if (cat) {
-      bg = cat.bg;
-      fg = cat.text;
+      bg = colors.scheme === 'dark' ? cat.darkBg : cat.bg;
+      fg = colors.scheme === 'dark' ? cat.darkText : cat.text;
     }
   }
 

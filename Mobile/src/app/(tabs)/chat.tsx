@@ -1,167 +1,150 @@
-import { Link, router, type Href } from 'expo-router';
+import { Link, router } from 'expo-router';
 import { useCallback, useEffect, useState } from 'react';
 import { ActivityIndicator, Pressable, StyleSheet, Text, View } from 'react-native';
 
-import { Screen, StateBox } from '@/components/screen';
 import { useAuth } from '@/context/AuthContext';
-import { createChatSession, fetchChatSessions, type ChatSessionSummary } from '@/lib/api';
-
-function formatDate(value?: string) {
-  if (!value) return null;
-
-  const date = new Date(value);
-  if (Number.isNaN(date.getTime())) return value;
-
-  return date.toLocaleString('fr-FR', {
-    day: '2-digit',
-    month: 'short',
-    hour: '2-digit',
-    minute: '2-digit',
-  });
-}
+import { createChatSession, fetchChatMessages, fetchChatSessions } from '@/lib/api';
+import { useTheme } from '@/hooks/use-theme';
 
 export default function ChatScreen() {
   const { user, loading: authLoading } = useAuth();
-  const [sessions, setSessions] = useState<ChatSessionSummary[]>([]);
-  const [isLoading, setIsLoading] = useState(false);
-  const [isCreating, setIsCreating] = useState(false);
+  const colors = useTheme();
+  const [message, setMessage] = useState('Preparation du chat...');
   const [error, setError] = useState<string | null>(null);
+  const [isCreating, setIsCreating] = useState(false);
 
-  const loadSessions = useCallback(async () => {
-    if (!user) {
-      setSessions([]);
-      setIsLoading(false);
-      return;
-    }
-
-    setIsLoading(true);
-    setError(null);
-
-    try {
-      setSessions(await fetchChatSessions());
-    } catch (loadError) {
-      setSessions([]);
-      const status = loadError instanceof Error && 'status' in loadError ? (loadError as { status?: number }).status : undefined;
-      setError(status === 401 ? 'Session expiree. Connecte-toi a nouveau.' : 'Impossible de charger les conversations.');
-    } finally {
-      setIsLoading(false);
-    }
-  }, [user]);
-
-  const handleCreateSession = useCallback(async () => {
+  const openChat = useCallback(async () => {
     if (!user || isCreating) return;
 
-    setIsCreating(true);
     setError(null);
+    setMessage('Chargement des conversations...');
 
     try {
+      const sessions = await fetchChatSessions({ take: 10 });
+      const latest = sessions[0];
+
+      if (latest) {
+        router.replace({ pathname: '/chat/[id]', params: { id: latest.id } });
+
+        const possibleEmptySessions = sessions.slice(1).filter((session) => {
+          const title = session.title?.trim();
+          return !title || title === 'New chat' || title === 'Sans titre' || title === 'Conversation sans titre';
+        });
+
+        void Promise.allSettled(
+          possibleEmptySessions.map(async (session) => {
+            const messages = await fetchChatMessages(session.id);
+            return messages.length;
+          }),
+        );
+        return;
+      }
+
+      setIsCreating(true);
+      setMessage('Creation de la conversation...');
       const session = await createChatSession({ mode: 'balanced' });
-      router.push({ pathname: '/chat/[id]', params: { id: session.id } });
-    } catch (createError) {
-      const status = createError instanceof Error && 'status' in createError ? (createError as { status?: number }).status : undefined;
-      setError(status === 401 ? 'Session expiree. Connecte-toi a nouveau.' : 'Impossible de creer un nouveau chat.');
+      router.replace({ pathname: '/chat/[id]', params: { id: session.id } });
+    } catch (chatError) {
+      const status = chatError instanceof Error && 'status' in chatError ? (chatError as { status?: number }).status : undefined;
+      setError(status === 401 ? 'Connecte-toi pour utiliser le chat.' : 'Impossible de preparer le chat.');
     } finally {
       setIsCreating(false);
     }
   }, [isCreating, user]);
 
   useEffect(() => {
-    void loadSessions();
-  }, [loadSessions]);
+    if (!authLoading && user) {
+      void openChat();
+    }
+  }, [authLoading, openChat, user]);
 
   if (authLoading) {
-    return (
-      <Screen title="Chat" subtitle="Conversations Epion et verification sourcee.">
-        <View style={styles.stateBox}>
-          <ActivityIndicator size="large" color="#2563EB" />
-          <Text style={styles.stateText}>Verification de la session...</Text>
-        </View>
-      </Screen>
-    );
+    return <CenteredState title="Verification de la session..." />;
   }
 
   if (!user) {
     return (
-      <Screen title="Chat" subtitle="Conversations Epion et verification sourcee.">
-        <StateBox title="Connecte-toi pour accéder au chat" text="Le chat mobile utilise tes conversations Epion existantes." />
-        <Link href="/account" asChild>
-          <Pressable style={({ pressed }) => [styles.primaryButton, pressed ? styles.pressed : null]}>
-            <Text style={styles.primaryButtonText}>Aller au compte</Text>
-          </Pressable>
-        </Link>
-      </Screen>
+      <View style={[styles.screen, { backgroundColor: colors.background }]}>
+        <View style={[styles.card, { backgroundColor: colors.backgroundElevated, borderColor: colors.border }]}>
+          <Text style={[styles.title, { color: colors.text }]}>Connecte-toi pour acceder au chat</Text>
+          <Text style={[styles.text, { color: colors.textSecondary }]}>Le chat mobile utilise tes conversations Epion existantes.</Text>
+          <Link href="/account" asChild>
+            <Pressable style={({ pressed }) => [styles.primaryButton, { backgroundColor: colors.primary }, pressed ? styles.pressed : null]}>
+              <Text style={[styles.primaryButtonText, { color: colors.primaryText }]}>Aller au compte</Text>
+            </Pressable>
+          </Link>
+        </View>
+      </View>
     );
   }
 
-  return (
-    <Screen title="Chat" subtitle="Conversations Epion et verification sourcee.">
-      <View style={styles.actionsRow}>
-        <Pressable
-          disabled={isCreating}
-          onPress={handleCreateSession}
-          style={({ pressed }) => [styles.primaryButton, pressed || isCreating ? styles.pressed : null]}
-        >
-          <Text style={styles.primaryButtonText}>{isCreating ? 'Creation...' : 'Nouveau chat'}</Text>
-        </Pressable>
-        <Pressable onPress={loadSessions} style={({ pressed }) => [styles.secondaryButton, pressed ? styles.pressed : null]}>
-          <Text style={styles.secondaryButtonText}>Actualiser</Text>
-        </Pressable>
-      </View>
-
-      {isLoading ? (
-        <View style={styles.stateBox}>
-          <ActivityIndicator size="large" color="#2563EB" />
-          <Text style={styles.stateText}>Chargement des conversations...</Text>
+  if (error) {
+    return (
+      <View style={[styles.screen, { backgroundColor: colors.background }]}>
+        <View style={[styles.card, { backgroundColor: colors.backgroundElevated, borderColor: colors.border }]}>
+          <Text style={[styles.title, { color: colors.text }]}>{error}</Text>
+          <Text style={[styles.text, { color: colors.textSecondary }]}>Reessaie dans un instant ou reconnecte-toi depuis Compte.</Text>
+          <Pressable onPress={openChat} style={({ pressed }) => [styles.primaryButton, { backgroundColor: colors.primary }, pressed ? styles.pressed : null]}>
+            <Text style={[styles.primaryButtonText, { color: colors.primaryText }]}>Reessayer</Text>
+          </Pressable>
         </View>
-      ) : null}
+      </View>
+    );
+  }
 
-      {!isLoading && error ? <StateBox title={error} text="Reessaie dans un instant ou reconnecte-toi depuis Compte." /> : null}
-      {!isLoading && !error && sessions.length === 0 ? <StateBox title="Aucune conversation recente." text="Cree un nouveau chat pour commencer." /> : null}
+  return <CenteredState title={message} />;
+}
 
-      {!isLoading && !error
-        ? sessions.map((session) => {
-            const href = { pathname: '/chat/[id]', params: { id: session.id } } as unknown as Href;
-            const updatedAt = formatDate(session.updatedAt);
+function CenteredState({ title }: { title: string }) {
+  const colors = useTheme();
 
-            return (
-              <Link key={session.id} href={href} asChild>
-                <Pressable style={({ pressed }) => [styles.card, pressed ? styles.pressed : null]}>
-                  <Text style={styles.title}>{session.title}</Text>
-                  {updatedAt ? <Text style={styles.meta}>{updatedAt}</Text> : null}
-                </Pressable>
-              </Link>
-            );
-          })
-        : null}
-    </Screen>
+  return (
+    <View style={[styles.screen, { backgroundColor: colors.background }]}>
+      <ActivityIndicator size="large" color={colors.accent} />
+      <Text style={[styles.text, { color: colors.textSecondary }]}>{title}</Text>
+    </View>
   );
 }
 
 const styles = StyleSheet.create({
-  actionsRow: {
-    flexDirection: 'row',
-    gap: 10,
-  },
-  stateBox: {
+  screen: {
     alignItems: 'center',
-    backgroundColor: '#FFFFFF',
-    borderColor: '#E5E7EB',
-    borderRadius: 8,
-    borderWidth: 1,
+    backgroundColor: '#FAFAF5',
+    flex: 1,
+    gap: 14,
+    justifyContent: 'center',
     padding: 24,
   },
-  stateText: {
-    color: '#4B5563',
+  card: {
+    alignItems: 'center',
+    backgroundColor: '#FFFFFF',
+    borderColor: 'rgba(0,0,0,0.10)',
+    borderRadius: 8,
+    borderWidth: 1,
+    gap: 12,
+    maxWidth: 420,
+    padding: 20,
+    width: '100%',
+  },
+  title: {
+    color: '#0A0A0A',
+    fontSize: 18,
+    fontWeight: '800',
+    textAlign: 'center',
+  },
+  text: {
+    color: 'rgba(0,0,0,0.70)',
     fontSize: 15,
-    marginTop: 12,
+    lineHeight: 22,
+    textAlign: 'center',
   },
   primaryButton: {
     alignItems: 'center',
-    backgroundColor: '#111827',
+    backgroundColor: '#0A0A0A',
     borderRadius: 8,
-    flex: 1,
     justifyContent: 'center',
-    paddingHorizontal: 14,
+    minHeight: 44,
+    paddingHorizontal: 16,
     paddingVertical: 12,
   },
   primaryButtonText: {
@@ -169,39 +152,7 @@ const styles = StyleSheet.create({
     fontSize: 15,
     fontWeight: '800',
   },
-  secondaryButton: {
-    alignItems: 'center',
-    backgroundColor: '#FFFFFF',
-    borderColor: '#D1D5DB',
-    borderRadius: 8,
-    borderWidth: 1,
-    justifyContent: 'center',
-    paddingHorizontal: 14,
-    paddingVertical: 12,
-  },
-  secondaryButtonText: {
-    color: '#111827',
-    fontSize: 15,
-    fontWeight: '800',
-  },
-  card: {
-    backgroundColor: '#FFFFFF',
-    borderColor: '#E5E7EB',
-    borderRadius: 8,
-    borderWidth: 1,
-    padding: 16,
-  },
   pressed: {
     opacity: 0.72,
-  },
-  title: {
-    color: '#111827',
-    fontSize: 17,
-    fontWeight: '800',
-  },
-  meta: {
-    color: '#6B7280',
-    fontSize: 13,
-    marginTop: 6,
   },
 });

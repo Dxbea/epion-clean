@@ -12,7 +12,7 @@ export function LoadingState({ message = 'Chargement...' }: LoadingStateProps) {
 
   return (
     <View style={styles.container}>
-      <ActivityIndicator size="large" color={colors.textMuted} />
+      <ActivityIndicator size="large" color={colors.accent} />
       <Text style={[styles.message, { color: colors.textMuted }]}>{message}</Text>
     </View>
   );

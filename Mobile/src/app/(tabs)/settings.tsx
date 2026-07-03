@@ -6,9 +6,9 @@ const signedInCategories = [
   { href: '/settings/security', title: 'Security', description: 'Mot de passe, sessions actives et protection du compte.' },
   { href: '/settings/privacy', title: 'Privacy', description: 'Visibilite du profil et preferences de suivi.' },
   { href: '/settings/data', title: 'Data', description: 'Export local, donnees et suppression locale.' },
-  { href: '/settings/appearance', title: 'Appearance', description: 'Theme et langue, en version mobile simple.' },
+  { href: '/settings/appearance', title: 'Appearance', description: 'Theme mobile.' },
   { href: '/settings/notifications', title: 'Notifications', description: 'Preferences email/push locales.' },
-  { href: '/settings/accessibility', title: 'Accessibility', description: 'Texte large et contraste, placeholders mobiles.' },
+  { href: '/settings/accessibility', title: 'Accessibility', description: 'Contraste de l interface mobile.' },
 ];
 
 export default function SettingsScreen() {

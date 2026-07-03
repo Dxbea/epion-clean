@@ -1789,6 +1789,11 @@ export function ArticleDetailScreenContent({ loadArticle, missingText = 'Aucun d
                             <TextInput
                               style={[s.textArea, { borderColor: colors.border, backgroundColor: colors.backgroundElevated, color: colors.text }]}
                               multiline
+                              keyboardType="default"
+                              autoCapitalize="sentences"
+                              autoCorrect
+                              spellCheck
+                              textContentType="none"
                               onChangeText={(t) => { setContributionText(t); setAdvancedError(null); }}
                               placeholder="Écrire une contribution précise et vérifiable..."
                               placeholderTextColor={colors.textMuted}
@@ -1802,6 +1807,9 @@ export function ArticleDetailScreenContent({ loadArticle, missingText = 'Aucun d
                             placeholderTextColor={colors.textMuted}
                             value={contributionSourceUrl}
                             autoCapitalize="none"
+                            autoCorrect={false}
+                            spellCheck={false}
+                            textContentType="URL"
                             keyboardType="url"
                           />
                           <View style={s.formActions}>
@@ -1872,6 +1880,11 @@ export function ArticleDetailScreenContent({ loadArticle, missingText = 'Aucun d
                     <TextInput
                       style={[s.commentInput, { borderColor: colors.border, backgroundColor: colors.backgroundElevated, color: colors.text }]}
                       multiline
+                      keyboardType="default"
+                      autoCapitalize="sentences"
+                      autoCorrect
+                      spellCheck
+                      textContentType="none"
                       onChangeText={setCommentText}
                       placeholder="Ajouter un commentaire..."
                       placeholderTextColor={colors.textMuted}

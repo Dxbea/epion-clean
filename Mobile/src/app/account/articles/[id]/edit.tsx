@@ -447,6 +447,11 @@ export default function EditArticleScreen() {
                 onChangeText={setAskInstruction}
                 editable={!busy}
                 multiline
+                keyboardType="default"
+                autoCapitalize="sentences"
+                autoCorrect
+                spellCheck
+                textContentType="none"
                 textAlignVertical="top"
                 placeholder="Ex: Raccourcis le texte, change le ton..."
                 placeholderTextColor="#8A8A80"
