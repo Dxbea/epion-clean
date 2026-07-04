@@ -59,7 +59,7 @@ export async function runLiveAnalysisWithGeneration(
     });
 
     // STEP 2A: Smart Router + Tavily Investigation (uses topic as title/content)
-    const factCheckContext = await investigateArticle(topic, topic);
+    const factCheckContext = await investigateArticle(topic, topic, undefined, { mode: 'generation' });
     logger.info(`📋 Investigation complete: ${factCheckContext.sources.length} sources (${Date.now() - startTime}ms)`, {
         module: 'LiveAnalysis',
         route: factCheckContext.routingDecision.route,

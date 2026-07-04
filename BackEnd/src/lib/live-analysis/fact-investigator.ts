@@ -8,7 +8,28 @@ import { extractRelevantPassages } from '../chunking.js';
 import { getRootDomain } from '../utils/domain.js';
 
 const MAX_SOURCES = 50;
-const EXTRACTION_CONCURRENCY = 6;
+const DEFAULT_EXTRACTION_CONCURRENCY = 6;
+export const MAX_GENERATION_EXTRACTION_URLS = 12;
+export const GENERATION_EXTRACTION_CONCURRENCY = 3;
+export const GENERATION_INVESTIGATION_DEADLINE_MS = 25_000;
+
+type InvestigationMode = 'analysis' | 'generation';
+
+export interface InvestigationOptions {
+    mode?: InvestigationMode;
+    maxExtractionUrls?: number;
+    extractionConcurrency?: number;
+    deadlineMs?: number;
+}
+
+interface ExtractionCollectionResult<U> {
+    results: U[];
+    startedCount: number;
+    completedCount: number;
+    rejectedCount: number;
+    skippedCount: number;
+    deadlineReached: boolean;
+}
 
 function getDomainKeyFromUrl(url: string): string {
     try {
@@ -51,36 +72,140 @@ function selectSourcesByRootDomain<T extends { url: string; score: number }>(
 }
 
 function truncateContent(content: string): string {
-    return content; // WE NOW KEEP EVERYTHING UNTRUNCATED SO CHUNKER SEES ALL
+    return content;
 }
 
-async function mapWithConcurrencyLimit<T, U>(
+function resolveInvestigationOptions(options: InvestigationOptions = {}) {
+    const isGeneration = options.mode === 'generation';
+    const maxExtractionUrls = Math.max(
+        1,
+        options.maxExtractionUrls ?? (isGeneration ? MAX_GENERATION_EXTRACTION_URLS : MAX_SOURCES),
+    );
+    const extractionConcurrency = Math.max(
+        1,
+        options.extractionConcurrency ?? (isGeneration ? GENERATION_EXTRACTION_CONCURRENCY : DEFAULT_EXTRACTION_CONCURRENCY),
+    );
+    const deadlineMs = options.deadlineMs ?? (isGeneration ? GENERATION_INVESTIGATION_DEADLINE_MS : undefined);
+
+    return {
+        mode: options.mode ?? 'analysis',
+        maxExtractionUrls,
+        extractionConcurrency,
+        deadlineMs: deadlineMs && deadlineMs > 0 ? deadlineMs : undefined,
+    };
+}
+
+async function mapWithConcurrencyLimitAndDeadline<T, U>(
     items: T[],
     concurrency: number,
+    deadlineMs: number | undefined,
     mapper: (item: T, index: number) => Promise<U>,
-): Promise<U[]> {
+): Promise<ExtractionCollectionResult<U>> {
     if (items.length === 0) {
-        return [];
+        return {
+            results: [],
+            startedCount: 0,
+            completedCount: 0,
+            rejectedCount: 0,
+            skippedCount: 0,
+            deadlineReached: false,
+        };
     }
 
     const safeConcurrency = Math.max(1, Math.min(concurrency, items.length));
     const results = new Array<U>(items.length);
+    const deadlineAt = deadlineMs ? Date.now() + deadlineMs : Number.POSITIVE_INFINITY;
     let nextIndex = 0;
+    let activeCount = 0;
+    let startedCount = 0;
+    let completedCount = 0;
+    let rejectedCount = 0;
+    let resolved = false;
+    let deadlineReached = false;
+    let timeoutHandle: NodeJS.Timeout | undefined;
 
-    await Promise.all(
-        Array.from({ length: safeConcurrency }, async () => {
-            while (true) {
-                const currentIndex = nextIndex++;
-                if (currentIndex >= items.length) {
+    return new Promise((resolve) => {
+        const finish = () => {
+            if (resolved) {
+                return;
+            }
+
+            resolved = true;
+            if (timeoutHandle) {
+                clearTimeout(timeoutHandle);
+            }
+
+            resolve({
+                results: [...results],
+                startedCount,
+                completedCount,
+                rejectedCount,
+                skippedCount: Math.max(0, items.length - startedCount),
+                deadlineReached,
+            });
+        };
+
+        const launchMore = () => {
+            if (resolved) {
+                return;
+            }
+
+            if (Date.now() >= deadlineAt) {
+                deadlineReached = true;
+                finish();
+                return;
+            }
+
+            while (activeCount < safeConcurrency && nextIndex < items.length) {
+                if (Date.now() >= deadlineAt) {
+                    deadlineReached = true;
+                    finish();
                     return;
                 }
 
-                results[currentIndex] = await mapper(items[currentIndex], currentIndex);
-            }
-        }),
-    );
+                const currentIndex = nextIndex++;
+                startedCount += 1;
+                activeCount += 1;
 
-    return results;
+                Promise.resolve(mapper(items[currentIndex], currentIndex))
+                    .then((value) => {
+                        results[currentIndex] = value;
+                    })
+                    .catch((error: unknown) => {
+                        rejectedCount += 1;
+                        logger.warn('Extraction task rejected unexpectedly', {
+                            module: 'FactInvestigator',
+                            index: currentIndex,
+                            error: error instanceof Error ? error.message : 'Unknown extraction task error',
+                        });
+                    })
+                    .finally(() => {
+                        activeCount -= 1;
+                        completedCount += 1;
+
+                        if (resolved) {
+                            return;
+                        }
+
+                        if (nextIndex >= items.length && activeCount === 0) {
+                            finish();
+                            return;
+                        }
+
+                        launchMore();
+                    });
+            }
+        };
+
+        if (deadlineMs) {
+            timeoutHandle = setTimeout(() => {
+                deadlineReached = true;
+                finish();
+            }, deadlineMs);
+        }
+
+        launchMore();
+    });
 }
 
 function mapSearchResult(result: SerperSearchResult): FactCheckSource | null {
@@ -157,7 +282,7 @@ async function runSearchLane(
     label: 'FACTUAL' | 'CRITICAL' | 'CONTEXTUAL',
     routingDecision: RoutingDecision,
     maxResults: number,
-    onProgress?: (msg: string) => void
+    onProgress?: (msg: string) => void,
 ): Promise<FactCheckSource[]> {
     const query = label === 'FACTUAL' ? routingDecision.query_factual
                 : label === 'CRITICAL' ? routingDecision.query_critical
@@ -167,6 +292,13 @@ async function runSearchLane(
         maxResults: Math.max(maxResults * 3, maxResults),
         gl: 'fr',
         hl: 'fr',
+    });
+
+    logger.info('Serper lane results received', {
+        module: 'FactInvestigator',
+        lane: label,
+        query,
+        rawCount: rawResults.length,
     });
 
     if (rawResults.length === 0) {
@@ -206,16 +338,25 @@ async function runSearchLane(
 export async function investigateArticle(
     title: string,
     content: string,
-    onProgress?: (msg: string) => void
+    onProgress?: (msg: string) => void,
+    options: InvestigationOptions = {},
 ): Promise<FactCheckContext> {
+    const investigationStartedAt = Date.now();
+    const resolvedOptions = resolveInvestigationOptions(options);
+
     logger.info(`Starting Serper investigation for: "${title.slice(0, 60)}..."`, {
         module: 'FactInvestigator',
+        mode: resolvedOptions.mode,
+        maxExtractionUrls: resolvedOptions.maxExtractionUrls,
+        extractionConcurrency: resolvedOptions.extractionConcurrency,
+        deadlineMs: resolvedOptions.deadlineMs,
     });
 
     const routingDecision = await classifyAndRoute(title, content);
 
     logger.info('Starting Serper source collection', {
-        module: 'FactInvestigator'
+        module: 'FactInvestigator',
+        mode: resolvedOptions.mode,
     });
 
     try {
@@ -230,21 +371,41 @@ export async function investigateArticle(
             routingDecision.query_critical,
             routingDecision.query_contextual,
         ].filter(Boolean);
+        const searchResultCount = searchResults.flat().length;
         const extractionCandidates = selectSourcesByRootDomain(
             searchResults.flat(),
-            MAX_SOURCES,
+            resolvedOptions.maxExtractionUrls,
         );
 
         logger.info('Global dedup effect before extraction', {
             module: 'FactInvestigator',
-            rawCount: searchResults.flat().length,
+            mode: resolvedOptions.mode,
+            rawCount: searchResultCount,
             uniqueRootDomainCount: extractionCandidates.length,
-            message: `Dedup effect: ${searchResults.flat().length} raw -> ${extractionCandidates.length} unique domains`,
+            maxExtractionUrls: resolvedOptions.maxExtractionUrls,
+            extractionConcurrency: resolvedOptions.extractionConcurrency,
+            deadlineMs: resolvedOptions.deadlineMs,
+            message: `Dedup effect: ${searchResultCount} raw -> ${extractionCandidates.length} unique domains`,
         });
 
-        const extractedResults = await mapWithConcurrencyLimit(
+        const elapsedBeforeExtractionMs = Date.now() - investigationStartedAt;
+        const remainingDeadlineMs = resolvedOptions.deadlineMs === undefined
+            ? undefined
+            : Math.max(0, resolvedOptions.deadlineMs - elapsedBeforeExtractionMs);
+        const extractionStartedAt = Date.now();
+        const extractionResult = remainingDeadlineMs === 0
+            ? {
+                results: [],
+                startedCount: 0,
+                completedCount: 0,
+                rejectedCount: 0,
+                skippedCount: extractionCandidates.length,
+                deadlineReached: true,
+            } satisfies ExtractionCollectionResult<FactCheckSource | null>
+            : await mapWithConcurrencyLimitAndDeadline(
             extractionCandidates,
-            EXTRACTION_CONCURRENCY,
+            resolvedOptions.extractionConcurrency,
+            remainingDeadlineMs,
             async (candidate) => {
                 if (onProgress) {
                     const domain = getDomainKeyFromUrl(candidate.url);
@@ -273,7 +434,41 @@ export async function investigateArticle(
             },
         );
 
-        let finalSources = extractedResults.filter((result): result is FactCheckSource => result !== null);
+        let finalSources = extractionResult.results.filter((result): result is FactCheckSource => result !== null);
+        const extractionSuccessCount = finalSources.length;
+        const extractionFailedCount = Math.max(0, extractionResult.completedCount - extractionSuccessCount);
+        const extractionTimedOutOrSkippedCount = extractionResult.deadlineReached
+            ? Math.max(0, extractionCandidates.length - extractionResult.completedCount)
+            : extractionResult.skippedCount;
+
+        logger.info('Serper extraction complete', {
+            module: 'FactInvestigator',
+            mode: resolvedOptions.mode,
+            candidateCount: extractionCandidates.length,
+            startedCount: extractionResult.startedCount,
+            completedCount: extractionResult.completedCount,
+            successCount: extractionSuccessCount,
+            failedCount: extractionFailedCount + extractionResult.rejectedCount,
+            timedOutOrSkippedCount: extractionTimedOutOrSkippedCount,
+            deadlineReached: extractionResult.deadlineReached,
+            elapsedMs: Date.now() - extractionStartedAt,
+            totalElapsedMs: Date.now() - investigationStartedAt,
+            extractionConcurrency: resolvedOptions.extractionConcurrency,
+            deadlineMs: resolvedOptions.deadlineMs,
+            extractionDeadlineMs: remainingDeadlineMs,
+        });
+
+        if (extractionResult.deadlineReached) {
+            logger.warn('Serper investigation deadline reached, continuing with partial sources', {
+                module: 'FactInvestigator',
+                mode: resolvedOptions.mode,
+                successCount: extractionSuccessCount,
+                candidateCount: extractionCandidates.length,
+                deadlineMs: resolvedOptions.deadlineMs,
+                extractionDeadlineMs: remainingDeadlineMs,
+            });
+        }
+
         const seenRootDomains = new Set(finalSources.map((source) => getRootDomainKeyFromUrl(source.url)));
         const seenUrls = new Set(finalSources.map((source) => source.url));
 
@@ -301,14 +496,36 @@ export async function investigateArticle(
 
         finalSources = selectSourcesByRootDomain(finalSources, MAX_SOURCES);
 
+        if (finalSources.length === 0) {
+            logger.warn('Serper investigation finished with no usable sources', {
+                module: 'FactInvestigator',
+                mode: resolvedOptions.mode,
+                candidateCount: extractionCandidates.length,
+                extractionStartedCount: extractionResult.startedCount,
+                extractionFailedCount,
+                deadlineReached: extractionResult.deadlineReached,
+                elapsedMs: Date.now() - investigationStartedAt,
+            });
+        }
+
         logger.info(`Serper investigation complete: ${finalSources.length} sources`, {
             module: 'FactInvestigator',
+            mode: resolvedOptions.mode,
             route: routingDecision.route,
             query_factual: routingDecision.query_factual,
             query_critical: routingDecision.query_critical,
             query_contextual: routingDecision.query_contextual,
+            searchResultCount,
             extractionCandidateCount: extractionCandidates.length,
-            extractionConcurrency: EXTRACTION_CONCURRENCY,
+            extractionStartedCount: extractionResult.startedCount,
+            extractionSuccessCount,
+            extractionFailedCount,
+            extractionTimedOutOrSkippedCount,
+            extractionConcurrency: resolvedOptions.extractionConcurrency,
+            deadlineMs: resolvedOptions.deadlineMs,
+            extractionDeadlineMs: remainingDeadlineMs,
+            deadlineReached: extractionResult.deadlineReached,
+            elapsedMs: Date.now() - investigationStartedAt,
             domains: finalSources.map((source) => source.domain),
         });
 
@@ -319,7 +536,9 @@ export async function investigateArticle(
     } catch (error: unknown) {
         logger.error('Serper investigation failed', {
             module: 'FactInvestigator',
+            mode: resolvedOptions.mode,
             error: error instanceof Error ? error.message : 'Unknown error',
+            elapsedMs: Date.now() - investigationStartedAt,
         });
 
         return {
