@@ -37,6 +37,10 @@ import type {
   ArticleReactionSummary,
   ArticleSource,
   ArticleValidationType,
+  StructuredArticleClaim,
+  StructuredArticleContent,
+  StructuredArticleItem,
+  StructuredArticleSection,
 } from '@/types/article';
 
 // --- CONSTANTS ---
@@ -156,7 +160,54 @@ function validUrl(value: string): boolean {
 const CITATION_RE = /\[\d+(?:,\s*\d+)*\]/;
 const HIGHLIGHT_STYLE = { backgroundColor: '#00dc8230', borderLeftWidth: 3, borderLeftColor: '#00dc82', paddingLeft: 8, paddingVertical: 2, borderRadius: 4 } as const;
 
-function renderMarkdownContent(body: string, textColor: string, headingColor: string, mutedColor: string, _borderColor: string, highlightSources?: boolean): React.ReactNode[] {
+function stableSourceId(url: string, fallbackIndex = 0): string {
+  let hash = 0;
+  for (let i = 0; i < url.length; i += 1) {
+    hash = (hash * 31 + url.charCodeAt(i)) >>> 0;
+  }
+  return `src_${hash.toString(36) || fallbackIndex + 1}`;
+}
+
+function getSourceKey(source: ArticleSource, index = 0): string {
+  if (source.sourceId) return source.sourceId;
+  if (source.url) return stableSourceId(source.url, index);
+  if (source.id) return String(source.id);
+  return `source_${index + 1}`;
+}
+
+function itemHasSourceMapping(item: StructuredArticleItem): boolean {
+  return Boolean(item.sourceIds?.length || item.sourceUrls?.length || item.claimIds?.length);
+}
+
+function claimMatchesSource(claim: StructuredArticleClaim, source: ArticleSource, index = 0): boolean {
+  const sourceKey = getSourceKey(source, index);
+  return Boolean(
+    claim.sourceIds?.includes(sourceKey) ||
+    (source.id && claim.sourceIds?.includes(String(source.id))) ||
+    (source.url && claim.sourceUrls?.includes(source.url))
+  );
+}
+
+function claimsForSource(claims: StructuredArticleClaim[] | undefined, source: ArticleSource, index = 0): StructuredArticleClaim[] {
+  if (!Array.isArray(claims)) return [];
+  return claims.filter((claim) => claimMatchesSource(claim, source, index));
+}
+
+function structuredContentHasSourceMapping(content?: StructuredArticleContent): boolean {
+  if (!content) return false;
+  if (content.claims.some((claim) => claim.sourceIds?.length || claim.sourceUrls?.length)) return true;
+  return content.sections.some((section) => section.items?.some(itemHasSourceMapping));
+}
+
+function sourceIsPending(source: ArticleSource): boolean {
+  return source.type === 'PENDING';
+}
+
+function articleAnalysisInProgress(status?: string, sources?: ArticleSource[]): boolean {
+  return status === 'PENDING' || status === 'RUNNING' || Boolean(sources?.some(sourceIsPending));
+}
+
+function renderMarkdownContent(body: string, textColor: string, headingColor: string, mutedColor: string, _borderColor: string, highlightSources?: boolean, highlightTerms: string[] = []): React.ReactNode[] {
   const lines = body.split('\n');
   const elements: React.ReactNode[] = [];
   let blockquoteBuffer: string[] = [];
@@ -221,7 +272,8 @@ function renderMarkdownContent(body: string, textColor: string, headingColor: st
         .replace(/\*(.+?)\*/g, '$1')
         .replace(/`(.+?)`/g, '$1');
       const hasCitation = CITATION_RE.test(trimmed);
-      const hlStyle = highlightSources && hasCitation ? HIGHLIGHT_STYLE : null;
+      const hasSourceHighlight = highlightTerms.some((term) => term && cleaned.toLowerCase().includes(term.toLowerCase()));
+      const hlStyle = highlightSources && (hasCitation || hasSourceHighlight) ? HIGHLIGHT_STYLE : null;
       elements.push(
         <View key={`pw-${i}`} style={hlStyle}>
           <Text style={[ms.paragraph, { color: textColor }]}>{cleaned}</Text>
@@ -530,6 +582,7 @@ type SourcesModalProps = {
   onClose: () => void;
   sources: ArticleSource[];
   colors: ReturnType<typeof useTheme>;
+  analysisInProgress?: boolean;
 };
 
 function SourceItemCard({ source, colors }: { source: ArticleSource; colors: ReturnType<typeof useTheme> }) {
@@ -649,20 +702,20 @@ function SourceItemCard({ source, colors }: { source: ArticleSource; colors: Ret
   );
 }
 
-function SourcesModal({ visible, onClose, sources, colors }: SourcesModalProps) {
+function SourcesModal({ visible, onClose, sources, colors, analysisInProgress = false }: SourcesModalProps) {
   return (
     <Modal visible={visible} animationType="slide" transparent onRequestClose={onClose}>
       <Pressable style={tsm.backdrop} onPress={onClose} />
       <View style={[tsm.sheet, { backgroundColor: colors.backgroundElevated }]}>
         <View style={[tsm.sheetHeader, { borderBottomColor: colors.borderSubtle }]}>
-          <Text style={[tsm.sheetTitle, { color: colors.text }]}>Sources analysées ({sources.length})</Text>
+          <Text style={[tsm.sheetTitle, { color: colors.text }]}>{sources.length > 0 ? `Sources analysees (${sources.length})` : analysisInProgress ? 'Analyse des sources en cours' : 'Sources non disponibles'}</Text>
           <Pressable onPress={onClose} style={tsm.closeBtn}>
             <X size={20} color={colors.textMuted} />
           </Pressable>
         </View>
         <ScrollView style={tsm.sheetBody} showsVerticalScrollIndicator={false} contentContainerStyle={{ gap: 10, paddingVertical: 16, paddingBottom: 40 }}>
           {sources.length === 0 ? (
-            <Text style={[sm.empty, { color: colors.textMuted }]}>Aucune source analysée pour cet article.</Text>
+            <Text style={[sm.empty, { color: colors.textMuted }]}>{analysisInProgress ? "Les sources sont encore en cours d'analyse. Reessayez dans quelques instants." : "Aucune source analysee n'est disponible pour cet article."}</Text>
           ) : (
             sources.map((source, i) => (
               <SourceItemCard key={source.id ?? source.url ?? `${source.domain}-${i}`} source={source} colors={colors} />
@@ -1136,6 +1189,16 @@ export function ArticleDetailScreenContent({ loadArticle, missingText = 'Aucun d
     void load();
   }, [load]);
 
+  useEffect(() => {
+    if (!articleAnalysisInProgress(article?.factCheckStatus, article?.sources)) return;
+
+    const interval = setInterval(() => {
+      void load();
+    }, 3000);
+
+    return () => clearInterval(interval);
+  }, [article?.factCheckStatus, article?.sources, load]);
+
   // --- DERIVED STATE ---
 
   const publishedAt = formatDate(article?.publishedAt);
@@ -1144,8 +1207,13 @@ export function ArticleDetailScreenContent({ loadArticle, missingText = 'Aucun d
     if (!article) return WEB_ORIGIN;
     return `${WEB_ORIGIN}/article/${article.slug ?? article.id}`;
   }, [article]);
-  const sourceCount = article?.sources?.length ?? article?.sourcesCount ?? 0;
+  const sourceCount = (article?.sources?.length || article?.sourcesCount) ?? 0;
+  const analysisInProgress = articleAnalysisInProgress(article?.factCheckStatus, article?.sources);
   const hasHighlightableCitations = useMemo(() => Boolean(article?.body && CITATION_RE.test(article.body)), [article?.body]);
+  const hasStructuredHighlightMapping = useMemo(() => structuredContentHasSourceMapping(article?.structuredContent), [article?.structuredContent]);
+  const sourceHighlightTerms = useMemo(() => article?.sourceHighlights?.map((highlight) => highlight.text?.trim()).filter((text): text is string => Boolean(text)) ?? [], [article?.sourceHighlights]);
+  const hasSourceHighlightMapping = sourceHighlightTerms.length > 0;
+  const hasHighlightMapping = hasHighlightableCitations || hasStructuredHighlightMapping || hasSourceHighlightMapping;
 
   const visibleAdvancedInteractions = advancedInteractions ?? (!advancedLoading ? EMPTY_ADVANCED_INTERACTIONS : null);
   const confirmedPosition = visibleAdvancedInteractions?.currentUserOpinionPosition ?? null;
@@ -1403,6 +1471,52 @@ export function ArticleDetailScreenContent({ loadArticle, missingText = 'Aucun d
     );
   };
 
+  const renderStructuredSection = (section: StructuredArticleSection) => {
+    const sectionClaims = article?.structuredContent?.claims.filter((claim) => claim.sectionId === section.id) ?? [];
+    const sectionHasMapping = sectionClaims.some((claim) => claim.sourceIds?.length || claim.sourceUrls?.length) || Boolean(section.items?.some(itemHasSourceMapping));
+    const sectionHighlight = isHighlightActive && sectionHasMapping;
+
+    return (
+      <View key={section.id} style={[s.structuredSection, sectionHighlight ? s.structuredHighlighted : null, { borderColor: sectionHighlight ? `${EPION_GREEN}80` : colors.borderSubtle }]}>
+        <View style={s.structuredSectionHeader}>
+          <Text style={[s.structuredSectionTitle, { color: colors.text }]}>{section.title}</Text>
+          {sectionClaims.length > 0 ? (
+            <Text style={[s.structuredClaimCount, { color: EPION_GREEN }]}>{sectionClaims.length} liens</Text>
+          ) : null}
+        </View>
+        {section.body ? <View>{renderMarkdownContent(section.body, colors.text, colors.text, colors.textTertiary, colors.border, isHighlightActive, sourceHighlightTerms)}</View> : null}
+        {section.items?.length ? (
+          <View style={s.structuredItems}>
+            {section.items.map((item, index) => {
+              const itemHighlight = isHighlightActive && itemHasSourceMapping(item);
+              return (
+                <View key={item.id ?? `${section.id}-${index}`} style={[s.structuredItem, itemHighlight ? s.structuredHighlighted : null, { borderLeftColor: itemHighlight ? EPION_GREEN : colors.border }]}>
+                  <Text style={[s.structuredItemText, { color: colors.textSecondary }]}>{item.text}</Text>
+                </View>
+              );
+            })}
+          </View>
+        ) : null}
+      </View>
+    );
+  };
+
+  const renderStructuredContent = (content: StructuredArticleContent) => (
+    <View style={s.structuredContent}>
+      {content.lead?.summary ? <Text style={[s.structuredLead, { color: colors.textSecondary }]}>{content.lead.summary}</Text> : null}
+      {content.lead?.keyTakeaways?.length ? (
+        <View style={s.structuredTakeaways}>
+          {content.lead.keyTakeaways.map((item, index) => (
+            <View key={`${item}-${index}`} style={[s.structuredTakeaway, { borderColor: colors.border, backgroundColor: colors.backgroundSubtle }]}>
+              <Text style={[s.structuredTakeawayText, { color: colors.textSecondary }]}>{item}</Text>
+            </View>
+          ))}
+        </View>
+      ) : null}
+      {content.sections.map(renderStructuredSection)}
+    </View>
+  );
+
   const renderContribution = (contribution: ArticleContribution) => {
     const typeInfo = getContributionTypeInfo(contribution.type);
     const positive = contribution.validationSummary.WELL_SOURCED + contribution.validationSummary.ADDS_NUANCE;
@@ -1597,12 +1711,14 @@ export function ArticleDetailScreenContent({ loadArticle, missingText = 'Aucun d
                       {getScoreLabel(article.factCheckScore)} · {getSupportLabel(article.factCheckScore)}
                     </Text>
                   ) : null}
-                  {typeof article.sourcesCount === 'number' && article.sourcesCount > 0 ? (
+                  {sourceCount > 0 ? (
                     <Pressable style={[s.trustSourcesBtn, { borderColor: colors.border }]} onPress={() => setShowSourcesModal(true)}>
-                      <Text style={[s.trustSourcesBtnText, { color: colors.textTertiary }]}>{article.sourcesCount} sources analysées</Text>
+                      <Text style={[s.trustSourcesBtnText, { color: colors.textTertiary }]}>{sourceCount} sources analysees</Text>
                     </Pressable>
+                  ) : analysisInProgress ? (
+                    <Text style={[s.trustMetaLabel, { color: colors.textMuted }]}>Analyse des sources en cours</Text>
                   ) : (
-                    <Text style={[s.trustMetaLabel, { color: colors.textMuted }]}>0 source analysée</Text>
+                    <Text style={[s.trustMetaLabel, { color: colors.textMuted }]}>Sources non disponibles</Text>
                   )}
                 </View>
                 {statusLabel ? <Text style={[s.trustStatusLabel, { color: colors.textMuted }]}>{statusLabel}</Text> : null}
@@ -1641,13 +1757,28 @@ export function ArticleDetailScreenContent({ loadArticle, missingText = 'Aucun d
                     <View style={[s.highlightNotice, { borderColor: `${EPION_GREEN}66`, backgroundColor: `${EPION_GREEN}10` }]}>
                       <Highlighter size={16} color={EPION_GREEN} />
                       <Text style={[s.highlightNoticeText, { color: colors.textSecondary }]}>
-                        {hasHighlightableCitations
-                          ? 'Mode surlignage actif : les passages avec citations sont mis en avant.'
-                          : 'Mode surlignage actif. Le surlignage exact source-texte sera disponible quand les citations structurees seront presentes dans le texte.'}
+                        {hasHighlightMapping
+                          ? 'Mode surlignage actif : les passages relies aux sources sont mis en avant.'
+                          : "Mode surlignage actif, mais aucun mapping source-texte exploitable n'est present pour cet article."}
                       </Text>
                     </View>
                   ) : null}
-                  {renderMarkdownContent(article.body, colors.text, colors.text, colors.textTertiary, colors.border, isHighlightActive)}
+                  {renderMarkdownContent(article.body, colors.text, colors.text, colors.textTertiary, colors.border, isHighlightActive, sourceHighlightTerms)}
+                  {article.structuredContent ? renderStructuredContent(article.structuredContent) : null}
+                </View>
+              ) : article.structuredContent ? (
+                <View style={s.bodyContainer}>
+                  {isHighlightActive ? (
+                    <View style={[s.highlightNotice, { borderColor: `${EPION_GREEN}66`, backgroundColor: `${EPION_GREEN}10` }]}>
+                      <Highlighter size={16} color={EPION_GREEN} />
+                      <Text style={[s.highlightNoticeText, { color: colors.textSecondary }]}>
+                        {hasHighlightMapping
+                          ? 'Mode surlignage actif : les passages relies aux sources sont mis en avant.'
+                          : "Mode surlignage actif, mais aucun mapping source-texte exploitable n'est present pour cet article."}
+                      </Text>
+                    </View>
+                  ) : null}
+                  {renderStructuredContent(article.structuredContent)}
                 </View>
               ) : (
                 <Text style={[s.emptyText, { color: colors.textMuted }]}>Aucun contenu disponible.</Text>
@@ -2120,6 +2251,7 @@ export function ArticleDetailScreenContent({ loadArticle, missingText = 'Aucun d
           onClose={() => setShowSourcesModal(false)}
           sources={article.sources ?? []}
           colors={colors}
+          analysisInProgress={analysisInProgress}
         />
       ) : null}
     </View>
@@ -2187,6 +2319,19 @@ const s = StyleSheet.create({
   bodyContainer: { gap: 0 },
   highlightNotice: { borderRadius: Radius.lg, borderWidth: 1, flexDirection: 'row', gap: Spacing.sm, marginBottom: Spacing.md, paddingHorizontal: Spacing.md, paddingVertical: Spacing.sm },
   highlightNoticeText: { flex: 1, fontSize: FontSize.sm, lineHeight: 19 },
+  structuredContent: { gap: Spacing.lg, marginTop: Spacing.lg },
+  structuredLead: { fontSize: FontSize.lg, lineHeight: 27 },
+  structuredTakeaways: { gap: Spacing.sm },
+  structuredTakeaway: { borderRadius: Radius.md, borderWidth: 1, paddingHorizontal: Spacing.md, paddingVertical: Spacing.sm },
+  structuredTakeawayText: { fontSize: FontSize.sm, lineHeight: 19 },
+  structuredSection: { borderTopWidth: 1, gap: Spacing.sm, paddingTop: Spacing.lg },
+  structuredHighlighted: { backgroundColor: '#00dc8214' },
+  structuredSectionHeader: { alignItems: 'center', flexDirection: 'row', gap: Spacing.sm, justifyContent: 'space-between' },
+  structuredSectionTitle: { flex: 1, fontSize: FontSize.xl, fontWeight: '700', lineHeight: 27 },
+  structuredClaimCount: { fontSize: FontSize.xs, fontWeight: '700' },
+  structuredItems: { gap: Spacing.sm },
+  structuredItem: { borderLeftWidth: 3, borderRadius: Radius.sm, paddingLeft: Spacing.md, paddingVertical: 4 },
+  structuredItemText: { fontSize: FontSize.md, lineHeight: 24 },
 
   // Sources (expandable)
   sourcesSection: { gap: Spacing.sm },

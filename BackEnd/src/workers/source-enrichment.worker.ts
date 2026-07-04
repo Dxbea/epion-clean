@@ -165,16 +165,22 @@ export const sourceEnrichmentWorker = new Worker(
             liveAnalysis: job.data.liveAnalysis || null,
         });
 
-        // Write to DB — both score fields + lifecycle fields are written together
+        const hasEnrichedSources = enrichedSources.length > 0;
+        if (!hasEnrichedSources) {
+            factCheckData.status = 'FAILED';
+        }
+
+        // Write to DB: both score fields + lifecycle fields are written together.
+        // No sources means the source analysis did not complete successfully.
         await prisma.article.update({
             where: { id: articleId },
             data: {
                 factCheckScore,
                 factCheckData: factCheckData as any,
-                factCheckStatus: 'COMPLETED',
+                factCheckStatus: hasEnrichedSources ? 'COMPLETED' : 'FAILED',
                 factCheckContentHash: contentHash,
                 factCheckCompletedAt: new Date(),
-                factCheckError: null,
+                factCheckError: hasEnrichedSources ? null : 'No sources were available for enrichment',
             },
         });
 
@@ -182,6 +188,7 @@ export const sourceEnrichmentWorker = new Worker(
             enrichedCount: enrichedSources.length,
             finalScore: factCheckScore,
             supportLevel: factCheckData.supportLevel,
+            factCheckStatus: hasEnrichedSources ? 'COMPLETED' : 'FAILED',
         });
 
         return {

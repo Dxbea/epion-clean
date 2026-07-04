@@ -26,13 +26,15 @@ export type ArticleDetail = Article & {
   sourcesCount?: number;
   sources?: ArticleSource[];
   generationPrompt?: string;
-  structuredContentAvailable?: boolean;
+  structuredContent?: StructuredArticleContent;
+  sourceHighlights?: ArticleSourceHighlight[];
   viewsAll?: number;
   factCheckDetail?: ArticleFactCheckDetail;
 };
 
 export type ArticleSource = {
   id?: string;
+  sourceId?: string;
   name: string;
   domain: string;
   url?: string;
@@ -59,6 +61,58 @@ export type ArticleSource = {
   };
   justification?: string;
   liveScore?: number;
+};
+
+export type StructuredArticleSectionType = 'summary' | 'facts' | 'context' | 'analysis' | 'limits';
+
+export type StructuredArticleItem = {
+  id?: string;
+  text: string;
+  claimIds?: string[];
+  sourceIds?: string[];
+  sourceUrls?: string[];
+};
+
+export type StructuredArticleSection = {
+  id: string;
+  type: StructuredArticleSectionType;
+  title: string;
+  body?: string;
+  items?: StructuredArticleItem[];
+};
+
+export type StructuredArticleClaim = {
+  id: string;
+  text: string;
+  sectionId?: string;
+  sourceIds?: string[];
+  sourceUrls?: string[];
+  support?: 'strong' | 'medium' | 'limited' | 'unclear';
+};
+
+export type StructuredArticleContent = {
+  version: 1;
+  format: 'epion-article-v1';
+  lead?: {
+    summary?: string;
+    keyTakeaways?: string[];
+  };
+  sections: StructuredArticleSection[];
+  claims: StructuredArticleClaim[];
+  sources?: Array<{
+    id: string;
+    url: string;
+    title?: string;
+    domain?: string;
+  }>;
+};
+
+export type ArticleSourceHighlight = {
+  text?: string;
+  sourceId?: string;
+  sourceUrl?: string;
+  sourceIds?: string[];
+  sourceUrls?: string[];
 };
 
 export type ArticleFactCheckDetail = {
@@ -189,4 +243,5 @@ export type ArticleDetailApiItem = ArticleApiItem & {
   author?: unknown;
   generationPrompt?: unknown;
   structuredContent?: unknown;
+  sourceHighlights?: unknown;
 };

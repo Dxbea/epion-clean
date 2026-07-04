@@ -15,6 +15,11 @@ import type {
   ArticleValidationSummary,
   ArticleValidationType,
   ArticleSource,
+  ArticleSourceHighlight,
+  StructuredArticleClaim,
+  StructuredArticleContent,
+  StructuredArticleItem,
+  StructuredArticleSection,
 } from '@/types/article';
 
 export const API_BASE = 'https://api.epion.app';
@@ -257,6 +262,21 @@ function readRecord(value: unknown): Record<string, unknown> | null {
   return value && typeof value === 'object' && !Array.isArray(value) ? (value as Record<string, unknown>) : null;
 }
 
+function readJsonRecord(value: unknown): Record<string, unknown> | null {
+  const direct = readRecord(value);
+  if (direct) return direct;
+
+  if (typeof value === 'string' && value.trim()) {
+    try {
+      return readRecord(JSON.parse(value) as unknown);
+    } catch {
+      return null;
+    }
+  }
+
+  return null;
+}
+
 function readNestedNumber(record: Record<string, unknown> | null, keys: string[]): number | undefined {
   let current: unknown = record;
 
@@ -323,7 +343,8 @@ function normalizeArticleSource(item: unknown, index: number): ArticleSource | n
   const domain = resolveSourceDomain(record);
   const url = readOptionalText(record.url) ?? readOptionalText(record.link);
   const trustScore = resolveSourceScore(record);
-  const id = readOptionalText(record.id) ?? readOptionalText(record.sourceId) ?? (url ? undefined : String(index));
+  const sourceId = readOptionalText(record.sourceId);
+  const id = readOptionalText(record.id) ?? sourceId ?? (url ? undefined : String(index));
   const type = readOptionalText(record.type) ?? readOptionalText(record.category);
   const description = readOptionalText(record.description) ?? readOptionalText(readRecord(record.metadata)?.description);
 
@@ -353,6 +374,7 @@ function normalizeArticleSource(item: unknown, index: number): ArticleSource | n
 
   return {
     ...(id ? { id } : {}),
+    ...(sourceId ? { sourceId } : {}),
     name: domain,
     domain,
     ...(url ? { url } : {}),
@@ -378,7 +400,7 @@ function normalizeArticleSources(sources: unknown, factCheckData: unknown): Arti
 }
 
 function readFactCheckScore(item: ArticleDetailApiItem): number | undefined {
-  const factCheckData = readRecord(item.factCheckData);
+  const factCheckData = readJsonRecord(item.factCheckData);
   return (
     readOptionalNumber(item.factCheckScore) ??
     readOptionalNumber(factCheckData?.score) ??
@@ -726,30 +748,15 @@ function getArticlePayload(payload: unknown): ArticleDetailApiItem | null {
 }
 
 function countPotentialSources(sources: unknown, factCheckData: unknown): number | undefined {
-  const candidates = [sources, factCheckData];
-
-  for (const candidate of candidates) {
-    if (Array.isArray(candidate)) {
-      return candidate.length;
-    }
-
-    if (candidate && typeof candidate === 'object') {
-      const nested = (candidate as Record<string, unknown>).sources;
-      if (Array.isArray(nested)) {
-        return nested.length;
-      }
-    }
-  }
-
-  return undefined;
+  const parsed = parsePotentialSources(sources, factCheckData);
+  return parsed.length > 0 ? parsed.length : undefined;
 }
 
 function readSupportLevel(factCheckData: unknown, score?: number): string | undefined {
-  if (factCheckData && typeof factCheckData === 'object') {
-    const supportLevel = readOptionalText((factCheckData as Record<string, unknown>).supportLevel);
-    if (supportLevel) {
-      return supportLevel;
-    }
+  const factCheckRecord = readJsonRecord(factCheckData);
+  const supportLevel = readOptionalText(factCheckRecord?.supportLevel);
+  if (supportLevel) {
+    return supportLevel;
   }
 
   if (score === undefined) {
@@ -860,9 +867,11 @@ function normalizeArticleDetail(item: ArticleDetailApiItem | null, fallbackId: s
   const sources = normalizeArticleSources(item.sources, item.factCheckData);
   const sourcesCount = sources.length || countPotentialSources(item.sources, item.factCheckData);
   const supportLevel = readSupportLevel(item.factCheckData, factCheckScore);
+  const structuredContent = normalizeStructuredContent(item.structuredContent);
+  const sourceHighlights = normalizeSourceHighlights(item.sourceHighlights);
 
   // Build factCheckDetail from factCheckData
-  const fcd = readRecord(item.factCheckData);
+  const fcd = readJsonRecord(item.factCheckData);
   const calcRec = readRecord(fcd?.calculation);
   const rawSourceScore = readOptionalNumber(calcRec?.sourcesMean) ?? readOptionalNumber(fcd?.sourcesMean) ?? 0;
   const aiScore = readOptionalNumber(calcRec?.contentScore) ?? readOptionalNumber(calcRec?.liveScore) ?? readOptionalNumber(fcd?.liveScore) ?? 0;
@@ -887,9 +896,130 @@ function normalizeArticleDetail(item: ArticleDetailApiItem | null, fallbackId: s
     ...(sourcesCount !== undefined ? { sourcesCount } : {}),
     ...(sources.length > 0 ? { sources } : {}),
     ...(generationPrompt ? { generationPrompt } : {}),
-    ...(item.structuredContent ? { structuredContentAvailable: true } : {}),
+    ...(structuredContent ? { structuredContent } : {}),
+    ...(sourceHighlights ? { sourceHighlights } : {}),
     ...(factCheckDetail ? { factCheckDetail } : {}),
   };
+}
+
+function readStringArray(value: unknown): string[] | undefined {
+  if (!Array.isArray(value)) return undefined;
+  const items = value.filter((item): item is string => typeof item === 'string' && item.trim().length > 0);
+  return items.length > 0 ? items : undefined;
+}
+
+function normalizeStructuredItems(value: unknown): StructuredArticleItem[] | undefined {
+  if (!Array.isArray(value)) return undefined;
+  const items = value
+    .map((item): StructuredArticleItem | null => {
+      const record = readRecord(item);
+      const textValue = readOptionalText(record?.text);
+      if (!record || !textValue) return null;
+      return {
+        ...(readOptionalText(record.id) ? { id: readOptionalText(record.id) } : {}),
+        text: textValue,
+        ...(readStringArray(record.claimIds) ? { claimIds: readStringArray(record.claimIds) } : {}),
+        ...(readStringArray(record.sourceIds) ? { sourceIds: readStringArray(record.sourceIds) } : {}),
+        ...(readStringArray(record.sourceUrls) ? { sourceUrls: readStringArray(record.sourceUrls) } : {}),
+      };
+    })
+    .filter((item): item is StructuredArticleItem => item !== null);
+  return items.length > 0 ? items : undefined;
+}
+
+function normalizeStructuredSections(value: unknown): StructuredArticleSection[] {
+  if (!Array.isArray(value)) return [];
+  return value
+    .map((section, index): StructuredArticleSection | null => {
+      const record = readRecord(section);
+      const title = readOptionalText(record?.title);
+      if (!record || !title) return null;
+      const sectionType = readOptionalText(record.type);
+      return {
+        id: readOptionalText(record.id) ?? `section_${index + 1}`,
+        type: sectionType === 'summary' || sectionType === 'facts' || sectionType === 'context' || sectionType === 'analysis' || sectionType === 'limits' ? sectionType : 'analysis',
+        title,
+        ...(readOptionalText(record.body) ? { body: readOptionalText(record.body) } : {}),
+        ...(normalizeStructuredItems(record.items) ? { items: normalizeStructuredItems(record.items) } : {}),
+      };
+    })
+    .filter((section): section is StructuredArticleSection => section !== null);
+}
+
+function normalizeStructuredClaims(value: unknown): StructuredArticleClaim[] {
+  if (!Array.isArray(value)) return [];
+  return value
+    .map((claim, index): StructuredArticleClaim | null => {
+      const record = readRecord(claim);
+      const textValue = readOptionalText(record?.text);
+      if (!record || !textValue) return null;
+      const support = readOptionalText(record.support);
+      return {
+        id: readOptionalText(record.id) ?? `claim_${index + 1}`,
+        text: textValue,
+        ...(readOptionalText(record.sectionId) ? { sectionId: readOptionalText(record.sectionId) } : {}),
+        ...(readStringArray(record.sourceIds) ? { sourceIds: readStringArray(record.sourceIds) } : {}),
+        ...(readStringArray(record.sourceUrls) ? { sourceUrls: readStringArray(record.sourceUrls) } : {}),
+        ...(support === 'strong' || support === 'medium' || support === 'limited' || support === 'unclear' ? { support } : {}),
+      };
+    })
+    .filter((claim): claim is StructuredArticleClaim => claim !== null);
+}
+
+function normalizeStructuredContent(value: unknown): StructuredArticleContent | undefined {
+  const record = readJsonRecord(value);
+  if (!record || record.version !== 1 || record.format !== 'epion-article-v1') return undefined;
+  const sections = normalizeStructuredSections(record.sections);
+  if (sections.length === 0) return undefined;
+  const lead = readRecord(record.lead);
+  const sourceRefs = Array.isArray(record.sources)
+    ? record.sources
+        .map((source) => {
+          const sourceRecord = readRecord(source);
+          const id = readOptionalText(sourceRecord?.id);
+          const url = readOptionalText(sourceRecord?.url);
+          if (!id || !url) return null;
+          return {
+            id,
+            url,
+            ...(readOptionalText(sourceRecord?.title) ? { title: readOptionalText(sourceRecord?.title) } : {}),
+            ...(readOptionalText(sourceRecord?.domain) ? { domain: readOptionalText(sourceRecord?.domain) } : {}),
+          };
+        })
+        .filter((source): source is NonNullable<typeof source> => source !== null)
+    : undefined;
+
+  return {
+    version: 1,
+    format: 'epion-article-v1',
+    ...(lead ? {
+      lead: {
+        ...(readOptionalText(lead.summary) ? { summary: readOptionalText(lead.summary) } : {}),
+        ...(readStringArray(lead.keyTakeaways) ? { keyTakeaways: readStringArray(lead.keyTakeaways) } : {}),
+      },
+    } : {}),
+    sections,
+    claims: normalizeStructuredClaims(record.claims),
+    ...(sourceRefs && sourceRefs.length > 0 ? { sources: sourceRefs } : {}),
+  };
+}
+
+function normalizeSourceHighlights(value: unknown): ArticleSourceHighlight[] | undefined {
+  if (!Array.isArray(value)) return undefined;
+  const highlights = value
+    .map((highlight): ArticleSourceHighlight | null => {
+      const record = readRecord(highlight);
+      if (!record) return null;
+      return {
+        ...(readOptionalText(record.text) ? { text: readOptionalText(record.text) } : {}),
+        ...(readOptionalText(record.sourceId) ? { sourceId: readOptionalText(record.sourceId) } : {}),
+        ...(readOptionalText(record.sourceUrl) ? { sourceUrl: readOptionalText(record.sourceUrl) } : {}),
+        ...(readStringArray(record.sourceIds) ? { sourceIds: readStringArray(record.sourceIds) } : {}),
+        ...(readStringArray(record.sourceUrls) ? { sourceUrls: readStringArray(record.sourceUrls) } : {}),
+      };
+    })
+    .filter((highlight): highlight is ArticleSourceHighlight => highlight !== null);
+  return highlights.length > 0 ? highlights : undefined;
 }
 
 function readEditableArticleStatus(value: unknown): EditableArticleStatus {
