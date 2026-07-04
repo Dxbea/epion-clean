@@ -40,7 +40,7 @@ function tabCount(stats: MyArticleStats | null, status: MyArticleStatus): number
 export default function AccountScreen() {
   const router = useRouter();
   const colors = useTheme();
-  const { user, loading: authLoading, signIn, signOut, refreshSession } = useAuth();
+  const { user, loading: authLoading, signIn, refreshSession } = useAuth();
 
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
@@ -134,19 +134,6 @@ export default function AccountScreen() {
     }
   }, [email, password, signIn]);
 
-  const logout = useCallback(async () => {
-    setAuthBusy(true);
-    setAuthMessage(null);
-
-    try {
-      await signOut();
-      setAuthMessage('Deconnecte.');
-    } catch {
-      setAuthMessage('Erreur reseau pendant la deconnexion.');
-    } finally {
-      setAuthBusy(false);
-    }
-  }, [signOut]);
 
   const refresh = useCallback(async () => {
     setAuthBusy(true);
@@ -194,7 +181,6 @@ export default function AccountScreen() {
               <View style={styles.profileActions}>
                 <Button title="Modifier" onPress={() => router.push('/settings/account')} variant="secondary" size="sm" rounded />
                 <Button title="Rafraichir" onPress={refresh} variant="ghost" size="sm" disabled={authBusy || authLoading} />
-                <Button title="Deconnexion" onPress={logout} variant="ghost" size="sm" disabled={authBusy || authLoading} />
               </View>
             </View>
           </View>

@@ -1,5 +1,5 @@
 import type { ReactNode } from 'react';
-import { ScrollView, StyleSheet, Text, View } from 'react-native';
+import { ScrollView, StyleSheet, Text, View, type StyleProp, type ViewStyle } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 import { useTheme } from '@/hooks/use-theme';
@@ -10,16 +10,17 @@ type ScreenProps = {
   subtitle?: string;
   children?: ReactNode;
   headerRight?: ReactNode;
+  contentStyle?: StyleProp<ViewStyle>;
 };
 
-export function Screen({ title, subtitle, children, headerRight }: ScreenProps) {
+export function Screen({ title, subtitle, children, headerRight, contentStyle }: ScreenProps) {
   const colors = useTheme();
   const insets = useSafeAreaInsets();
 
   return (
     <View style={[styles.screen, { backgroundColor: colors.background }]}>
       <ScrollView
-        contentContainerStyle={[styles.content, { paddingTop: insets.top + Spacing['2xl'] }]}
+        contentContainerStyle={[styles.content, { paddingTop: insets.top + Spacing['2xl'] }, contentStyle]}
         showsVerticalScrollIndicator={false}
       >
         {title || subtitle || headerRight ? (

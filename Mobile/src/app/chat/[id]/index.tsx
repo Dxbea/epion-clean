@@ -1,5 +1,5 @@
 import { Link, router, useLocalSearchParams, type Href } from 'expo-router';
-import { ArrowUp, ChevronDown, Folder, FolderPlus, Home, Menu, MessageCircle, Mic, MoreHorizontal, Plus, Search, Settings, ShieldCheck, SlidersHorizontal, Sparkles, X } from 'lucide-react-native';
+import { ArrowUp, ChevronDown, Folder, FolderPlus, Menu, MessageCircle, Mic, MoreHorizontal, Newspaper, Plus, Search, Settings, ShieldCheck, SlidersHorizontal, Sparkles, UserCircle, X } from 'lucide-react-native';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { ActivityIndicator, Alert, KeyboardAvoidingView, Modal, Platform, Pressable, ScrollView, StyleSheet, Switch, Text, TextInput, View } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
@@ -242,22 +242,23 @@ function Composer(props: { draft: string; isSending: boolean; modeMenuOpen: bool
   const isDark = colors.scheme === 'dark';
   const selectedStyle = RESPONSE_STYLES.find((item) => item.id === props.responseStyle) ?? RESPONSE_STYLES[1];
   const canSend = props.draft.trim().length > 0 && !props.isSending;
+  const composerSurface = colors.backgroundElevated;
   const switchTrack = { false: isDark ? 'rgba(255,255,255,0.18)' : '#D4D4D4', true: isDark ? 'rgba(52,211,153,0.36)' : '#A7F3D0' };
 
   const openVoiceFallback = () => {
     Alert.alert('Dictee vocale', 'Utilise la dictee du clavier de ton telephone. Une integration micro native demandera un module mobile dedie.');
   };
 
-  return <View style={[styles.composerShell, { backgroundColor: isDark ? 'rgba(23,27,34,0.78)' : 'rgba(255,255,255,0.78)', borderColor: isDark ? 'rgba(255,255,255,0.10)' : 'rgba(0,0,0,0.10)', shadowColor: colors.shadow }]}>
+  return <View style={[styles.composerShell, { backgroundColor: composerSurface, borderColor: isDark ? 'rgba(255,255,255,0.10)' : 'rgba(0,0,0,0.10)', shadowColor: colors.shadow }]}>
     <View style={styles.composerTopRow}><Pressable onPress={props.onToggleModeMenu} style={({ pressed }) => [styles.modelButton, pressed ? styles.softPressed : null]}><Sparkles size={15} color="#F59E0B" /><Text style={[styles.modelButtonText, { color: colors.textMuted }]}>{selectedStyle.label}</Text><ChevronDown size={15} color={colors.textMuted} /></Pressable></View>
-    {props.modeMenuOpen ? <View style={[styles.menuPanel, { backgroundColor: colors.backgroundElevated, borderColor: colors.border }]}>{RESPONSE_STYLES.map((option) => { const active = option.id === props.responseStyle; return <Pressable key={option.id} onPress={() => props.onSelectResponseStyle(option.id)} style={[styles.menuOption, active ? { backgroundColor: colors.backgroundSubtle } : null]}><Text style={[styles.menuOptionTitle, { color: colors.text }]}>{option.label}</Text><Text style={[styles.menuOptionDescription, { color: colors.textMuted }]}>{option.desc}</Text></Pressable>; })}</View> : null}
-    {props.transparencyOpen ? <View style={[styles.transparencyPanel, { backgroundColor: colors.backgroundElevated, borderColor: colors.border }]}>
+    {props.modeMenuOpen ? <View style={[styles.menuPanel, { backgroundColor: composerSurface, borderColor: colors.border }]}>{RESPONSE_STYLES.map((option) => { const active = option.id === props.responseStyle; return <Pressable key={option.id} onPress={() => props.onSelectResponseStyle(option.id)} style={[styles.menuOption, active ? { backgroundColor: colors.backgroundSubtle } : null]}><Text style={[styles.menuOptionTitle, { color: colors.text }]}>{option.label}</Text><Text style={[styles.menuOptionDescription, { color: colors.textMuted }]}>{option.desc}</Text></Pressable>; })}</View> : null}
+    {props.transparencyOpen ? <View style={[styles.transparencyPanel, { backgroundColor: composerSurface, borderColor: colors.border }]}>
       <TransparencyToggle title="Filtre de sources" detail={props.sourceRestricted ? 'Priorite aux domaines .gov, .edu et presse accreditee.' : 'Recherche ouverte sur tout le web.'} value={props.sourceRestricted} onValueChange={props.onSourceRestricted} colors={colors} switchTrack={switchTrack} />
       <TransparencyToggle title="Neutralite" detail={props.neutralityForced ? 'Interdiction de donner un avis.' : 'Analyse nuancee autorisee.'} value={props.neutralityForced} onValueChange={props.onNeutralityForced} colors={colors} switchTrack={switchTrack} />
       <TransparencyToggle title="News recentes" detail={props.timeRecent ? 'Se concentrer sur les dernieres 48h.' : 'Recherche historique + temps reel.'} value={props.timeRecent} onValueChange={props.onTimeRecent} colors={colors} switchTrack={switchTrack} />
     </View> : null}
-    <View style={styles.inputRow}><Pressable style={({ pressed }) => [styles.importButton, pressed ? styles.softPressed : null]} onPress={() => Alert.alert('Importer', 'Documents et images suivront le comportement web lorsque l upload mobile sera active.')}><Plus size={21} color={colors.textMuted} /></Pressable><TextInput value={props.draft} onChangeText={(value) => props.onChangeDraft(value.slice(0, 8000))} editable={!props.isSending} multiline keyboardType="default" autoCapitalize="sentences" autoCorrect spellCheck textContentType="none" maxLength={8000} placeholder="Ask Epion something..." placeholderTextColor={colors.inputPlaceholder} style={[styles.input, { color: colors.text }]} /><Pressable onPress={openVoiceFallback} style={({ pressed }) => [styles.voiceButton, { borderColor: colors.borderSubtle }, pressed ? styles.softPressed : null]}><Mic size={18} color={colors.textMuted} /></Pressable><Pressable disabled={!canSend} onPress={props.onSend} style={[styles.sendButton, { backgroundColor: colors.primary }, !canSend ? styles.sendButtonDisabled : null]}><ArrowUp size={19} color={colors.primaryText} /></Pressable></View>
-    <View style={styles.composerFooterRow}><Pressable onPress={props.onToggleTransparency} style={({ pressed }) => [styles.transparencyButton, props.transparencyOpen ? { backgroundColor: colors.backgroundSubtle } : null, pressed ? styles.softPressed : null]}><SlidersHorizontal size={15} color={colors.textMuted} /><Text style={[styles.transparencyText, { color: colors.textMuted }]}>Transparence</Text></Pressable></View>
+    <View style={styles.inputRow}><Pressable style={({ pressed }) => [styles.importButton, pressed ? styles.softPressed : null]} onPress={() => Alert.alert('Importer', 'Documents et images suivront le comportement web lorsque l upload mobile sera active.')}><Plus size={21} color={colors.textMuted} /></Pressable><TextInput value={props.draft} onChangeText={(value) => props.onChangeDraft(value.slice(0, 8000))} editable={!props.isSending} multiline keyboardType="default" autoCapitalize="sentences" autoCorrect spellCheck textContentType="none" maxLength={8000} underlineColorAndroid="transparent" placeholder="Ask Epion something..." placeholderTextColor={colors.inputPlaceholder} style={[styles.input, { color: colors.text }]} /><Pressable onPress={openVoiceFallback} style={({ pressed }) => [styles.voiceButton, { borderColor: colors.borderSubtle }, pressed ? styles.softPressed : null]}><Mic size={18} color={colors.textMuted} /></Pressable><Pressable disabled={!canSend} onPress={props.onSend} style={[styles.sendButton, { backgroundColor: colors.primary }, !canSend ? styles.sendButtonDisabled : null]}><ArrowUp size={19} color={colors.primaryText} /></Pressable></View>
+    <View style={styles.composerFooterRow}><Pressable onPress={props.onToggleTransparency} style={({ pressed }) => [styles.transparencyButton, pressed ? styles.softPressed : null]}><SlidersHorizontal size={15} color={colors.textMuted} /><Text style={[styles.transparencyText, { color: colors.textMuted }]}>Transparence</Text></Pressable></View>
   </View>;
 }
 
@@ -270,7 +271,7 @@ function ChatDrawer(props: { open: boolean; conversations: ChatSessionSummary[];
   const iconColor = colors.textMuted;
 
   return <Modal visible={props.open} transparent animationType="fade" onRequestClose={props.onClose}><View style={styles.drawerBackdrop}><Pressable style={[styles.drawerScrim, { backgroundColor: colors.scheme === 'dark' ? 'rgba(0,0,0,0.58)' : 'rgba(0,0,0,0.40)' }]} onPress={props.onClose} /><View style={[styles.drawerPanel, { backgroundColor: colors.scheme === 'dark' ? 'rgba(14,17,22,0.98)' : 'rgba(255,255,255,0.98)', borderRightColor: colors.border }]}><View style={styles.drawerHeader}><Pressable onPress={props.onClose} style={[styles.drawerIconButton, { backgroundColor: colors.backgroundElevated, borderColor: colors.border }]}><X size={20} color={colors.text} /></Pressable></View><ScrollView contentContainerStyle={styles.drawerContent} showsVerticalScrollIndicator={false}>
-    <View style={[styles.drawerNavBlock, { borderBottomColor: colors.borderSubtle }]}><DrawerNavItem href="/" icon={<Home size={17} color={iconColor} />} label="Accueil" onClose={props.onClose} /><DrawerNavItem href="/news" icon={<MessageCircle size={17} color={iconColor} />} label="News" onClose={props.onClose} /><DrawerNavItem href="/settings" icon={<Settings size={17} color={iconColor} />} label="Parametres" onClose={props.onClose} /></View>
+    <View style={[styles.drawerNavBlock, { borderBottomColor: colors.borderSubtle }]}><DrawerNavItem href="/news" icon={<Newspaper size={17} color={iconColor} />} label="News" onClose={props.onClose} /><DrawerNavItem href="/chat" icon={<MessageCircle size={17} color={iconColor} />} label="Chat" onClose={props.onClose} /><DrawerNavItem href="/account" icon={<UserCircle size={17} color={iconColor} />} label="Compte" onClose={props.onClose} /><DrawerNavItem href="/settings" icon={<Settings size={17} color={iconColor} />} label="Parametres" onClose={props.onClose} /></View>
     <DrawerButton primary disabled={props.isCreating} icon={<Plus size={18} color={colors.text} />} label={props.isCreating ? 'Creation...' : 'Nouveau chat'} onPress={props.onNewChat} /><DrawerButton icon={<Search size={17} color={iconColor} />} label="Rechercher" onPress={props.onOpenSearch} /><DrawerButton icon={<FolderPlus size={17} color={iconColor} />} label="Nouveau dossier" onPress={props.onOpenNewFolder} />
     <Text style={[styles.drawerSectionTitle, { color: colors.textSecondary }]}>Dossiers</Text>{props.folders.length === 0 ? <Text style={[styles.drawerEmptyText, { borderColor: colors.border, color: colors.textMuted }]}>Aucun dossier</Text> : null}{props.folders.slice(0, 3).map((folder) => <View key={folder.id} style={styles.drawerRowWrap}><Pressable onPress={() => props.onOpenFolder(folder.id)} style={({ pressed }) => [styles.drawerRowMain, pressed ? styles.softPressed : null]}><Folder size={16} color={iconColor} /><Text style={[styles.drawerRowText, { color: colors.textTertiary }]} numberOfLines={1}>{folder.name}</Text></Pressable><Pressable onPress={() => Alert.alert(folder.name, undefined, [{ text: 'Supprimer le dossier', style: 'destructive', onPress: () => props.onDeleteFolder(folder) }, { text: 'Annuler', style: 'cancel' }])} style={styles.drawerMoreButton}><MoreHorizontal size={17} color={iconColor} /></Pressable></View>)}
     <Text style={[styles.drawerSectionTitle, { color: colors.textSecondary }]}>Chats</Text>{props.conversations.map((conversation) => { const active = conversation.id === props.currentId; return <View key={conversation.id} style={[styles.drawerRowWrap, active ? [styles.drawerRowActive, { backgroundColor: colors.tabBarActive }] : null]}><Pressable onPress={() => props.onOpenChat(conversation.id)} style={({ pressed }) => [styles.drawerRowMain, pressed ? styles.softPressed : null]}><Text style={[styles.drawerRowText, { color: colors.textTertiary }, active ? [styles.drawerRowTextActive, { color: colors.text }] : null]} numberOfLines={1}>{titleOf(conversation)}</Text></Pressable><Pressable onPress={() => Alert.alert(titleOf(conversation), undefined, [{ text: 'Ouvrir', onPress: () => props.onOpenChat(conversation.id) }, { text: 'Deplacer vers...', onPress: () => props.onMoveChat(conversation) }, { text: 'Supprimer', style: 'destructive', onPress: () => props.onDeleteChat(conversation) }, { text: 'Annuler', style: 'cancel' }])} style={styles.drawerMoreButton}><MoreHorizontal size={17} color={iconColor} /></Pressable></View>; })}
@@ -328,27 +329,27 @@ const styles = StyleSheet.create({
   progressText: { color: '#525252', fontSize: 13, fontWeight: '700' },
   inputDock: { backgroundColor: 'rgba(250,250,245,0.92)', borderTopWidth: 0, paddingHorizontal: 12, paddingTop: 8 },
   composerShell: { backgroundColor: 'rgba(255,255,255,0.78)', borderColor: 'rgba(0,0,0,0.10)', borderRadius: 22, borderWidth: 1, elevation: 8, gap: 7, padding: 8, shadowOffset: { width: 0, height: 10 }, shadowOpacity: 0.08, shadowRadius: 20 },
-  composerTopRow: { alignItems: 'center', flexDirection: 'row', justifyContent: 'flex-start' },
-  modelButton: { alignItems: 'center', borderRadius: 8, flexDirection: 'row', gap: 6, paddingHorizontal: 8, paddingVertical: 7 },
+  composerTopRow: { alignItems: 'center', backgroundColor: 'transparent', flexDirection: 'row', justifyContent: 'flex-start' },
+  modelButton: { alignItems: 'center', backgroundColor: 'transparent', borderRadius: 8, flexDirection: 'row', gap: 6, paddingHorizontal: 8, paddingVertical: 7 },
   modelButtonText: { color: '#525252', fontSize: 13, fontWeight: '800' },
-  transparencyButton: { alignItems: 'center', borderRadius: 8, flexDirection: 'row', gap: 5, marginLeft: 8, paddingHorizontal: 8, paddingVertical: 6 },
+  transparencyButton: { alignItems: 'center', backgroundColor: 'transparent', borderRadius: 8, flexDirection: 'row', gap: 5, marginLeft: 8, paddingHorizontal: 8, paddingVertical: 6 },
   transparencyText: { color: '#737373', fontSize: 12, fontWeight: '700' },
-  menuPanel: { backgroundColor: '#FFFFFF', borderColor: 'rgba(0,0,0,0.10)', borderRadius: 12, borderWidth: 1, overflow: 'hidden' },
+  menuPanel: { backgroundColor: 'transparent', borderColor: 'rgba(0,0,0,0.10)', borderRadius: 12, borderWidth: 1, overflow: 'hidden' },
   menuOption: { paddingHorizontal: 12, paddingVertical: 10 },
   menuOptionTitle: { color: '#0A0A0A', fontSize: 14, fontWeight: '800' },
   menuOptionDescription: { color: '#737373', fontSize: 12, marginTop: 2 },
-  inputRow: { alignItems: 'flex-end', flexDirection: 'row', gap: 7 },
-  importButton: { alignItems: 'center', borderRadius: 10, height: 36, justifyContent: 'center', width: 36 },
-  voiceButton: { alignItems: 'center', borderRadius: 999, borderWidth: 1, height: 36, justifyContent: 'center', width: 36 },
-  input: { color: '#0A0A0A', flex: 1, fontSize: 16, lineHeight: 22, maxHeight: 132, minHeight: 34, paddingHorizontal: 2, paddingTop: 6, paddingBottom: 6, textAlignVertical: 'top' },
+  inputRow: { alignItems: 'flex-end', backgroundColor: 'transparent', flexDirection: 'row', gap: 7 },
+  importButton: { alignItems: 'center', backgroundColor: 'transparent', borderRadius: 10, height: 36, justifyContent: 'center', width: 36 },
+  voiceButton: { alignItems: 'center', backgroundColor: 'transparent', borderRadius: 999, borderWidth: 1, height: 36, justifyContent: 'center', width: 36 },
+  input: { backgroundColor: 'transparent', color: '#0A0A0A', flex: 1, fontSize: 16, lineHeight: 22, maxHeight: 132, minHeight: 34, paddingHorizontal: 2, paddingTop: 6, paddingBottom: 6, textAlignVertical: 'top' },
   sendButton: { alignItems: 'center', backgroundColor: '#0A0A0A', borderRadius: 999, height: 36, justifyContent: 'center', width: 36 },
   sendButtonDisabled: { opacity: 0.45 },
-  responseStyleRow: { alignItems: 'center', backgroundColor: 'rgba(0,0,0,0.03)', borderColor: 'rgba(0,0,0,0.05)', borderRadius: 9, borderWidth: 1, flexDirection: 'row', flexShrink: 1, gap: 2, padding: 3 },
+  responseStyleRow: { alignItems: 'center', backgroundColor: 'transparent', borderColor: 'rgba(0,0,0,0.05)', borderRadius: 9, borderWidth: 1, flexDirection: 'row', flexShrink: 1, gap: 2, padding: 3 },
   responseStyleButton: { borderRadius: 7, paddingHorizontal: 8, paddingVertical: 6 },
-  responseStyleButtonActive: { backgroundColor: '#FFFFFF' },
+  responseStyleButtonActive: { backgroundColor: 'transparent' },
   responseStyleText: { color: '#737373', fontSize: 12, fontWeight: '700' },
   responseStyleTextActive: { color: '#0A0A0A' },
-  composerFooterRow: { alignItems: 'center', flexDirection: 'row', justifyContent: 'flex-end' },
+  composerFooterRow: { alignItems: 'center', backgroundColor: 'transparent', flexDirection: 'row', justifyContent: 'flex-end' },
   transparencyPanel: { borderRadius: 12, borderWidth: 1, overflow: 'hidden' },
   transparencyRow: { alignItems: 'center', borderBottomWidth: 1, flexDirection: 'row', gap: 12, paddingHorizontal: 12, paddingVertical: 10 },
   transparencyCopy: { flex: 1, minWidth: 0 },

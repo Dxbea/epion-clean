@@ -1,7 +1,7 @@
-import { Link, type Href, useLocalSearchParams } from 'expo-router';
+import { Link, Stack, type Href, useLocalSearchParams } from 'expo-router';
 import { useCallback, useEffect, useMemo, useState, type ReactNode } from 'react';
 import { ActivityIndicator, Alert, Pressable, StyleSheet, Text, View } from 'react-native';
-import { Bell, Check, ChevronLeft, Database, Eye, Lock, Palette, Shield, UserCircle } from 'lucide-react-native';
+import { Bell, Check, Database, Eye, Lock, Palette, Shield, UserCircle } from 'lucide-react-native';
 
 import { Button, Card, Input, Screen } from '@/components/ui';
 import { useAuth } from '@/context/AuthContext';
@@ -55,27 +55,16 @@ function userLabel(user: ReturnType<typeof useAuth>['user']): string {
   return user?.displayName?.trim() || user?.name?.trim() || user?.username?.trim() || user?.email?.split('@')[0] || 'Account';
 }
 
-function PageHeader({ meta }: { meta: CategoryMeta }) {
+function SettingsHeaderTitle({ meta }: { meta: CategoryMeta }) {
   const colors = useTheme();
   const Icon = meta.icon;
 
   return (
-    <View style={styles.headerStack}>
-      <Link href={'/settings' as Href} asChild>
-        <Pressable style={styles.backLink}>
-          <ChevronLeft size={16} color={colors.textSecondary} strokeWidth={2} />
-          <Text style={[styles.backText, { color: colors.textSecondary }]}>Back to settings</Text>
-        </Pressable>
-      </Link>
-      <View style={styles.categoryHeader}>
-        <View style={[styles.categoryIcon, { backgroundColor: colors.backgroundSubtle }]}>
-          <Icon size={22} color={colors.text} />
-        </View>
-        <View style={styles.flexOne}>
-          <Text style={[styles.screenHeading, { color: colors.text, fontFamily: Fonts.display }]}>{meta.title}</Text>
-          <Text style={[styles.sectionDesc, { color: colors.textSecondary }]}>{meta.subtitle}</Text>
-        </View>
+    <View style={styles.headerTitle}>
+      <View style={[styles.headerIcon, { backgroundColor: colors.backgroundSubtle, borderColor: colors.borderSubtle }]}>
+        <Icon size={18} color={colors.text} strokeWidth={2} />
       </View>
+      <Text style={[styles.headerTitleText, { color: colors.text }]}>{meta.title}</Text>
     </View>
   );
 }
@@ -394,22 +383,21 @@ export default function SettingsCategoryScreen() {
   const params = useLocalSearchParams<{ category?: string | string[] }>();
   const rawCategory = useMemo(() => (Array.isArray(params.category) ? params.category[0] : params.category) ?? '', [params.category]);
   const category = normalizeCategory(rawCategory);
+  const meta = category ? categoryMeta[category] : { title: 'Settings', subtitle: 'This settings section does not exist.', icon: UserCircle };
+  const header = <Stack.Screen options={{ title: meta.title, headerTitle: () => <SettingsHeaderTitle meta={meta} /> }} />;
 
-  if (!category) return <Screen title="" subtitle=""><PageHeader meta={{ title: 'Settings', subtitle: 'This settings section does not exist.', icon: UserCircle }} /><Panel><Text style={{ color: colors.textSecondary }}>Choose another settings section.</Text></Panel></Screen>;
+  if (!category) return <>{header}<Screen title="" subtitle="" contentStyle={styles.detailScreenContent}><Panel><Text style={{ color: colors.textSecondary }}>Choose another settings section.</Text></Panel></Screen></>;
 
-  const meta = categoryMeta[category];
-  if (!user && category !== 'account') return <Screen title="" subtitle=""><PageHeader meta={meta} /><Panel><Text style={[styles.subDesc, { color: colors.textSecondary }]}>Like the web app, this settings section requires an active account session.</Text><Link href={'/settings/account' as Href} asChild><Pressable><Text style={[styles.linkButtonText, { color: colors.text }]}>Go to Account</Text></Pressable></Link></Panel></Screen>;
+  if (!user && category !== 'account') return <>{header}<Screen title="" subtitle="" contentStyle={styles.detailScreenContent}><Panel><Text style={[styles.subDesc, { color: colors.textSecondary }]}>Like the web app, this settings section requires an active account session.</Text><Link href={'/settings/account' as Href} asChild><Pressable><Text style={[styles.linkButtonText, { color: colors.text }]}>Go to Account</Text></Pressable></Link></Panel></Screen></>;
 
-  return <Screen title="" subtitle=""><PageHeader meta={meta} />{category === 'account' ? <AccountSection /> : null}{category === 'security' ? <SecuritySection /> : null}{category === 'privacy' ? <PrivacySection /> : null}{category === 'data' ? <DataSection /> : null}{category === 'appearance' ? <AppearanceSection /> : null}{category === 'notifications' ? <NotificationsSection /> : null}{category === 'accessibility' ? <AccessibilitySection /> : null}</Screen>;
+  return <>{header}<Screen title="" subtitle="" contentStyle={styles.detailScreenContent}>{category === 'account' ? <AccountSection /> : null}{category === 'security' ? <SecuritySection /> : null}{category === 'privacy' ? <PrivacySection /> : null}{category === 'data' ? <DataSection /> : null}{category === 'appearance' ? <AppearanceSection /> : null}{category === 'notifications' ? <NotificationsSection /> : null}{category === 'accessibility' ? <AccessibilitySection /> : null}</Screen></>;
 }
 
 const styles = StyleSheet.create({
-  headerStack: { gap: Spacing.lg },
-  backLink: { alignItems: 'center', alignSelf: 'flex-start', flexDirection: 'row', gap: Spacing.xs, minHeight: 40, paddingRight: Spacing.md },
-  backText: { fontSize: FontSize.base, fontWeight: '600' },
-  categoryHeader: { alignItems: 'flex-start', flexDirection: 'row', gap: Spacing.md },
-  categoryIcon: { alignItems: 'center', borderRadius: Radius.full, height: 40, justifyContent: 'center', width: 40 },
-  screenHeading: { fontSize: FontSize['3xl'], fontWeight: '600' },
+  detailScreenContent: { gap: Spacing.lg, paddingTop: Spacing.lg },
+  headerTitle: { alignItems: 'center', flexDirection: 'row', gap: Spacing.sm },
+  headerIcon: { alignItems: 'center', borderRadius: Radius.full, borderWidth: 1, height: 30, justifyContent: 'center', width: 30 },
+  headerTitleText: { fontSize: FontSize.lg, fontWeight: '700' },
   panel: { gap: Spacing.lg, padding: Spacing.xl },
   sectionDesc: { fontSize: FontSize.base, lineHeight: 21 },
   sectionBody: { gap: Spacing.lg },
