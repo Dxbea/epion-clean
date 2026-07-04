@@ -1792,6 +1792,63 @@ router.get('/search', async (req, res, next) => {
 // FIN BLOC
 
 
+// --- GET /api/articles/:id/status -----------------------------------------
+router.get('/:id/status', async (req, res, next) => {
+  try {
+    const { id } = req.params;
+
+    const article = await prisma.article.findUnique({
+      where: { id },
+      select: {
+        id: true,
+        slug: true,
+        status: true,
+        authorId: true,
+        factCheckStatus: true,
+        factCheckError: true,
+        factCheckStartedAt: true,
+        factCheckCompletedAt: true,
+        generationPrompt: true,
+      },
+    });
+
+    if (!article) return res.status(404).json({ error: 'Not Found' });
+
+    let allowed = article.status === 'PUBLISHED';
+    if (!allowed) {
+      try {
+        const userId = await getCurrentUserId(req, res);
+        if (userId === article.authorId) {
+          allowed = true;
+        } else if (userId) {
+          const user = await prisma.user.findUnique({
+            where: { id: userId },
+            select: { role: true },
+          });
+          allowed = user?.role === 'ADMIN';
+        }
+      } catch {
+        allowed = false;
+      }
+    }
+
+    if (!allowed) return res.status(404).json({ error: 'Not Found' });
+
+    const generationStatus = article.factCheckStatus ?? 'PENDING';
+    return res.json({
+      articleId: article.id,
+      slug: article.slug,
+      status: article.status,
+      generationStatus,
+      factCheckStatus: article.factCheckStatus,
+      error: article.factCheckError ?? null,
+      startedAt: article.factCheckStartedAt ? article.factCheckStartedAt.toISOString() : null,
+      completedAt: article.factCheckCompletedAt ? article.factCheckCompletedAt.toISOString() : null,
+    });
+  } catch (e) {
+    next(e);
+  }
+});
 // --- GET /api/articles/:id -----------------------------------------------
 // DEBUT BLOC (remplace seulement ce handler GET /:id)
 router.get('/:id', async (req, res, next) => {
@@ -2116,4 +2173,3 @@ router.get('/:id/stats', async (req, res, next) => {
     });
   } catch (e) { next(e); }
 });
-
