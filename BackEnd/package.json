@@ -38,7 +38,7 @@
     "bcrypt": "^6.0.0",
     "bcryptjs": "^3.0.2",
     "better-auth": "^1.6.18",
-    "bullmq": "^5.67.0",
+    "bullmq": "^5.79.2",
     "cheerio": "^1.2.0",
     "cookie": "^1.0.2",
     "cookie-parser": "^1.4.7",
@@ -63,7 +63,7 @@
     "react-markdown": "^10.1.0",
     "rss-parser": "^3.13.0",
     "sanitize-html": "^2.17.5",
-    "uuid": "^11.1.0",
+    "uuid": "^14.0.1",
     "winston": "^3.19.0",
     "zod": "^4.0.17"
   },
