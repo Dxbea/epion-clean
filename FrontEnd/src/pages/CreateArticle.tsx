@@ -1,7 +1,12 @@
 import React from 'react';
 import { Link, useNavigate } from 'react-router-dom';
 
-import { generateArticleWithAI } from '@/api/articles';
+import {
+  generateArticleWithAI,
+  getArticleGenerationStatus,
+  isArticleGenerationInProgress,
+  type ArticleGenerationStatus,
+} from '@/api/articles';
 import SectionHeader from '@/components/SectionHeader';
 import EpionSelect from '@/components/ui/EpionSelect';
 import { Button } from '@/components/ui';
@@ -10,6 +15,7 @@ import { useAuthPrompt } from '@/contexts/AuthPromptContext';
 import { useMe } from '@/contexts/MeContext';
 
 const MAX_PROMPT_CHARS = 2000;
+const GENERATION_POLL_INTERVAL_MS = 3000;
 
 type Category = { id: string; name: string; slug: string };
 
@@ -26,10 +32,14 @@ export default function CreateArticlePage() {
   const [cats, setCats] = React.useState<Category[]>([]);
   const [categoryId, setCategoryId] = React.useState<string | ''>('');
   const [isGenerating, setIsGenerating] = React.useState(false);
+  const [generationArticleId, setGenerationArticleId] = React.useState<string | null>(null);
+  const [generationStatus, setGenerationStatus] = React.useState<ArticleGenerationStatus | null>(null);
+  const [generationStatusMessage, setGenerationStatusMessage] = React.useState<string | null>(null);
   const [error, setError] = React.useState<string | null>(null);
 
   const emailNotVerified = !!me && !me.emailVerified;
   const promptTooLong = prompt.length > MAX_PROMPT_CHARS;
+  const generationInProgress = isGenerating || isArticleGenerationInProgress(generationStatus);
 
   React.useEffect(() => {
     let alive = true;
@@ -70,6 +80,62 @@ export default function CreateArticlePage() {
     [cats, categoryId]
   );
 
+  React.useEffect(() => {
+    if (!generationArticleId || !isArticleGenerationInProgress(generationStatus)) return;
+
+    let alive = true;
+    let inFlight = false;
+
+    const pollStatus = async () => {
+      if (inFlight) return;
+      inFlight = true;
+
+      try {
+        const current = await getArticleGenerationStatus(generationArticleId);
+        if (!alive) return;
+
+        setGenerationStatus(current.generationStatus);
+
+        if (current.generationStatus === 'COMPLETED') {
+          setIsGenerating(false);
+          setGenerationStatusMessage('Article generated. Opening editor...');
+          navigate(`/account/articles/${generationArticleId}/edit`);
+          return;
+        }
+
+        if (current.generationStatus === 'FAILED') {
+          setIsGenerating(false);
+          setGenerationStatusMessage(null);
+          setError(current.error || 'Article generation failed. Please try again.');
+          return;
+        }
+
+        setGenerationStatusMessage(
+          current.generationStatus === 'RUNNING'
+            ? 'Epion is writing and checking your article...'
+            : 'Article generation is queued...'
+        );
+      } catch (err: any) {
+        if (!alive) return;
+        setIsGenerating(false);
+        setGenerationStatusMessage(null);
+        setError(err?.message || 'Unable to check article generation status.');
+      } finally {
+        inFlight = false;
+      }
+    };
+
+    void pollStatus();
+    const intervalId = window.setInterval(() => {
+      void pollStatus();
+    }, GENERATION_POLL_INTERVAL_MS);
+
+    return () => {
+      alive = false;
+      window.clearInterval(intervalId);
+    };
+  }, [generationArticleId, generationStatus, navigate]);
+
   async function onSubmit(event: React.FormEvent) {
     event.preventDefault();
 
@@ -103,6 +169,9 @@ export default function CreateArticlePage() {
     }
 
     setIsGenerating(true);
+    setGenerationArticleId(null);
+    setGenerationStatus(null);
+    setGenerationStatusMessage('Starting article generation...');
     setError(null);
 
     try {
@@ -110,20 +179,50 @@ export default function CreateArticlePage() {
         topic: prompt.trim(),
         language,
         style: tone,
+        category: selectedCategory ? selectedCategory.name : '',
         categoryId,
         categoryName: selectedCategory ? selectedCategory.name : '',
         generateImage: true,
       });
 
-      if (result.article && result.article.id) {
-        navigate(`/account/articles/${result.article.id}/edit`);
-      } else {
+      const articleId = result.articleId || result.article?.id;
+      const status = result.generationStatus || result.factCheckStatus || result.article?.factCheckStatus || null;
+
+      if (!articleId) {
         throw new Error('Invalid response from server');
       }
+
+      setGenerationArticleId(articleId);
+      setGenerationStatus(status);
+
+      if (status === 'COMPLETED') {
+        setIsGenerating(false);
+        navigate(`/account/articles/${articleId}/edit`);
+        return;
+      }
+
+      if (status === 'FAILED') {
+        setIsGenerating(false);
+        setGenerationStatusMessage(null);
+        setError(result.error || 'Article generation failed. Please try again.');
+        return;
+      }
+
+      if (!isArticleGenerationInProgress(status)) {
+        setIsGenerating(false);
+        navigate(`/account/articles/${articleId}/edit`);
+        return;
+      }
+
+      setGenerationStatusMessage(
+        status === 'RUNNING'
+          ? 'Epion is writing and checking your article...'
+          : 'Article generation is queued...'
+      );
     } catch (err: any) {
-      setError(err?.message || 'Unable to generate article');
-    } finally {
       setIsGenerating(false);
+      setGenerationStatusMessage(null);
+      setError(err?.message || 'Unable to generate article');
     }
   }
 
@@ -212,6 +311,19 @@ export default function CreateArticlePage() {
           </div>
         ) : null}
 
+        {generationInProgress && generationStatusMessage ? (
+          <div className="rounded-xl border border-blue-200 bg-blue-50 px-3 py-3 text-sm text-blue-800 dark:border-blue-700/40 dark:bg-blue-950/30 dark:text-blue-200">
+            <div className="flex items-center gap-2 font-medium">
+              <svg className="h-4 w-4 animate-spin text-current" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
+                <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
+                <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z" />
+              </svg>
+              {generationStatusMessage}
+            </div>
+            <p className="mt-1 opacity-80">You can stay on this page while Epion prepares the draft.</p>
+          </div>
+        ) : null}
+
         <div>
           <label className="mb-1 block text-sm opacity-70">What should Epion write? *</label>
           <textarea
@@ -272,10 +384,10 @@ export default function CreateArticlePage() {
             type="submit"
             variant="primary"
             size="auto"
-            disabled={isGenerating || !prompt.trim() || promptTooLong || !categoryId}
+            disabled={generationInProgress || !prompt.trim() || promptTooLong || !categoryId}
             className="min-h-[48px] justify-center rounded-full px-6 py-3 text-sm sm:min-w-[12rem]"
           >
-            {isGenerating ? (
+            {generationInProgress ? (
               <>
                 <svg className="-ml-1 mr-2 h-4 w-4 animate-spin text-current" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
                   <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />

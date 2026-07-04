@@ -1,6 +1,8 @@
 import { API_BASE } from '@/config/api';
 import { withCsrf } from '@/lib/csrf';
 
+export type ArticleGenerationStatus = 'PENDING' | 'RUNNING' | 'COMPLETED' | 'FAILED' | 'STALE';
+
 export interface GenerateArticleParams {
     topic: string;
     language: string;
@@ -12,11 +14,52 @@ export interface GenerateArticleParams {
     imageUrl?: string;
 }
 
+export interface GeneratedArticleShell {
+    id: string;
+    slug?: string | null;
+    status?: string | null;
+    factCheckStatus?: ArticleGenerationStatus | null;
+}
+
+export interface GenerateArticleResponse {
+    articleId?: string;
+    slug?: string;
+    generationStatus?: ArticleGenerationStatus;
+    factCheckStatus?: ArticleGenerationStatus | null;
+    idempotentReplay?: boolean;
+    article?: GeneratedArticleShell;
+    message?: string;
+    error?: string;
+}
+
+export interface ArticleGenerationStatusResponse {
+    articleId: string;
+    slug: string;
+    status: string;
+    generationStatus: ArticleGenerationStatus;
+    factCheckStatus?: ArticleGenerationStatus | null;
+    error: string | null;
+    startedAt: string | null;
+    completedAt: string | null;
+}
+
+export function isArticleGenerationInProgress(status: ArticleGenerationStatus | null | undefined): boolean {
+    return status === 'PENDING' || status === 'RUNNING';
+}
+
+export function isArticleGenerationTerminal(status: ArticleGenerationStatus | null | undefined): boolean {
+    return status === 'COMPLETED' || status === 'FAILED';
+}
+
+function readErrorMessage(errorData: any, fallback: string): string {
+    return errorData?.message || errorData?.error || fallback;
+}
+
 /**
- * Appelle l'IA pour générer un article complet.
+ * Appelle l'IA pour demarrer une generation asynchrone d'article.
  * POST /api/articles/generate
  */
-export async function generateArticleWithAI(data: GenerateArticleParams) {
+export async function generateArticleWithAI(data: GenerateArticleParams): Promise<GenerateArticleResponse> {
     const res = await fetch(
         `${API_BASE}/api/articles/generate`,
         await withCsrf({
@@ -26,12 +69,31 @@ export async function generateArticleWithAI(data: GenerateArticleParams) {
         }),
     );
 
+    const responseData = await res.json().catch(() => ({}));
+
     if (!res.ok) {
-        const errorData = await res.json().catch(() => ({}));
-        throw new Error(errorData.message || 'Erreur lors de la génération de l\'article.');
+        throw new Error(readErrorMessage(responseData, "Erreur lors de la generation de l'article."));
     }
 
-    return res.json(); // Retourne { article: ..., message: ... }
+    return responseData as GenerateArticleResponse;
+}
+
+/**
+ * Lit l'etat courant d'une generation d'article.
+ * GET /api/articles/:id/status
+ */
+export async function getArticleGenerationStatus(id: string): Promise<ArticleGenerationStatusResponse> {
+    const res = await fetch(`${API_BASE}/api/articles/${encodeURIComponent(id)}/status`, {
+        credentials: 'include',
+    });
+
+    const responseData = await res.json().catch(() => ({}));
+
+    if (!res.ok) {
+        throw new Error(readErrorMessage(responseData, 'Unable to load article generation status.'));
+    }
+
+    return responseData as ArticleGenerationStatusResponse;
 }
 
 /**
@@ -50,7 +112,7 @@ export async function editArticleWithAI(id: string, data: { instruction: string;
 
     if (!res.ok) {
         const errorData = await res.json().catch(() => ({}));
-        throw new Error(errorData.message || 'Erreur lors de la modification par IA.');
+        throw new Error(readErrorMessage(errorData, 'Erreur lors de la modification par IA.'));
     }
 
     return res.json(); // { result: "..." }
