@@ -17,7 +17,7 @@ import { ingestArticle } from '../lib/rag-service.js';
 import { sanitizeArticleHtml } from '../lib/sanitizeHtml.js';
 import { logger } from '../lib/logger.js';
 import { embeddingQueue } from '../lib/queue.js';
-import { hashAnalysisInput } from '../lib/score-helpers.js';
+import { hashAnalysisInput, normalizeArticleScorePayload } from '../lib/score-helpers.js';
 import { recalculateBridgingScores } from '../services/bridgingService.js';
 import { moderationService } from '../services/moderationService.js';
 import { enforceContributionRateLimit } from '../lib/contribution-rate-limit.js';
@@ -78,6 +78,38 @@ function normalizeOptionalUrl(value: unknown): string | null {
   }
 }
 
+function buildArticleDetailResponse(article: any) {
+  const normalizedFactCheckData = normalizeArticleScorePayload(
+    article.factCheckData,
+    article.factCheckScore ?? null,
+    article.factCheckStatus ?? null,
+  );
+  const normalizedSources = Array.isArray(normalizedFactCheckData?.sources)
+    ? normalizedFactCheckData.sources
+    : [];
+
+  return {
+    id: article.id,
+    slug: article.slug,
+    title: article.title,
+    excerpt: article.summary ?? null,
+    content: article.content ?? null,
+    structuredContent: article.structuredContent ?? null,
+    imageUrl: article.imageUrl ?? null,
+    status: article.status,
+    publishedAt: article.createdAt.toISOString(),
+    category: article.category
+      ? { id: article.category.id, slug: article.category.slug, name: article.category.name }
+      : null,
+    author: article.author,
+    aiSummary: article.aiSummary ?? null,
+    factCheckScore: article.factCheckScore ?? normalizedFactCheckData?.score ?? null,
+    factCheckStatus: article.factCheckStatus ?? normalizedFactCheckData?.status ?? null,
+    factCheckData: normalizedFactCheckData ?? article.factCheckData ?? null,
+    sources: normalizedSources,
+    generationPrompt: article.generationPrompt ?? null,
+  };
+}
 async function findPublishedArticleBySlugOrId(slugOrId: string) {
   const exact = await prisma.article.findFirst({
     where: {
@@ -1542,6 +1574,7 @@ router.get('/slug/:slug', async (req, res, next) => {
         aiSummary: true,
         factCheckScore: true,
         factCheckData: true,
+        factCheckStatus: true,
         generationPrompt: true,
       },
     });
@@ -1568,6 +1601,7 @@ router.get('/slug/:slug', async (req, res, next) => {
           aiSummary: true,
           factCheckScore: true,
           factCheckData: true,
+          factCheckStatus: true,
           generationPrompt: true,
         },
       });
@@ -1608,6 +1642,7 @@ router.get('/slug/:slug', async (req, res, next) => {
           aiSummary: true,
           factCheckScore: true,
           factCheckData: true,
+          factCheckStatus: true,
           generationPrompt: true,
         },
       });
@@ -1626,28 +1661,7 @@ router.get('/slug/:slug', async (req, res, next) => {
       factCheckDataSample: a.factCheckData ? JSON.stringify(a.factCheckData).slice(0, 100) : null
     });
 
-    // Mapping de sécurité pour le frontend (garantit que .sources existe)
-    const responseData = {
-      id: a.id,
-      slug: a.slug,
-      title: a.title,
-      excerpt: a.summary ?? null,
-      content: a.content ?? null,
-      structuredContent: a.structuredContent ?? null,
-      imageUrl: a.imageUrl ?? null,
-      status: a.status,
-      publishedAt: a.createdAt.toISOString(),
-      category: a.category
-        ? { id: a.category.id, slug: a.category.slug, name: a.category.name }
-        : null,
-      author: a.author,
-      // AI Fields
-      aiSummary: a.aiSummary,
-      factCheckScore: a.factCheckScore,
-      factCheckData: a.factCheckData,
-      sources: (a as any).sources || a.factCheckData || [],
-      generationPrompt: a.generationPrompt
-    };
+    const responseData = buildArticleDetailResponse(a);
 
     // --- cas 1 : article publié → accessible à tous, pas besoin d'userId
     if (a.status === 'PUBLISHED') {
@@ -1806,6 +1820,12 @@ router.get('/:id', async (req, res, next) => {
         authorId: true,
         category: { select: { id: true, slug: true, name: true } },
         author: { select: { id: true, name: true, username: true, avatarUrl: true } },
+        // AI Fields
+        aiSummary: true,
+        factCheckScore: true,
+        factCheckData: true,
+        factCheckStatus: true,
+        generationPrompt: true,
       },
     });
 
@@ -1813,7 +1833,7 @@ router.get('/:id', async (req, res, next) => {
 
     // Articles publiés -> OK pour tout le monde
     if (item.status === 'PUBLISHED') {
-      return res.json(item);
+      return res.json(buildArticleDetailResponse(item));
     }
 
     // Pour les autres statuts, on vérifie l'auteur (ou admin)
@@ -1838,7 +1858,7 @@ router.get('/:id', async (req, res, next) => {
       return res.status(404).json({ error: 'Not Found' });
     }
 
-    res.json(item);
+    res.json(buildArticleDetailResponse(item));
   } catch (e) {
     next(e);
   }

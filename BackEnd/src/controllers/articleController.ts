@@ -152,6 +152,8 @@ export async function createAIArticle(req: Request, res: Response, next: NextFun
         logger.info('[ArticleGenerate] Article payload ready for save', {
             userId,
             sourceCount: sources.length,
+            resultSourceCount: result.sources?.length || 0,
+            factCheckDataSourceCount: initialFactCheckData.sources.length,
             score: result.globalScore
         });
 
@@ -173,6 +175,8 @@ export async function createAIArticle(req: Request, res: Response, next: NextFun
                 aiSummary: generatedData.summary,
                 factCheckScore: Math.round(result.globalScore || 50),
                 factCheckData: initialFactCheckData as any,
+                factCheckStatus: 'PENDING',
+                factCheckStartedAt: new Date(),
                 generatedAt: new Date(),
                 generationPrompt: topic,
                 generationConfig: generationConfig, // Stockage de la config et de l'image prompt
@@ -202,7 +206,8 @@ export async function createAIArticle(req: Request, res: Response, next: NextFun
 
         logger.info('[ArticleGenerate] Queueing source enrichment', {
             articleId: newArticle.id,
-            citationUrlCount: citationUrls.length
+            citationUrlCount: citationUrls.length,
+            citationUrls
         });
         sourceEnrichmentQueue.add('enrich', {
             articleId: newArticle.id,
@@ -220,10 +225,22 @@ export async function createAIArticle(req: Request, res: Response, next: NextFun
             logger.info('[ArticleGenerate] Source enrichment queued', {
                 articleId: newArticle.id
             });
-        }).catch(err => {
+        }).catch(async err => {
             logger.error('[ArticleGenerate] Source enrichment queue dispatch failed', {
                 articleId: newArticle.id,
                 error: err.message
+            });
+            await prisma.article.update({
+                where: { id: newArticle.id },
+                data: {
+                    factCheckStatus: 'FAILED',
+                    factCheckError: 'Source enrichment queue dispatch failed',
+                },
+            }).catch(updateErr => {
+                logger.error('[ArticleGenerate] Failed to mark source enrichment dispatch failure', {
+                    articleId: newArticle.id,
+                    error: updateErr.message,
+                });
             });
         });
 
