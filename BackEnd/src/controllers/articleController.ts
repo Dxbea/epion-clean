@@ -4,56 +4,58 @@ import { prisma } from '../lib/db.js';
 import { checkArticleQuota, hasSufficientFunds, chargeUser, COSTS } from '../lib/billing-service.js';
 import { getCurrentUserId } from '../lib/currentUser.js';
 import { logger } from '../lib/logger.js';
-import { sourceEnrichmentQueue } from '../lib/queue.js';
+import { liveAnalysisQueue } from '../lib/queue.js';
 import { transformTextWithAI } from '../services/articleGenerator.js';
-import { runLiveAnalysisWithGeneration } from '../lib/live-analysis/index.js';
-import { getArticleImageProposals } from '../lib/images/proposals.js';
-import { stableSourceId } from '../lib/structured-article.js';
+import { sanitizeArticleHtml } from '../lib/sanitizeHtml.js';
 
-const DEFAULT_OPINION_QUESTION = {
-    question: 'Les faits présentés relèvent-ils plutôt d’un problème ponctuel ou d’un problème structurel ?',
-    thesisA: 'Plutôt ponctuel',
-    thesisB: 'Plutôt structurel',
-};
+const ARTICLE_GENERATION_IDEMPOTENCY_WINDOW_MS = 2 * 60 * 1000;
+const ARTICLE_GENERATION_TIMEOUT_MS = 5 * 60 * 1000;
 
-function normalizeGeneratedOpinionQuestion(input: unknown) {
-    if (!input || typeof input !== 'object') return DEFAULT_OPINION_QUESTION;
-    const value = input as Record<string, unknown>;
-    const question = typeof value.question === 'string' ? value.question.trim() : '';
-    const thesisA = typeof value.thesisA === 'string' ? value.thesisA.trim() : '';
-    const thesisB = typeof value.thesisB === 'string' ? value.thesisB.trim() : '';
+function slugify(value: string): string {
+    return value
+        .toLowerCase()
+        .normalize('NFD')
+        .replace(/[\u0300-\u036f]/g, '')
+        .replace(/[^a-z0-9]+/g, '-')
+        .replace(/(^-|-$)+/g, '')
+        .slice(0, 56);
+}
 
-    if (question.length < 20 || thesisA.length < 3 || thesisB.length < 3) {
-        return DEFAULT_OPINION_QUESTION;
-    }
+function buildPendingGenerationSlug(topic: string): string {
+    const base = slugify(topic) || 'article';
+    return `${base}-${Date.now().toString(36)}`.slice(0, 64);
+}
 
-    return {
-        question: question.slice(0, 240),
-        thesisA: thesisA.slice(0, 80),
-        thesisB: thesisB.slice(0, 80),
-    };
+function normalizeOptionalString(value: unknown, fallback: string): string {
+    return typeof value === 'string' && value.trim() ? value.trim() : fallback;
+}
+
+function generationStatusFromFactCheck(status: string | null | undefined) {
+    return status || 'PENDING';
 }
 
 export async function createAIArticle(req: Request, res: Response, next: NextFunction) {
     try {
         const userId = await getCurrentUserId(req, res);
-        const { topic, language, style, category, generateImage, imageUrl } = req.body;
+        const { topic, category, categoryId, generateImage, imageUrl } = req.body ?? {};
+        const normalizedTopic = typeof topic === 'string' ? topic.trim() : '';
+        const language = normalizeOptionalString(req.body?.language, 'fr');
+        const style = normalizeOptionalString(req.body?.style, 'neutral');
+        const normalizedCategory = typeof category === 'string' && category.trim() ? category.trim() : null;
 
-        if (!topic || typeof topic !== 'string') {
+        if (!normalizedTopic) {
             return res.status(400).json({ error: 'Topic is required and must be a string.' });
         }
 
-        // 1. Auth & Verification Checks
         const user = await prisma.user.findUnique({
             where: { id: userId },
-            select: { emailVerified: true, role: true }
+            select: { emailVerified: true, role: true },
         });
 
         if (!user || (!user.emailVerified && user.role !== 'ADMIN')) {
             return res.status(403).json({ error: 'Email verification required.' });
         }
 
-        // 2. Weekly quota / billing gate
         try {
             await checkArticleQuota(userId);
             logger.info('[ArticleGenerate] Weekly quota accepted', { userId });
@@ -61,201 +63,147 @@ export async function createAIArticle(req: Request, res: Response, next: NextFun
             if (error.message === 'WEEKLY_QUOTA_EXCEEDED') {
                 return res.status(403).json({
                     error: "Quota hebdomadaire d'articles atteint.",
-                    code: "QUOTA_ARTICLE_EXCEEDED"
+                    code: 'QUOTA_ARTICLE_EXCEEDED',
                 });
             }
             throw error;
         }
 
-        // 3. Call Generation Service (Synchronous LiveAnalysis Pipeline)
-        const result = await runLiveAnalysisWithGeneration(topic, {
-            language: language || 'fr',
-            style: style || 'neutral'
+        const idempotencySince = new Date(Date.now() - ARTICLE_GENERATION_IDEMPOTENCY_WINDOW_MS);
+        const existingGeneration = await prisma.article.findFirst({
+            where: {
+                authorId: userId,
+                generationPrompt: normalizedTopic,
+                factCheckStatus: { in: ['PENDING', 'RUNNING'] },
+                createdAt: { gte: idempotencySince },
+            },
+            orderBy: { createdAt: 'desc' },
+            select: { id: true, slug: true, status: true, factCheckStatus: true },
         });
 
-        if (!result.generatedContent) {
-            return res.status(500).json({ error: "L'IA n'a pas pu générer l'article." });
+        if (existingGeneration) {
+            const generationStatus = generationStatusFromFactCheck(existingGeneration.factCheckStatus);
+            logger.info('[ArticleGenerate] Reusing pending generation', {
+                articleId: existingGeneration.id,
+                userId,
+                generationStatus,
+            });
+
+            return res.status(200).json({
+                articleId: existingGeneration.id,
+                slug: existingGeneration.slug,
+                generationStatus,
+                factCheckStatus: existingGeneration.factCheckStatus,
+                idempotentReplay: true,
+                article: existingGeneration,
+            });
         }
 
-        const generatedData = result.generatedContent;
-        const opinionQuestion = normalizeGeneratedOpinionQuestion(generatedData.opinionQuestion);
-
-        let coverImageUrl: string | null = imageUrl || null;
-        if (generateImage) {
-            const topicOrWikiQuery = generatedData.wikipedia_search_query || generatedData.title;
-            const articleLang = language || 'fr';
-            const sourceUrls = result.sources?.map((s: any) => s.url).filter((u: any) => u) || [];
-            const proposals = await getArticleImageProposals(sourceUrls, topicOrWikiQuery, articleLang);
-            if (proposals.length > 0) {
-                coverImageUrl = proposals[0].url;
-            }
-        }
-
-        // 4. Persist to Database
-        // Slugify title for URL
-        const slugBase = generatedData.title
-            .toLowerCase()
-            .trim()
-            .replace(/[^\w\s-]/g, '')
-            .replace(/[\s_-]+/g, '-')
-            .replace(/^-+|-+$/g, '');
-        const uniqueSlug = `${slugBase}-${Date.now().toString().slice(-6)}`;
-
-        // Store imagePrompt and wikipedia_search_query in generationConfig
         const generationConfig = {
-            style: style || 'neutral',
-            language: language || 'fr',
-            imagePrompt: generatedData.imagePrompt || null,
-            wikipedia_search_query: generatedData.wikipedia_search_query || null
+            style,
+            language,
+            category: normalizedCategory,
+            categoryId: typeof categoryId === 'string' && categoryId.trim() ? categoryId.trim() : null,
+            generateImage: Boolean(generateImage),
+            imageUrl: typeof imageUrl === 'string' && imageUrl.trim() ? imageUrl.trim() : null,
+            asyncGeneration: true,
         };
 
-        // Initialize sources as PENDING for the frontend
-        const sources = (result.sources || []).map((s, idx) => {
-            const sourceId = stableSourceId(s.url, idx);
-            return {
-                id: idx + 1,
-                sourceId,
-                name: s.domain || 'Source inconnue',
-                url: s.url,
-                domain: s.domain,
-                trustScore: null,
-                flags: null,
-                type: 'PENDING',
-                logo: `https://logo.clearbit.com/${s.domain}`,
-                description: 'Analyse en cours...',
-                metrics: null
-            };
-        });
-
-        // Object containing both the LiveAnalysis data and pending sources
-        const initialFactCheckData = {
-            factScore: Math.round(result.globalScore || 50),
-            liveScore: Math.round(result.globalScore || 50),
-            sourcesMean: null,
-            calculation: {
-                formula: 'weighted-source-live-v1',
-                sourceWeight: 0.75,
-                liveWeight: 0.25,
-                sourcesMean: null,
-                liveScore: Math.round(result.globalScore || 50),
-                finalScore: Math.round(result.globalScore || 50),
-            },
-            liveAnalysis: {
-                contentIntent: result.contentIntent,
-                pillarScores: result.pillarScores,
-                judges: result.judges,
-            },
-            sources: sources
-        };
-
-        // DEBUG: Vérification des données avant sauvegarde
-        logger.info('[ArticleGenerate] Article payload ready for save', {
-            userId,
-            sourceCount: sources.length,
-            resultSourceCount: result.sources?.length || 0,
-            factCheckDataSourceCount: initialFactCheckData.sources.length,
-            score: result.globalScore
-        });
-
-        const newArticle = await prisma.article.create({
+        const article = await prisma.article.create({
             data: {
-                title: generatedData.title,
-                slug: uniqueSlug,
-                summary: generatedData.summary,
-                content: generatedData.content,
-                structuredContent: generatedData.structuredContent as any,
-                // Defaulting to draft allows review
+                title: sanitizeArticleHtml(normalizedTopic),
+                slug: buildPendingGenerationSlug(normalizedTopic),
+                summary: null,
+                content: null,
+                structuredContent: Prisma.JsonNull,
                 status: 'DRAFT',
-                // Author connection (Fix)
-                author: {
-                    connect: { id: userId }
-                },
-
-                // IA Fields
-                aiSummary: generatedData.summary,
-                factCheckScore: Math.round(result.globalScore || 50),
-                factCheckData: initialFactCheckData as any,
+                author: { connect: { id: userId } },
                 factCheckStatus: 'PENDING',
-                factCheckStartedAt: new Date(),
-                generatedAt: new Date(),
-                generationPrompt: topic,
-                generationConfig: generationConfig, // Stockage de la config et de l'image prompt
+                factCheckStartedAt: null,
+                factCheckCompletedAt: null,
+                factCheckError: null,
+                generationPrompt: normalizedTopic,
+                generationConfig: generationConfig as any,
                 generationVersion: 1,
-
-                // Metadata
-                imageUrl: coverImageUrl, // Generated directly from Wikipedia fetcher
-
-                // Connection de la catégorie si fournie
-                category: req.body.categoryId ? {
-                    connect: { id: req.body.categoryId }
-                } : undefined,
-                opinionQuestion: {
-                    create: opinionQuestion,
-                },
-            }
-        });
-        logger.info('[ArticleGenerate] Article created', {
-            articleId: newArticle.id,
-            userId,
-            status: newArticle.status
-        });
-
-        // 5. Background Job: Source Enrichment
-        // Since LiveAnalysis is synchronous, we directly chain to source enrichment
-        const citationUrls = (result.sources || []).map(s => s.url);
-
-        logger.info('[ArticleGenerate] Queueing source enrichment', {
-            articleId: newArticle.id,
-            citationUrlCount: citationUrls.length,
-            citationUrls
-        });
-        sourceEnrichmentQueue.add('enrich', {
-            articleId: newArticle.id,
-            sources: citationUrls,
-            scoreLiveBrut: result.globalScore,
-            liveAnalysis: {
-                contentIntent: result.contentIntent,
-                pillarScores: result.pillarScores,
-                judges: result.judges,
+                imageUrl: generationConfig.imageUrl,
+                ...(generationConfig.categoryId
+                    ? { category: { connect: { id: generationConfig.categoryId } } }
+                    : {}),
             },
-        }, {
-            removeOnComplete: true,
-            attempts: 2
-        }).then(() => {
-            logger.info('[ArticleGenerate] Source enrichment queued', {
-                articleId: newArticle.id
+            select: { id: true, slug: true, status: true, factCheckStatus: true },
+        });
+
+        try {
+            const job = await liveAnalysisQueue.add('article-generation', {
+                articleId: article.id,
+                requestedByUserId: userId,
+                title: normalizedTopic,
+                content: normalizedTopic,
+                citationUrls: [],
+                mode: 'article-generation',
+                topic: normalizedTopic,
+                language,
+                style,
+                category: normalizedCategory,
+                generateImage: Boolean(generateImage),
+                imageUrl: generationConfig.imageUrl,
+                timeoutMs: ARTICLE_GENERATION_TIMEOUT_MS,
+            }, {
+                attempts: 3,
+                backoff: { type: 'exponential', delay: 5000 },
+                removeOnComplete: 50,
+                removeOnFail: 100,
             });
-        }).catch(async err => {
-            logger.error('[ArticleGenerate] Source enrichment queue dispatch failed', {
-                articleId: newArticle.id,
-                error: err.message
+
+            logger.info('[ArticleGenerate] Generation job queued', {
+                articleId: article.id,
+                jobId: job.id,
+                userId,
             });
+        } catch (queueError: any) {
+            logger.error('[ArticleGenerate] Generation queue dispatch failed', {
+                articleId: article.id,
+                userId,
+                error: queueError?.message,
+            });
+
             await prisma.article.update({
-                where: { id: newArticle.id },
+                where: { id: article.id },
                 data: {
                     factCheckStatus: 'FAILED',
-                    factCheckError: 'Source enrichment queue dispatch failed',
+                    factCheckError: 'Generation queue dispatch failed',
+                    factCheckCompletedAt: new Date(),
                 },
-            }).catch(updateErr => {
-                logger.error('[ArticleGenerate] Failed to mark source enrichment dispatch failure', {
-                    articleId: newArticle.id,
-                    error: updateErr.message,
+            }).catch((updateError: any) => {
+                logger.error('[ArticleGenerate] Failed to mark generation dispatch failure', {
+                    articleId: article.id,
+                    userId,
+                    error: updateError?.message,
                 });
             });
-        });
 
-        // 6. Return to Frontend
+            return res.status(503).json({
+                articleId: article.id,
+                slug: article.slug,
+                generationStatus: 'FAILED',
+                factCheckStatus: 'FAILED',
+                error: 'GENERATION_QUEUE_DISPATCH_FAILED',
+                article: { ...article, factCheckStatus: 'FAILED' },
+            });
+        }
+
         return res.status(201).json({
-            article: newArticle,
-            message: "Article generated successfully."
+            articleId: article.id,
+            slug: article.slug,
+            generationStatus: 'PENDING',
+            factCheckStatus: article.factCheckStatus,
+            article,
+            message: 'Article generation queued.',
         });
-
     } catch (error) {
         next(error);
     }
-
 }
-
 export async function editAIArticle(req: Request, res: Response, next: NextFunction) {
     try {
         const userId = await getCurrentUserId(req, res);
@@ -283,7 +231,7 @@ export async function editAIArticle(req: Request, res: Response, next: NextFunct
         const hasCredits = await hasSufficientFunds(userId, 'CHAT_FAST');
         if (!hasCredits) {
             return res.status(402).json({
-                error: "CrÃ©dits Ã©puisÃ©s pour aujourd'hui.",
+                error: "Crédits épuisés pour aujourd'hui.",
                 code: "QUOTA_TOTAL",
                 cost: COSTS.CHAT_FAST,
             });
@@ -312,4 +260,3 @@ export async function editAIArticle(req: Request, res: Response, next: NextFunct
         next(error);
     }
 }
-

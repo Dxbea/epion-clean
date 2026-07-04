@@ -2,6 +2,9 @@ import express from 'express';
 import request from 'supertest';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
+process.env.DATABASE_URL ??= 'postgresql://user:pass@localhost:5432/epion_test';
+process.env.OPENAI_API_KEY ??= 'test-openai-key';
+
 const articleFindUnique = vi.fn();
 const articleFindFirst = vi.fn();
 

@@ -26,18 +26,9 @@ import { router as debugRouter } from './routes/debug-checks.js';
 import { router as socialRouter } from './routes/social.js';
 import { router as usersRouter } from './routes/users.js';
 import { router as healthRouter } from './routes/health.js';
-import { initializeCron } from './cron/dailyReset.js';
-import { NEWS_SITEMAPS } from './lib/news-sitemaps.js';
-import { newsIngestionQueue } from './lib/queue.js';
 import { prisma } from './lib/db.js';
 import { redis } from './lib/redis.js';
 import { betterAuthExpressHandler } from './lib/better-auth-handler.js';
-import { recalculateBridgingScores } from './services/bridgingService.js';
-import './workers/embedding.worker.js'; // 🧠 Initialize Embedding Worker
-import './workers/source-enrichment.worker.js'; // 🔍 Initialize Source Enrichment Worker
-import './workers/live-analysis.worker.js'; // ⚖️ Initialize Live Analysis Worker (Epion 2.0)
-
-import './workers/news-worker.js'; // Zero-Cost News Ingestion Worker
 
 // ... (existing code)
 
@@ -239,86 +230,6 @@ app.use(
 // ----------------------------
 const PORT = Number(process.env.PORT) || 5175;
 
-// Initialize BullMQ Recurring Jobs
-// IMPORTANT: Repeatable jobs persist in Redis with their original config.
-// We must remove stale ones before re-adding to apply updated backoff/timing.
-async function scheduleRecurringJobs(): Promise<void> {
-    const schedulerLog = logger.child({ module: 'Scheduler' });
-    // 1. Clean up any stale repeatable jobs from previous config
-    try {
-        const existingRepeatables = await newsIngestionQueue.getRepeatableJobs();
-        for (const job of existingRepeatables) {
-            await newsIngestionQueue.removeRepeatableByKey(job.key);
-            schedulerLog.info('Removed stale repeatable job', {
-                name: job.name,
-                pattern: job.pattern,
-                key: job.key,
-            });
-        }
-    } catch (err: any) {
-        schedulerLog.warn('Failed to clean stale repeatable jobs', {
-            error: err.message,
-        });
-    }
-
-    // 2. Register fresh repeatable jobs with current config
-    schedulerLog.info('Scheduling News Ingestion Job (GDELT every 2 hours)');
-    await newsIngestionQueue.add('discover-gdelt', {
-        query: 'lang:French',
-        maxRecords: 15,
-    }, {
-        repeat: {
-            pattern: '0 */2 * * *', // Every 2 hours — respects GDELT rate limits
-        },
-    });
-
-    schedulerLog.info(`Scheduling News Ingestion Job (${NEWS_SITEMAPS.permissive.label} sitemap daily at 3:30 AM)`);
-    await newsIngestionQueue.add('discover-sitemap', {
-        sitemapUrl: NEWS_SITEMAPS.permissive.url,
-        maxUrls: 100,
-    }, {
-        repeat: {
-            pattern: '30 3 * * *',
-        },
-    });
-
-    // Dev-local pause: protected sites reopen circuit breakers too easily on Windows
-    // while curl-impersonate is unavailable. Keep these definitions visible for prod.
-    // schedulerLog.info(`Scheduling News Ingestion Job (${NEWS_SITEMAPS.lemonde.label} sitemap daily at 3 AM)`);
-    // await newsIngestionQueue.add('discover-sitemap', {
-    //     sitemapUrl: NEWS_SITEMAPS.lemonde.url,
-    //     maxUrls: 100,
-    // }, {
-    //     repeat: {
-    //         pattern: '0 3 * * *',
-    //     },
-    // });
-
-    // schedulerLog.info(`Scheduling News Ingestion Job (${NEWS_SITEMAPS.lefigaro.label} sitemap daily at 3:15 AM)`);
-    // await newsIngestionQueue.add('discover-sitemap', {
-    //     sitemapUrl: NEWS_SITEMAPS.lefigaro.url,
-    //     maxUrls: 100,
-    // }, {
-    //     repeat: {
-    //         pattern: '15 3 * * *',
-    //     },
-    // });
-
-    setInterval(() => {
-        recalculateBridgingScores()
-            .then((processed) => {
-                if (processed > 0) {
-                    schedulerLog.info('Periodic bridging score recalculation complete', { processed });
-                }
-            })
-            .catch((err: any) => {
-                schedulerLog.warn('Periodic bridging score recalculation failed', {
-                    error: err.message,
-                });
-            });
-    }, 5 * 60 * 1000).unref();
-}
-
 // Auto-seed categories
 async function ensureCategories(): Promise<void> {
   const categoriesToEnsure = [
@@ -355,15 +266,6 @@ async function validateConfig(): Promise<void> {
 
     await prisma.$queryRaw`SELECT 1`;
     log.info('Prisma startup check passed');
-
-    const queueClient = await newsIngestionQueue.client;
-    const bullPong = typeof (queueClient as any).ping === 'function'
-      ? await (queueClient as any).ping()
-      : 'connected';
-    log.info('BullMQ startup check passed', {
-      queue: 'news-ingestion-queue',
-      bullPong,
-    });
   } catch (error: any) {
     log.error('Critical startup dependency check failed', {
       error: error.message,
@@ -375,8 +277,6 @@ async function validateConfig(): Promise<void> {
 
 async function startServer(): Promise<void> {
   await validateConfig();
-  initializeCron();
-  await scheduleRecurringJobs();
   await ensureCategories();
 
   app.listen(PORT, '0.0.0.0', () => {

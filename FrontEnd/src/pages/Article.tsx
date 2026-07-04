@@ -5,6 +5,7 @@ import ArticleCard from '@/components/articles/ArticleCard';
 import ArticleThumbnail from '@/components/articles/ArticleThumbnail';
 import ArticleInteractionSpace from '@/components/articles/ArticleInteractionSpace';
 import { API_BASE } from '@/config/api';
+import { isArticleGenerationInProgress, type ArticleGenerationStatus } from '@/api/articles';
 import { useMe } from '@/contexts/MeContext';
 import ArticleActionBar from '@/components/articles/ArticleActionBar';
 import TrustHeader from '@/components/shared/TrustHeader';
@@ -36,6 +37,8 @@ type LoadedArticle = {
   factCheckData: any | null;
   sources?: any; // Added for compatibility check
   generationPrompt: string | null;
+  status: string | null;
+  factCheckStatus: ArticleGenerationStatus | null;
 };
 
 export default function Article() {
@@ -121,7 +124,7 @@ export default function Article() {
     const supportLevel = storedFactData?.supportLevel || deriveSupportLevelFromScore(factScore);
 
     // Status: read from article field (DB is source of truth)
-    const factCheckStatus = (article as any).factCheckStatus || storedFactData?.status || null;
+    const factCheckStatus = article.factCheckStatus || storedFactData?.status || null;
 
     return {
       factScore,
@@ -254,6 +257,8 @@ export default function Article() {
           factCheckData: data.factCheckData ?? null,
           sources: data.sources ?? undefined,
           generationPrompt: data.generationPrompt ?? null,
+          status: data.status ?? null,
+          factCheckStatus: data.factCheckStatus ?? data.factCheckData?.status ?? null,
 
       });
     } catch (e: any) {
@@ -271,12 +276,16 @@ export default function Article() {
     fetchArticle(false);
   }, [fetchArticle]);
 
-  // Polling Intelligent : Si des sources sont "PENDING", on rafraîchit
+  const articleGenerationStatus = topLevelTransparencyData?.factCheckStatus ?? null;
+  const articleGenerationInProgress = isArticleGenerationInProgress(articleGenerationStatus);
+  const articleGenerationFailed = articleGenerationStatus === 'FAILED';
+
+  // Polling Intelligent : Si l'article ou des sources sont en generation, on rafraichit.
   const isPending = React.useMemo(() => {
     const sources = topLevelTransparencyData?.sources || [];
-    // On considère "Pending" si une source a un trustScore null OU un type 'PENDING'
-    return sources.some((s: any) => s.trustScore === null || s.type === 'PENDING');
-  }, [topLevelTransparencyData]);
+    const hasPendingSources = sources.some((s: any) => s.trustScore === null || s.type === 'PENDING');
+    return articleGenerationInProgress || hasPendingSources;
+  }, [articleGenerationInProgress, topLevelTransparencyData]);
 
   React.useEffect(() => {
     if (!isPending) return;
@@ -605,12 +614,34 @@ export default function Article() {
               <div className="h-full bg-blue-500/50 animate-progress-indeterminate"></div>
             </div>
           )}
-          <TrustHeader
-            score={displayScore}
-            sources={normalizedSources}
-            onShowSources={() => setActiveModal('sources')}
-            onShowScoreDetails={() => setActiveModal('reliability')}
-          />
+
+          {articleGenerationInProgress ? (
+            <div className="flex items-start gap-3 py-2 text-sm text-black/75 dark:text-white/75">
+              <svg className="mt-0.5 h-4 w-4 animate-spin text-blue-600 dark:text-blue-300" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
+                <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
+                <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z" />
+              </svg>
+              <div>
+                <div className="font-medium text-black dark:text-white">
+                  {articleGenerationStatus === 'RUNNING' ? 'Article generation running' : 'Article generation pending'}
+                </div>
+                <p className="mt-1 leading-6">
+                  Epion is preparing the draft and source analysis. This page will refresh automatically.
+                </p>
+              </div>
+            </div>
+          ) : articleGenerationFailed ? (
+            <div className="rounded-xl border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700 dark:border-red-900/40 dark:bg-red-950/30 dark:text-red-300">
+              Article generation failed. Please retry from the article creation page.
+            </div>
+          ) : (
+            <TrustHeader
+              score={displayScore}
+              sources={normalizedSources}
+              onShowSources={() => setActiveModal('sources')}
+              onShowScoreDetails={() => setActiveModal('reliability')}
+            />
+          )}
         </div>
 
         {/* Méta infos */}
@@ -788,6 +819,14 @@ export default function Article() {
               sources={normalizedSources}
               onSourceClick={handleSourceClick}
             />
+          ) : articleGenerationInProgress ? (
+            <p className="rounded-2xl border border-black/10 bg-black/5 px-5 py-4 text-sm text-black/70 dark:border-white/10 dark:bg-white/5 dark:text-white/70">
+              The article content is still being generated. It will appear here automatically when the backend completes the job.
+            </p>
+          ) : articleGenerationFailed ? (
+            <p className="rounded-2xl border border-red-200 bg-red-50 px-5 py-4 text-sm text-red-700 dark:border-red-900/40 dark:bg-red-950/30 dark:text-red-300">
+              Article generation failed, so no final content is available yet.
+            </p>
           ) : (
             <p className="opacity-50 italic">No content available.</p>
           )}
