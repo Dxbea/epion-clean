@@ -2,6 +2,7 @@
 import React from 'react';
 import { API_BASE } from '@/config/api';
 import { useAuthPrompt } from '@/contexts/AuthPromptContext';
+import { useMe } from '@/contexts/MeContext';
 import { withCsrf } from '@/lib/csrf';
 
 const LS_KEY = 'saved_article_ids';
@@ -19,25 +20,58 @@ function writeLS(ids: string[]) {
   } catch {}
 }
 
+async function readJson(response: Response): Promise<unknown> {
+  try {
+    return await response.json();
+  } catch {
+    return null;
+  }
+}
+
+function isNoSessionPayload(payload: unknown): boolean {
+  return Boolean(
+    payload &&
+      typeof payload === 'object' &&
+      'error' in payload &&
+      (payload as { error?: unknown }).error === 'NO_SESSION',
+  );
+}
+
 export function useSavedArticles() {
   const [ids, setIds] = React.useState<string[]>(() => readLS());
   const [loading, setLoading] = React.useState(false);
   const { requireAuth } = useAuthPrompt();
+  const { me, loading: authLoading } = useMe();
 
-  // hydrate depuis l’API au mount
   React.useEffect(() => {
-    // purge une fois les vieux IDs qui venaient du mode démo
-    localStorage.removeItem('saved_article_ids');
+    localStorage.removeItem(LS_KEY);
+
     let alive = true;
+
+    if (authLoading) {
+      return () => {
+        alive = false;
+      };
+    }
+
+    if (!me) {
+      setIds([]);
+      writeLS([]);
+      setLoading(false);
+      return () => {
+        alive = false;
+      };
+    }
+
     (async () => {
       setLoading(true);
       try {
-        const r = await fetch(`${API_BASE}/api/favorites/ids`, {
+        const response = await fetch(`${API_BASE}/api/favorites/ids`, {
           credentials: 'include',
         });
+        const payload = await readJson(response);
 
-        if (r.status === 401) {
-          // invité : pas d’IDs serveur, on garde juste le local (vide)
+        if (response.status === 401 || isNoSessionPayload(payload)) {
           if (alive) {
             setIds([]);
             writeLS([]);
@@ -45,9 +79,10 @@ export function useSavedArticles() {
           return;
         }
 
-        if (r.ok) {
-          const j = await r.json();
-          const server = Array.isArray(j.ids) ? j.ids : [];
+        if (response.ok && payload && typeof payload === 'object' && 'ids' in payload) {
+          const server = Array.isArray((payload as { ids?: unknown }).ids)
+            ? (payload as { ids: string[] }).ids
+            : [];
           if (alive) {
             setIds(server);
             writeLS(server);
@@ -57,10 +92,11 @@ export function useSavedArticles() {
         if (alive) setLoading(false);
       }
     })();
+
     return () => {
       alive = false;
     };
-  }, []);
+  }, [authLoading, me?.id]);
 
   const isSaved = React.useCallback(
     (id: string) => ids.includes(id),
@@ -72,7 +108,6 @@ export function useSavedArticles() {
       const saved = ids.includes(id);
       const next = saved ? ids.filter((x) => x !== id) : [...ids, id];
 
-      // optimistic
       setIds(next);
       writeLS(next);
 
@@ -82,10 +117,9 @@ export function useSavedArticles() {
           method: saved ? 'DELETE' : 'POST',
         };
 
-        const r = await fetch(url, await withCsrf(init));
+        const response = await fetch(url, await withCsrf(init));
 
-        if (r.status === 401) {
-          // rollback + popup
+        if (response.status === 401) {
           setIds(ids);
           writeLS(ids);
           requireAuth({
@@ -94,9 +128,8 @@ export function useSavedArticles() {
           return;
         }
 
-        if (!r.ok) throw new Error('Failed');
+        if (!response.ok) throw new Error('Failed');
       } catch {
-        // rollback en cas d’échec
         setIds(ids);
         writeLS(ids);
       }
