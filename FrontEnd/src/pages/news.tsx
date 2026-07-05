@@ -145,18 +145,20 @@ function groupBy<T, K extends string | number>(arr: T[], key: (x: T) => K) {
 }
 
 const since24h = (iso: string) => Date.now() - new Date(iso).getTime() <= 24 * 3600 * 1000;
+const shouldUseFallbackArticles = import.meta.env.DEV;
 
 export default function News() {
   const navigate = useNavigate();
   const { me } = useMe();
   const { t } = useI18n();
   const { requireAuth } = useAuthRequired();
-  const { items, hasMore, loadMore } = usePaginatedArticles({ take: 24 });
+  const { items, loading, hasMore, loadMore } = usePaginatedArticles({ take: 24 });
 
   const [followingArticles, setFollowingArticles] = React.useState<Article[]>([]);
   const [apiHero, setApiHero] = React.useState<Article | null>(null);
 
-  const articles = items.length ? items : FALLBACK;
+  const articles = items.length ? items : shouldUseFallbackArticles ? FALLBACK : [];
+  const showEmptyState = !loading && items.length === 0 && !shouldUseFallbackArticles;
 
   const memoHero = React.useMemo(() => {
     if (!articles.length) return null;
@@ -322,6 +324,17 @@ export default function News() {
           />
         ))}
       </section>
+
+      {showEmptyState && (
+        <section className="rounded-3xl border border-black/5 bg-black/[0.02] p-6 text-center dark:border-white/5 dark:bg-white/[0.02] sm:p-8">
+          <h2 className="text-base font-medium text-neutral-900 dark:text-neutral-100">
+            {t('news_empty_title')}
+          </h2>
+          <p className="mt-2 text-sm text-neutral-500 dark:text-neutral-400">
+            {t('news_empty_desc')}
+          </p>
+        </section>
+      )}
 
       <section className="space-y-6">
         <SectionHeader title={t('news_discovery')} />

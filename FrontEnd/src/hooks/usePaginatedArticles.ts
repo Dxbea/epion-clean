@@ -23,7 +23,7 @@ function mapItem(it: ApiItem): Article {
 export function usePaginatedArticles(params?: { take?: number; status?: 'PUBLISHED' | 'ALL' }) {
   const [items, setItems] = React.useState<Article[]>([]);
   const [nextCursor, setNextCursor] = React.useState<string | null>(null);
-  const [loading, setLoading] = React.useState(false);
+  const [loading, setLoading] = React.useState(true);
   const [error, setError] = React.useState<string | null>(null);
 
   const take = Math.min(params?.take ?? 12, 50);
