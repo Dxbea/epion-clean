@@ -217,6 +217,7 @@ router.put('/:id', async (req, res, next) => {
         structuredContent: true,
         factCheckContentHash: true,
         factCheckStatus: true,
+        generationPrompt: true,
       },
     });
     if (!existing) return res.status(404).json({ error: 'Not Found' });
@@ -281,6 +282,25 @@ router.put('/:id', async (req, res, next) => {
           : status === 'DRAFT'
             ? 'DRAFT'
             : existing.status;
+
+    const nextContent = sanitizedContent !== undefined ? sanitizedContent : existing.content;
+    const generationPending = existing.generationPrompt && ['PENDING', 'RUNNING'].includes(existing.factCheckStatus ?? '');
+
+    if (nextStatus === 'PUBLISHED') {
+      if (!nextContent?.trim()) {
+        return res.status(400).json({
+          error: 'article_content_required',
+          message: 'Impossible de publier un article vide.',
+        });
+      }
+
+      if (generationPending) {
+        return res.status(409).json({
+          error: 'article_generation_in_progress',
+          message: 'La generation de cet article est encore en cours.',
+        });
+      }
+    }
 
     const data: Prisma.ArticleUpdateInput = {
       ...(sanitizedTitle !== undefined

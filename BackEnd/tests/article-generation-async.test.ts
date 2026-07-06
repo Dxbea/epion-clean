@@ -6,6 +6,7 @@ process.env.DATABASE_URL ??= 'postgresql://user:pass@localhost:5432/epion_test';
 process.env.OPENAI_API_KEY ??= 'test-openai-key';
 
 const articleCreate = vi.fn();
+const articleUpdate = vi.fn();
 const articleFindFirst = vi.fn();
 const articleFindUnique = vi.fn();
 const userFindUnique = vi.fn();
@@ -16,6 +17,7 @@ vi.mock('../src/lib/db.js', () => ({
   prisma: {
     article: {
       create: articleCreate,
+      update: articleUpdate,
       findFirst: articleFindFirst,
       findUnique: articleFindUnique,
     },
@@ -99,6 +101,7 @@ describe('async article generation', () => {
       factCheckStatus: 'PENDING',
       status: 'DRAFT',
     });
+    articleUpdate.mockResolvedValue({ id: 'article-1', slug: 'generation-pending-article-1' });
     liveAnalysisAdd.mockResolvedValue({ id: 'job-1' });
     runLiveAnalysisWithGeneration.mockRejectedValue(new Error('synchronous generation should not run in the API request'));
   });
@@ -176,6 +179,30 @@ describe('async article generation', () => {
       idempotentReplay: true,
       article: { id: 'article-existing', slug: 'existing-pending' },
     });
+  });
+
+
+  it('rejects publishing a generated article while generation is still running', async () => {
+    articleFindUnique.mockResolvedValueOnce({
+      id: 'article-1',
+      authorId: 'user-1',
+      status: 'DRAFT',
+      title: 'Pending article',
+      summary: null,
+      content: null,
+      structuredContent: null,
+      factCheckContentHash: null,
+      factCheckStatus: 'RUNNING',
+      generationPrompt: 'Pending topic',
+    });
+
+    const response = await request(buildApp())
+      .put('/api/articles/article-1')
+      .send({ status: 'PUBLISHED' });
+
+    expect(response.status).toBe(400);
+    expect(response.body).toMatchObject({ error: 'article_content_required' });
+    expect(articleUpdate).not.toHaveBeenCalled();
   });
 
   it('returns generation status for the article author', async () => {

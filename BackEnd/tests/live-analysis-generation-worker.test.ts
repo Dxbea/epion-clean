@@ -1,18 +1,21 @@
-﻿import { beforeEach, describe, expect, it, vi } from 'vitest';
+import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 process.env.DATABASE_URL ??= 'postgresql://user:pass@localhost:5432/epion_test';
 process.env.OPENAI_API_KEY ??= 'test-openai-key';
 
 let capturedProcessor: any;
+let capturedWorkerOptions: any;
 const workerOn = vi.fn();
 const articleUpdate = vi.fn();
+const articleFindUnique = vi.fn();
 const sourceEnrichmentAdd = vi.fn();
 const runLiveAnalysis = vi.fn();
 const runLiveAnalysisWithGeneration = vi.fn();
 
 vi.mock('bullmq', () => ({
-  Worker: vi.fn().mockImplementation(function WorkerMock(_name, processor) {
+  Worker: vi.fn().mockImplementation(function WorkerMock(_name, processor, options) {
     capturedProcessor = processor;
+    capturedWorkerOptions = options;
     return { on: workerOn };
   }),
 }));
@@ -25,6 +28,7 @@ vi.mock('../src/lib/db.js', () => ({
   prisma: {
     article: {
       update: articleUpdate,
+      findUnique: articleFindUnique,
     },
   },
 }));
@@ -48,7 +52,9 @@ describe('live-analysis article generation worker', () => {
   beforeEach(() => {
     vi.clearAllMocks();
     capturedProcessor = undefined;
+    capturedWorkerOptions = undefined;
     articleUpdate.mockResolvedValue({ id: 'article-1' });
+    articleFindUnique.mockResolvedValue({ content: null, factCheckStatus: 'PENDING' });
     sourceEnrichmentAdd.mockResolvedValue({ id: 'enrich-1' });
     runLiveAnalysisWithGeneration.mockResolvedValue({
       globalScore: 78,
@@ -73,7 +79,18 @@ describe('live-analysis article generation worker', () => {
     });
   });
 
-  it('marks generation running, persists generated content, and chains source enrichment', async () => {
+  it('uses long-running lock settings for the live-analysis worker only', () => {
+    startLiveAnalysisWorker();
+
+    expect(capturedWorkerOptions).toMatchObject({
+      concurrency: 3,
+      lockDuration: 10 * 60 * 1000,
+      stalledInterval: 2 * 60 * 1000,
+      maxStalledCount: 2,
+    });
+  });
+
+  it('marks generation running, atomically finalizes generated content as a completed draft, and returns enrichment data', async () => {
     startLiveAnalysisWorker();
 
     const result = await capturedProcessor({
@@ -103,8 +120,12 @@ describe('live-analysis article generation worker', () => {
         title: 'Generated title',
         content: 'Generated content',
         factCheckScore: 78,
-        factCheckStatus: 'RUNNING',
+        factCheckStatus: 'COMPLETED',
+        status: 'DRAFT',
+        factCheckCompletedAt: expect.any(Date),
+        factCheckError: null,
         factCheckData: expect.objectContaining({
+          status: 'COMPLETED',
           liveScore: 78,
           sources: [expect.objectContaining({ url: 'https://example.com/story', type: 'PENDING' })],
         }),

@@ -15,6 +15,7 @@ interface SourceEnrichmentJobData {
     sources: string[];
     scoreLiveBrut?: number;
     liveAnalysis?: any;
+    articleGeneration?: boolean;
 }
 
 function createWorkerConnection(): IORedis {
@@ -162,6 +163,18 @@ export function startSourceEnrichmentWorker(): Worker<SourceEnrichmentJobData> {
             });
 
             const hasEnrichedSources = enrichedSources.length > 0;
+            if (!hasEnrichedSources && job.data.articleGeneration) {
+                logger.warn('[Worker] No sources enriched for generated article; preserving completed generation state', {
+                    articleId,
+                    jobId: job.id,
+                });
+                return {
+                    enrichedCount: 0,
+                    finalScore: factCheckScore,
+                    preservedGeneratedArticle: true,
+                };
+            }
+
             if (!hasEnrichedSources) {
                 factCheckData.status = 'FAILED';
             }
@@ -207,6 +220,15 @@ export function startSourceEnrichmentWorker(): Worker<SourceEnrichmentJobData> {
         });
 
         if (job?.data?.articleId) {
+            if (job.data.articleGeneration) {
+                logger.warn('[Worker] Source enrichment failed for generated article; preserving completed generation state', {
+                    articleId: job.data.articleId,
+                    jobId: job.id,
+                    error: err.message,
+                });
+                return;
+            }
+
             try {
                 await prisma.article.update({
                     where: { id: job.data.articleId },

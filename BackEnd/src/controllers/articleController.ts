@@ -153,6 +153,7 @@ export async function createAIArticle(req: Request, res: Response, next: NextFun
                 backoff: { type: 'exponential', delay: 5000 },
                 removeOnComplete: 50,
                 removeOnFail: 100,
+                jobId: `article-generation:${article.id}`,
             });
 
             logger.info('[ArticleGenerate] Generation job queued', {

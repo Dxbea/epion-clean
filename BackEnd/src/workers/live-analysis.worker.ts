@@ -5,10 +5,14 @@ import { logger } from '../lib/logger.js';
 import { runLiveAnalysis, runLiveAnalysisWithGeneration } from '../lib/live-analysis/index.js';
 import { sourceEnrichmentQueue } from '../lib/queue.js';
 import { stableSourceId } from '../lib/structured-article.js';
+import { hashAnalysisInput } from '../lib/score-helpers.js';
 import { prisma } from '../lib/db.js';
 import { getWikipediaImage } from '../lib/images/wikipedia-fetcher.js';
 
 const LIVE_ANALYSIS_WORKER_CONCURRENCY = 3;
+const LIVE_ANALYSIS_LOCK_DURATION_MS = 10 * 60 * 1000;
+const LIVE_ANALYSIS_STALLED_INTERVAL_MS = 2 * 60 * 1000;
+const LIVE_ANALYSIS_MAX_STALLED_COUNT = 2;
 const DEFAULT_OPINION_QUESTION = {
     question: 'Les faits présentés relèvent-ils plutôt d\'un problème ponctuel ou d\'un problème structurel ?',
     thesisA: 'Plutôt ponctuel',
@@ -80,20 +84,28 @@ function buildPendingSources(sources: Array<{ url?: string; domain?: string }>) 
         });
 }
 
-function buildInitialFactCheckData(result: any, pendingSources: ReturnType<typeof buildPendingSources>) {
+function buildInitialFactCheckData(result: any, pendingSources: ReturnType<typeof buildPendingSources>, contentHash: string) {
     const liveScore = Math.round(result.globalScore || 50);
     return {
+        version: 1,
+        status: 'COMPLETED',
+        score: liveScore,
         factScore: liveScore,
+        supportLevel: liveScore >= 70 ? 'strong' : liveScore >= 50 ? 'nuanced' : liveScore >= 30 ? 'fragile' : 'unverified',
         liveScore,
         sourcesMean: null,
         calculation: {
             formula: 'weighted-source-live-v1',
             sourceWeight: 0.75,
+            contentWeight: 0.25,
             liveWeight: 0.25,
             sourcesMean: null,
+            contentScore: liveScore,
             liveScore,
             finalScore: liveScore,
         },
+        analyzedAt: new Date().toISOString(),
+        contentHash,
         liveAnalysis: {
             contentIntent: result.contentIntent,
             pillarScores: result.pillarScores,
@@ -133,12 +145,50 @@ export function startLiveAnalysisWorker(): Worker<LiveAnalysisJobData> {
             const timeoutMs = job.data.timeoutMs || 5 * 60 * 1000;
             const isGenerate = mode === 'article-generation';
 
-            logger.info(`[LiveAnalysis Worker] Starting for article ${articleId}`, {
+            logger.info(`[LiveAnalysis Worker] Job started for article ${articleId}`, {
                 jobId: job.id,
                 userId: requestedByUserId,
                 mode: isGenerate ? 'GENERATE' : 'ANALYZE',
                 title: (isGenerate ? topic : title)?.slice(0, 60),
             });
+
+            if (isGenerate) {
+                const existingArticle = await prisma.article.findUnique({
+                    where: { id: articleId },
+                    select: {
+                        title: true,
+                        content: true,
+                        factCheckStatus: true,
+                        factCheckScore: true,
+                        factCheckData: true,
+                    },
+                });
+
+                if (existingArticle?.factCheckStatus === 'COMPLETED' && existingArticle.content?.trim()) {
+                    const factCheckData = existingArticle.factCheckData as any;
+                    const sources = Array.isArray(factCheckData?.sources) ? factCheckData.sources : [];
+                    const existingCitationUrls = sources
+                        .map((source: any) => source?.url)
+                        .filter((url: unknown): url is string => typeof url === 'string' && url.trim().length > 0);
+
+                    logger.info('[LiveAnalysis Worker] Generation already finalized; skipping duplicate generation', {
+                        articleId,
+                        jobId: job.id,
+                        userId: requestedByUserId,
+                        sourceCount: existingCitationUrls.length,
+                    });
+
+                    return {
+                        articleId,
+                        globalScore: existingArticle.factCheckScore ?? factCheckData?.score ?? factCheckData?.factScore ?? 50,
+                        contentIntent: factCheckData?.liveAnalysis?.contentIntent ?? null,
+                        pillarScores: factCheckData?.liveAnalysis?.pillarScores ?? null,
+                        judges: factCheckData?.liveAnalysis?.judges ?? null,
+                        generatedContent: null,
+                        citationUrls: existingCitationUrls,
+                    };
+                }
+            }
 
             await prisma.article.update({
                 where: { id: articleId },
@@ -181,7 +231,13 @@ export function startLiveAnalysisWorker(): Worker<LiveAnalysisJobData> {
                     coverImageUrl = await getWikipediaImage(gc.wikipedia_search_query);
                 }
                 const opinionQuestion = normalizeGeneratedOpinionQuestion(gc.opinionQuestion);
-                const factCheckData = buildInitialFactCheckData(result, pendingSources);
+                const contentHash = hashAnalysisInput({
+                    title: gc.title,
+                    summary: gc.summary,
+                    content: gc.content,
+                    sourceDomains: pendingSources.map((source) => source.domain),
+                });
+                const factCheckData = buildInitialFactCheckData(result, pendingSources, contentHash);
 
                 await prisma.article.update({
                     where: { id: articleId },
@@ -193,7 +249,11 @@ export function startLiveAnalysisWorker(): Worker<LiveAnalysisJobData> {
                         aiSummary: gc.summary,
                         factCheckScore: Math.round(result.globalScore),
                         factCheckData: factCheckData as any,
-                        factCheckStatus: 'RUNNING',
+                        factCheckStatus: 'COMPLETED',
+                        factCheckContentHash: contentHash,
+                        factCheckCompletedAt: new Date(),
+                        factCheckError: null,
+                        status: 'DRAFT',
                         generatedAt: new Date(),
                         imageUrl: coverImageUrl,
                         generationConfig: {
@@ -215,7 +275,7 @@ export function startLiveAnalysisWorker(): Worker<LiveAnalysisJobData> {
                     },
                 });
 
-                logger.info(`[LiveAnalysis Worker] Article ${articleId} updated with generated content`, {
+                logger.info(`[LiveAnalysis Worker] Article DB update succeeded for generated article ${articleId}`, {
                     jobId: job.id,
                     userId: requestedByUserId,
                     title: gc.title.slice(0, 60),
@@ -239,7 +299,7 @@ export function startLiveAnalysisWorker(): Worker<LiveAnalysisJobData> {
                 });
             }
 
-            logger.info(`[LiveAnalysis Worker] Complete for article ${articleId}`, {
+            logger.info(`[LiveAnalysis Worker] Generation completed for article ${articleId}`, {
                 jobId: job.id,
                 userId: requestedByUserId,
                 score: result.globalScore,
@@ -260,6 +320,9 @@ export function startLiveAnalysisWorker(): Worker<LiveAnalysisJobData> {
         {
             connection: connection as any,
             concurrency: LIVE_ANALYSIS_WORKER_CONCURRENCY,
+            lockDuration: LIVE_ANALYSIS_LOCK_DURATION_MS,
+            stalledInterval: LIVE_ANALYSIS_STALLED_INTERVAL_MS,
+            maxStalledCount: LIVE_ANALYSIS_MAX_STALLED_COUNT,
         }
     );
 
@@ -311,11 +374,19 @@ export function startLiveAnalysisWorker(): Worker<LiveAnalysisJobData> {
                     pillarScores: result.pillarScores,
                     judges: result.judges,
                 },
+                articleGeneration: job.data.mode === 'article-generation',
             }, {
                 removeOnComplete: true,
                 removeOnFail: 100,
                 attempts: 3,
                 backoff: { type: 'exponential', delay: 5000 },
+                jobId: `source-enrichment:${result.articleId}`,
+            });
+            logger.info('[LiveAnalysis Worker] Job completed', {
+                articleId: result.articleId,
+                jobId: job.id,
+                userId: job.data.requestedByUserId,
+                sourceCount: citationUrls.length,
             });
         } catch (err: any) {
             logger.error('[LiveAnalysis Worker] Failed to chain to enrichment queue', {
@@ -324,6 +395,15 @@ export function startLiveAnalysisWorker(): Worker<LiveAnalysisJobData> {
                 userId: job.data.requestedByUserId,
                 error: err.message,
             });
+
+            if (job.data.mode === 'article-generation') {
+                logger.warn('[LiveAnalysis Worker] Generated article remains completed after enrichment dispatch failure', {
+                    articleId: result.articleId,
+                    jobId: job.id,
+                    userId: job.data.requestedByUserId,
+                });
+                return;
+            }
 
             await prisma.article.update({
                 where: { id: result.articleId },
@@ -364,6 +444,12 @@ export function startLiveAnalysisWorker(): Worker<LiveAnalysisJobData> {
                     factCheckCompletedAt: new Date(),
                 },
             });
+            logger.error('[LiveAnalysis Worker] Job failed with article marked accordingly', {
+                articleId: job.data.articleId,
+                jobId: job.id,
+                userId: job.data.requestedByUserId,
+                factCheckStatus: 'FAILED',
+            });
         } catch (dbErr: any) {
             logger.error('[LiveAnalysis Worker] Failed to persist FAILED status to DB', {
                 articleId: job.data.articleId,
@@ -372,7 +458,22 @@ export function startLiveAnalysisWorker(): Worker<LiveAnalysisJobData> {
             });
         }
     });
-    logger.info('Live Analysis Worker started', { module: 'Worker', concurrency: LIVE_ANALYSIS_WORKER_CONCURRENCY });
+    liveAnalysisWorker.on('stalled', (jobId) => {
+        logger.warn('[LiveAnalysis Worker] Job stalled', {
+            jobId,
+            lockDuration: LIVE_ANALYSIS_LOCK_DURATION_MS,
+            stalledInterval: LIVE_ANALYSIS_STALLED_INTERVAL_MS,
+            maxStalledCount: LIVE_ANALYSIS_MAX_STALLED_COUNT,
+        });
+    });
+
+    logger.info('Live Analysis Worker started', {
+        module: 'Worker',
+        concurrency: LIVE_ANALYSIS_WORKER_CONCURRENCY,
+        lockDuration: LIVE_ANALYSIS_LOCK_DURATION_MS,
+        stalledInterval: LIVE_ANALYSIS_STALLED_INTERVAL_MS,
+        maxStalledCount: LIVE_ANALYSIS_MAX_STALLED_COUNT,
+    });
     return liveAnalysisWorker;
 }
 
