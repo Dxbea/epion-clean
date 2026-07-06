@@ -43,6 +43,9 @@ export interface FactCheckSource {
     domain: string;
     score: number;
     provider?: 'web' | 'rag';
+    extractionStatus?: 'full' | 'metadata_only';
+    sourceQuality?: 'full' | 'metadata_only';
+    extractionFailureReason?: string;
     articleSlug?: string;
 }
 
@@ -134,6 +137,9 @@ export function formatSourcesForPrompt(sources: FactCheckSource[], maxCharsPerSo
             : source.content;
         const date = source.publishedDate ? ` | ${source.publishedDate}` : '';
         const id = source.sourceId || `source_${index + 1}`;
-        return `[Source ${index + 1} | id=${id}] ${source.title} (${source.domain}${date})\nURL: ${source.url}\n${content}`;
+        const qualityLabel = source.extractionStatus === 'metadata_only'
+            ? ' | METADATA ONLY - limited Serper snippet, full page extraction failed'
+            : '';
+        return `[Source ${index + 1} | id=${id}${qualityLabel}] ${source.title} (${source.domain}${date})\nURL: ${source.url}\n${content}`;
     }).join('\n\n---\n\n');
 }

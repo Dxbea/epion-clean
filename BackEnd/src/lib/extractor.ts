@@ -74,6 +74,18 @@ export class ExtractorHttpStatusError extends Error {
   }
 }
 
+export class ExtractorUnsupportedContentTypeError extends Error {
+  readonly contentType: string;
+  readonly url: string;
+
+  constructor(contentType: string, url: string) {
+    super(`Unsupported extraction content type: ${contentType || 'unknown'}`);
+    this.name = 'ExtractorUnsupportedContentTypeError';
+    this.contentType = contentType || 'unknown';
+    this.url = url;
+  }
+}
+
 export class ExtractorParseSafetyError extends Error {
   readonly htmlBytes: number;
   readonly maxHtmlBytes: number;
@@ -325,6 +337,28 @@ function shouldTripCircuitBreaker(error: unknown): boolean {
   return false;
 }
 
+function getHeaderValue(headers: Record<string, string | string[] | undefined>, name: string): string | undefined {
+  const value = headers[name] ?? headers[name.toLowerCase()];
+  return Array.isArray(value) ? value.join(', ') : value;
+}
+
+function getResponseContentLength(response: FetchHtmlResult): number | undefined {
+  const headerValue = getHeaderValue(response.headers, 'content-length');
+  if (headerValue) {
+    const parsed = Number(headerValue);
+    if (Number.isFinite(parsed)) return parsed;
+  }
+
+  return response.html ? Buffer.byteLength(response.html, 'utf8') : undefined;
+}
+
+function isUnsupportedContentType(contentType: string | undefined, url: string): boolean {
+  const normalized = (contentType || '').toLowerCase();
+  if (/\.pdf(?:[?#].*)?$/i.test(url)) return true;
+  if (!normalized) return false;
+  return !normalized.includes('text/html') && !normalized.includes('application/xhtml+xml');
+}
+
 function normalizeAxiosHeaders(headers: RawAxiosResponseHeaders | AxiosResponse['headers']): Record<string, string | string[] | undefined> {
   return Object.fromEntries(
     Object.entries(headers).map(([key, value]) => [key, Array.isArray(value) ? value : value?.toString()]),
@@ -382,8 +416,10 @@ async function fetchWithCurlImpersonate(
       impersonate: 'chrome-116',
       verbose: false,
       headers: {
-        'User-Agent': 'Mozilla/5.0',
-        'Accept-Language': 'fr-FR,fr;q=0.9,en;q=0.8',
+        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/126.0 Safari/537.36',
+        'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8',
+        'Accept-Language': 'fr-FR,fr;q=0.9,en-US;q=0.8,en;q=0.7',
+        'Upgrade-Insecure-Requests': '1',
       },
     });
 
@@ -418,15 +454,18 @@ async function fetchWithCurlImpersonate(
  * Multi-tier HTML fetch cascade:
  *   Tier 1: curl-impersonate (browser TLS fingerprint)
  *   Tier 2: axios + Referer header (fallback on 403)
- * Note: GDELT NGrams Tier 0 was removed — GDELT DOC 2.0 API does not provide article body text.
+ * Note: GDELT NGrams Tier 0 was removed - GDELT DOC 2.0 API does not provide article body text.
  */
 async function fetchHtmlWithCascade(
   url: string,
   context: ExtractLogContext = {},
 ): Promise<FetchHtmlResult> {
   const primaryHeaders = {
-    'User-Agent': 'Mozilla/5.0',
-    'Accept-Language': 'fr-FR,fr;q=0.9,en;q=0.8',
+    'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/126.0 Safari/537.36',
+    'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8',
+    'Accept-Language': 'fr-FR,fr;q=0.9,en-US;q=0.8,en;q=0.7',
+    'Upgrade-Insecure-Requests': '1',
+    'Cache-Control': 'no-cache',
   };
 
   const impersonatedResponse = await fetchWithCurlImpersonate(url, context);
@@ -558,13 +597,29 @@ export async function extractArticle(
 
   try {
     const response = await fetchHtmlWithCascade(url, context);
+    const contentType = getHeaderValue(response.headers, 'content-type');
+    const contentLength = getResponseContentLength(response);
+    const htmlBytes = Buffer.byteLength(response.html || '', 'utf8');
+
+    log.info('Extraction HTTP response received', buildExtractorMeta(url, context, {
+      hostname,
+      finalUrl: response.finalUrl,
+      status: response.status,
+      contentType,
+      contentLength,
+      htmlBytes,
+      elapsedMs: Date.now() - startedAt,
+    }));
+
     if (response.status >= 400) {
       throw new ExtractorHttpStatusError(response.status, response.finalUrl || url);
+    }
+    if (isUnsupportedContentType(contentType, response.finalUrl || url)) {
+      throw new ExtractorUnsupportedContentTypeError(contentType || 'unknown', response.finalUrl || url);
     }
     if (!response.html) {
       throw new Error('Extraction returned empty HTML');
     }
-
     const extracted = await parseWithReadability(response.html, response.finalUrl || url, context);
     if (!extracted.content || extracted.content.length < 200) {
       throw new Error('Extracted content is too short');

@@ -9,6 +9,7 @@ import { getRootDomain } from '../utils/domain.js';
 
 const MAX_SOURCES = 50;
 const EXTRACTION_CONCURRENCY = 6;
+const MIN_METADATA_SNIPPET_LENGTH = 40;
 
 function getDomainKeyFromUrl(url: string): string {
     try {
@@ -26,6 +27,22 @@ function getRootDomainKeyFromUrl(url: string): string {
     }
 }
 
+function getCredibilityBoost(url: string): number {
+    try {
+        const parsed = new URL(url);
+        const hostname = parsed.hostname.replace(/^www\./, '').toLowerCase();
+        const path = parsed.pathname.toLowerCase();
+
+        if (hostname.endsWith('.gov') || hostname.endsWith('.edu') || hostname.endsWith('.int')) return 0.35;
+        if (path.includes('/investor') || path.includes('/newsroom') || path.includes('/press') || path.includes('/media')) return 0.25;
+        if (hostname.includes('official') || hostname.includes('investor')) return 0.2;
+        if (/\b(reuters|apnews|bbc|cnbc|ft|bloomberg|yahoo)\b/.test(hostname)) return 0.15;
+        return 0;
+    } catch {
+        return 0;
+    }
+}
+
 function selectSourcesByRootDomain<T extends { url: string; score: number }>(
     sources: T[],
     limit: number,
@@ -33,7 +50,11 @@ function selectSourcesByRootDomain<T extends { url: string; score: number }>(
     const selected: T[] = [];
     const seenRootDomains = new Set<string>();
 
-    for (const source of [...sources].sort((a, b) => b.score - a.score)) {
+    for (const source of [...sources].sort((a, b) => {
+        const bRank = b.score + getCredibilityBoost(b.url);
+        const aRank = a.score + getCredibilityBoost(a.url);
+        return bRank - aRank;
+    })) {
         const rootDomainKey = getRootDomainKeyFromUrl(source.url);
         if (seenRootDomains.has(rootDomainKey)) {
             continue;
@@ -51,7 +72,7 @@ function selectSourcesByRootDomain<T extends { url: string; score: number }>(
 }
 
 function truncateContent(content: string): string {
-    return content; // WE NOW KEEP EVERYTHING UNTRUNCATED SO CHUNKER SEES ALL
+    return content; // Keep all content so the chunker sees the full extraction.
 }
 
 async function mapWithConcurrencyLimit<T, U>(
@@ -100,6 +121,42 @@ function mapSearchResult(result: SerperSearchResult): FactCheckSource | null {
     };
 }
 
+function buildMetadataFallbackSource(
+    result: SerperSearchResult,
+    reason: string,
+): FactCheckSource | null {
+    const url = result.url?.trim();
+    const title = result.title?.trim() || url;
+    const snippet = (result.content || '').trim();
+
+    if (!url || !title || snippet.length < MIN_METADATA_SNIPPET_LENGTH) {
+        return null;
+    }
+
+    const domain = getDomainKeyFromUrl(url);
+    const content = [
+        'METADATA-ONLY SOURCE - full page extraction failed. Use only the title, snippet, URL, and date below. Do not infer facts beyond this metadata.',
+        `Title: ${title}`,
+        `Snippet: ${snippet}`,
+        result.publishedDate ? `Published date: ${result.publishedDate}` : '',
+        `URL: ${url}`,
+    ].filter(Boolean).join('\n');
+
+    return {
+        url,
+        title,
+        content,
+        metaDescription: snippet,
+        publishedDate: result.publishedDate || undefined,
+        domain,
+        score: Math.max(0.01, (result.score || 0) * 0.45 + getCredibilityBoost(url)),
+        provider: 'web',
+        extractionStatus: 'metadata_only',
+        sourceQuality: 'metadata_only',
+        extractionFailureReason: reason,
+    };
+}
+
 async function extractSearchResult(result: SerperSearchResult): Promise<FactCheckSource | null> {
     const url = result.url?.trim();
     if (!url) {
@@ -119,14 +176,22 @@ async function extractSearchResult(result: SerperSearchResult): Promise<FactChec
             domain: getDomainKeyFromUrl(url),
             score: result.score || 0,
             provider: 'web',
+            extractionStatus: 'full',
+            sourceQuality: 'full',
         };
     } catch (error: unknown) {
-        logger.warn('External extraction failed, source skipped', {
+        const reason = error instanceof Error ? error.message : 'Unknown extractor error';
+        const fallback = buildMetadataFallbackSource(result, reason);
+
+        logger.warn(fallback ? 'External extraction failed, using metadata-only source fallback' : 'External extraction failed, source skipped', {
             module: 'FactInvestigator',
             url,
-            error: error instanceof Error ? error.message : 'Unknown extractor error',
+            domain: getDomainKeyFromUrl(url),
+            error: reason,
+            hasMetadataFallback: Boolean(fallback),
         });
-        return null;
+
+        return fallback;
     }
 }
 
@@ -150,6 +215,8 @@ async function loadInternalFallbackSources(query: string, limit: number): Promis
         score: source.score,
         provider: source.provider,
         articleSlug: source.articleSlug,
+        extractionStatus: 'full',
+        sourceQuality: 'full',
     }));
 }
 
@@ -242,7 +309,13 @@ export async function investigateArticle(
             message: `Dedup effect: ${searchResults.flat().length} raw -> ${extractionCandidates.length} unique domains`,
         });
 
-        const extractedResults = await mapWithConcurrencyLimit(
+        logger.info('Source extraction candidates selected', {
+            module: 'FactInvestigator',
+            candidateCount: extractionCandidates.length,
+            domains: extractionCandidates.map((source) => source.domain),
+        });
+
+        const extractionResults = await mapWithConcurrencyLimit(
             extractionCandidates,
             EXTRACTION_CONCURRENCY,
             async (candidate) => {
@@ -263,9 +336,19 @@ export async function investigateArticle(
                     return null;
                 }
 
+                if (extracted.extractionStatus === 'metadata_only') {
+                    return extracted;
+                }
+
                 const chunkedContent = extractRelevantPassages(extracted.title, extracted.content, allQueries);
                 if (!chunkedContent) {
-                    return null;
+                    return buildMetadataFallbackSource({
+                        title: candidate.title,
+                        url: candidate.url,
+                        content: candidate.content,
+                        publishedDate: candidate.publishedDate,
+                        score: candidate.score,
+                    }, 'Extracted content had no relevant passages');
                 }
 
                 extracted.content = chunkedContent;
@@ -273,7 +356,10 @@ export async function investigateArticle(
             },
         );
 
-        let finalSources = extractedResults.filter((result): result is FactCheckSource => result !== null);
+        let finalSources = extractionResults.filter((result): result is FactCheckSource => result !== null);
+        const fullExtractionSuccessCount = finalSources.filter((source) => source.extractionStatus !== 'metadata_only').length;
+        const metadataFallbackCount = finalSources.filter((source) => source.extractionStatus === 'metadata_only').length;
+        const skippedSourceCount = extractionCandidates.length - finalSources.length;
         const seenRootDomains = new Set(finalSources.map((source) => getRootDomainKeyFromUrl(source.url)));
         const seenUrls = new Set(finalSources.map((source) => source.url));
 
@@ -301,6 +387,16 @@ export async function investigateArticle(
 
         finalSources = selectSourcesByRootDomain(finalSources, MAX_SOURCES);
 
+        logger.info('Serper extraction summary', {
+            module: 'FactInvestigator',
+            candidateCount: extractionCandidates.length,
+            fullExtractionSuccessCount,
+            fallbackSourceCount: metadataFallbackCount,
+            skippedSourceCount,
+            finalSourceCount: finalSources.length,
+            metadataOnlyFinalCount: finalSources.filter((source) => source.extractionStatus === 'metadata_only').length,
+        });
+
         logger.info(`Serper investigation complete: ${finalSources.length} sources`, {
             module: 'FactInvestigator',
             route: routingDecision.route,
@@ -309,6 +405,7 @@ export async function investigateArticle(
             query_contextual: routingDecision.query_contextual,
             extractionCandidateCount: extractionCandidates.length,
             extractionConcurrency: EXTRACTION_CONCURRENCY,
+            finalSourceCount: finalSources.length,
             domains: finalSources.map((source) => source.domain),
         });
 
