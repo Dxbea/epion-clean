@@ -5,8 +5,11 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 import { useAuth } from '@/context/AuthContext';
 import {
+  fetchArticleGenerationStatus,
   fetchCategories,
+  fetchEditableArticle,
   generateArticleWithAI,
+  type ArticleGenerationStatusResult,
   type Category,
   type GenerateArticleLanguage,
   type GenerateArticleTone,
@@ -16,6 +19,8 @@ import { Fonts } from '@/constants/theme';
 import { useTheme } from '@/hooks/use-theme';
 
 const MAX_PROMPT_CHARS = 2000;
+const GENERATION_POLL_INTERVAL_MS = 3000;
+const GENERATION_TIMEOUT_MS = 5 * 60 * 1000;
 
 const languageOptions: Array<{ value: GenerateArticleLanguage; label: string }> = [
   { value: 'fr', label: 'French' },
@@ -37,6 +42,18 @@ function getErrorMessage(error: unknown, fallback: string): string {
   return error instanceof Error && error.message ? error.message : fallback;
 }
 
+function delay(ms: number): Promise<void> {
+  return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
+function generationCompleted(status: Pick<ArticleGenerationStatusResult, 'status' | 'generationStatus' | 'factCheckStatus'>): boolean {
+  return status.status === 'COMPLETED' || status.generationStatus === 'COMPLETED' || status.factCheckStatus === 'COMPLETED';
+}
+
+function generationFailed(status: Pick<ArticleGenerationStatusResult, 'status' | 'generationStatus' | 'factCheckStatus'>): boolean {
+  return status.status === 'FAILED' || status.generationStatus === 'FAILED' || status.factCheckStatus === 'FAILED';
+}
+
 export default function CreateArticleScreen() {
   const router = useRouter();
   const colors = useTheme();
@@ -49,6 +66,7 @@ export default function CreateArticleScreen() {
   const [categoryId, setCategoryId] = useState('');
   const [categoriesLoading, setCategoriesLoading] = useState(false);
   const [isGenerating, setIsGenerating] = useState(false);
+  const [generationMessage, setGenerationMessage] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
 
   const promptTooLong = prompt.length > MAX_PROMPT_CHARS;
@@ -82,7 +100,30 @@ export default function CreateArticleScreen() {
     };
   }, []);
 
+  async function waitForGeneratedArticle(articleId: string): Promise<void> {
+    const deadline = Date.now() + GENERATION_TIMEOUT_MS;
+
+    while (Date.now() < deadline) {
+      await delay(GENERATION_POLL_INTERVAL_MS);
+      const status = await fetchArticleGenerationStatus(articleId);
+
+      if (generationFailed(status)) {
+        throw new Error(status.error || 'Article generation failed. Please try again.');
+      }
+
+      if (generationCompleted(status)) {
+        return;
+      }
+
+      setGenerationMessage('Article generation in progress. This can take a few minutes.');
+    }
+
+    throw new Error('Article generation is taking longer than expected. Please try again in a few minutes.');
+  }
+
   async function handleGenerate() {
+    if (isGenerating) return;
+
     if (!user) {
       router.push('/account');
       return;
@@ -106,6 +147,7 @@ export default function CreateArticleScreen() {
     }
 
     setIsGenerating(true);
+    setGenerationMessage('Creating the article draft...');
     setError(null);
 
     try {
@@ -118,9 +160,25 @@ export default function CreateArticleScreen() {
         generateImage: true,
       });
 
-      const articleTarget = result.article?.id;
+      const articleTarget = result.article?.id ?? result.articleId;
       if (!articleTarget) {
         throw new Error('Invalid response from server');
+      }
+
+      setGenerationMessage('Article draft created. Generation in progress...');
+
+      if (generationFailed(result)) {
+        throw new Error('Article generation failed. Please try again.');
+      }
+
+      if (!generationCompleted(result)) {
+        await waitForGeneratedArticle(articleTarget);
+      }
+
+      setGenerationMessage('Generation complete. Opening the article editor...');
+      const article = await fetchEditableArticle(articleTarget);
+      if (!article) {
+        throw new Error('Generated article could not be loaded.');
       }
 
       router.push({ pathname: '/account/articles/[id]/edit', params: { id: articleTarget } });
@@ -128,6 +186,7 @@ export default function CreateArticleScreen() {
       setError(getErrorMessage(generationError, 'Unable to generate article'));
     } finally {
       setIsGenerating(false);
+      setGenerationMessage(null);
     }
   }
 
@@ -197,6 +256,18 @@ export default function CreateArticleScreen() {
           {error ? (
             <View style={[styles.errorBox, { backgroundColor: colors.errorBackground, borderColor: colors.error }]}>
               <Text style={[styles.errorText, { color: colors.error }]}>{error}</Text>
+            </View>
+          ) : null}
+
+          {isGenerating ? (
+            <View style={[styles.progressBox, { backgroundColor: colors.backgroundElevated, borderColor: colors.border }]}>
+              <ActivityIndicator color={colors.accent} size="small" />
+              <View style={styles.progressTextGroup}>
+                <Text style={[styles.progressTitle, { color: colors.text }]}>Article generation in progress</Text>
+                <Text style={[styles.progressText, { color: colors.textSecondary }]}>
+                  {generationMessage ?? 'The article draft is being completed by Epion.'}
+                </Text>
+              </View>
             </View>
           ) : null}
 
@@ -411,6 +482,31 @@ const styles = StyleSheet.create({
     color: '#B91C1C',
     fontSize: 13,
     lineHeight: 19,
+  },
+  progressBox: {
+    alignItems: 'center',
+    backgroundColor: '#FAFAF5',
+    borderColor: 'rgba(0,0,0,0.10)',
+    borderRadius: 16,
+    borderWidth: 1,
+    flexDirection: 'row',
+    gap: 12,
+    paddingHorizontal: 14,
+    paddingVertical: 12,
+  },
+  progressTextGroup: {
+    flex: 1,
+    gap: 2,
+  },
+  progressTitle: {
+    color: '#000000',
+    fontSize: 14,
+    fontWeight: '700',
+  },
+  progressText: {
+    color: 'rgba(0,0,0,0.72)',
+    fontSize: 13,
+    lineHeight: 18,
   },
   loadingText: {
     color: 'rgba(0,0,0,0.64)',

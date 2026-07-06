@@ -146,7 +146,24 @@ export type GeneratedArticleResult = {
     id?: string;
     slug?: string;
   };
+  articleId?: string;
+  slug?: string;
+  generationStatus?: ArticleGenerationStatus;
+  factCheckStatus?: ArticleGenerationStatus;
   message?: string;
+};
+
+export type ArticleGenerationStatus = 'PENDING' | 'RUNNING' | 'COMPLETED' | 'FAILED' | 'STALE';
+
+export type ArticleGenerationStatusResult = {
+  articleId?: string;
+  slug?: string;
+  status?: ArticleGenerationStatus;
+  generationStatus?: ArticleGenerationStatus;
+  factCheckStatus?: ArticleGenerationStatus;
+  error?: string;
+  startedAt?: string;
+  completedAt?: string;
 };
 
 export type EditableArticleStatus = 'DRAFT' | 'PUBLISHED' | 'ARCHIVED';
@@ -1527,6 +1544,15 @@ export async function toggleArticleContributionValidation(
 }
 
 export { updateContributionTree };
+
+function readArticleGenerationStatus(value: unknown): ArticleGenerationStatus | undefined {
+  const status = readOptionalText(value);
+  if (status === 'PENDING' || status === 'RUNNING' || status === 'COMPLETED' || status === 'FAILED' || status === 'STALE') {
+    return status;
+  }
+  return undefined;
+}
+
 export async function generateArticleWithAI(data: GenerateArticleParams): Promise<GeneratedArticleResult> {
   const response = await fetch(
     `${API_BASE}/api/articles/generate`,
@@ -1548,12 +1574,14 @@ export async function generateArticleWithAI(data: GenerateArticleParams): Promis
 
   const record = readRecord(payload) ?? {};
   const article = readRecord(record.article);
-  const articleId = article ? readOptionalText(article.id) : undefined;
-  const articleSlug = article ? readOptionalText(article.slug) : undefined;
+  const articleId = (article ? readOptionalText(article.id) : undefined) ?? readOptionalText(record.articleId);
+  const articleSlug = (article ? readOptionalText(article.slug) : undefined) ?? readOptionalText(record.slug);
   const message = readOptionalText(record.message);
+  const generationStatus = readArticleGenerationStatus(record.generationStatus);
+  const factCheckStatus = readArticleGenerationStatus(record.factCheckStatus);
 
   return {
-    ...(article
+    ...(articleId || articleSlug
       ? {
           article: {
             ...(articleId ? { id: articleId } : {}),
@@ -1561,7 +1589,47 @@ export async function generateArticleWithAI(data: GenerateArticleParams): Promis
           },
         }
       : {}),
+    ...(articleId ? { articleId } : {}),
+    ...(articleSlug ? { slug: articleSlug } : {}),
+    ...(generationStatus ? { generationStatus } : {}),
+    ...(factCheckStatus ? { factCheckStatus } : {}),
     ...(message ? { message } : {}),
+  };
+}
+
+export async function fetchArticleGenerationStatus(articleId: string): Promise<ArticleGenerationStatusResult> {
+  const response = await fetch(`${API_BASE}/api/articles/${encodeURIComponent(articleId)}/status`, {
+    credentials: 'include',
+    headers: {
+      Accept: 'application/json',
+    },
+  });
+
+  const payload = await readJson(response);
+
+  if (!response.ok) {
+    throw buildApiError(response, payload);
+  }
+
+  const record = readRecord(payload) ?? {};
+  const status = readArticleGenerationStatus(record.status);
+  const generationStatus = readArticleGenerationStatus(record.generationStatus);
+  const factCheckStatus = readArticleGenerationStatus(record.factCheckStatus);
+  const responseArticleId = readOptionalText(record.articleId);
+  const slug = readOptionalText(record.slug);
+  const error = readOptionalText(record.error);
+  const startedAt = readOptionalText(record.startedAt);
+  const completedAt = readOptionalText(record.completedAt);
+
+  return {
+    ...(responseArticleId ? { articleId: responseArticleId } : {}),
+    ...(slug ? { slug } : {}),
+    ...(status ? { status } : {}),
+    ...(generationStatus ? { generationStatus } : {}),
+    ...(factCheckStatus ? { factCheckStatus } : {}),
+    ...(error ? { error } : {}),
+    ...(startedAt ? { startedAt } : {}),
+    ...(completedAt ? { completedAt } : {}),
   };
 }
 
