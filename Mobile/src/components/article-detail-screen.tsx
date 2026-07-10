@@ -200,11 +200,15 @@ function structuredContentHasSourceMapping(content?: StructuredArticleContent): 
 }
 
 function sourceIsPending(source: ArticleSource): boolean {
-  return source.type === 'PENDING';
+  return source.analysisStatus === 'PENDING';
 }
 
 function articleAnalysisInProgress(status?: string, sources?: ArticleSource[]): boolean {
   return status === 'PENDING' || status === 'RUNNING' || Boolean(sources?.some(sourceIsPending));
+}
+
+function getArticleSummary(article?: ArticleDetail | null): string | undefined {
+  return article?.structuredContent?.lead?.summary ?? article?.excerpt;
 }
 
 function renderMarkdownContent(body: string, textColor: string, headingColor: string, mutedColor: string, _borderColor: string, highlightSources?: boolean, highlightTerms: string[] = []): React.ReactNode[] {
@@ -588,10 +592,11 @@ type SourcesModalProps = {
 function SourceItemCard({ source, colors }: { source: ArticleSource; colors: ReturnType<typeof useTheme> }) {
   const [expanded, setExpanded] = useState(false);
   const scoreColor = getScoreColor(source.trustScore);
-  const isPending = source.trustScore === undefined;
+  const analysisStatus = source.analysisStatus ?? 'UNAVAILABLE';
+  const hasAnalyzedScore = analysisStatus === 'ANALYZED' && typeof source.trustScore === 'number';
 
   const categoryLabel = source.type ?? 'Source';
-  const hasDetails = !isPending && (source.description || source.politicalBias || source.country || source.metrics || source.justification);
+  const hasDetails = Boolean(source.description || source.politicalBias || source.country || source.reliability || source.metrics || source.justification || typeof source.trustScore === 'number');
 
   return (
     <View style={[sm.card, { borderColor: colors.border, backgroundColor: colors.backgroundElevated }]}>
@@ -623,16 +628,20 @@ function SourceItemCard({ source, colors }: { source: ArticleSource; colors: Ret
         </View>
 
         {/* Score badge */}
-        {isPending ? (
-          <View style={[sm.scoreBadge, { backgroundColor: colors.backgroundSubtle }]}>
-            <Text style={[sm.scoreBadgeText, { color: colors.textMuted }]}>Analyse...</Text>
-          </View>
-        ) : (
+        {hasAnalyzedScore ? (
           <View style={[sm.scoreBadge, { backgroundColor: scoreColor }]}>
-            <Text style={sm.scoreBadgeText}>Fact Score</Text>
+            <Text style={sm.scoreBadgeText}>TrustScore</Text>
             <View style={sm.scoreCircle}>
               <Text style={sm.scoreCircleText}>{source.trustScore}</Text>
             </View>
+          </View>
+        ) : (
+          <View style={[sm.scoreBadge, {
+            backgroundColor: analysisStatus === 'METADATA_ONLY' ? '#D97706' : analysisStatus === 'UNAVAILABLE' ? '#6B7280' : colors.backgroundSubtle,
+          }]}>
+            <Text style={[sm.scoreBadgeText, analysisStatus === 'PENDING' ? { color: colors.textMuted } : null]}>
+              {analysisStatus === 'METADATA_ONLY' ? 'M\u00e9tadonn\u00e9es seules' : analysisStatus === 'UNAVAILABLE' ? 'Indisponible' : 'Analyse...'}
+            </Text>
           </View>
         )}
       </Pressable>
@@ -641,7 +650,7 @@ function SourceItemCard({ source, colors }: { source: ArticleSource; colors: Ret
       {expanded && hasDetails ? (
         <View style={[sm.details, { borderTopColor: colors.borderSubtle }]}>
           {/* Score explanation */}
-          {typeof source.trustScore === 'number' ? (
+          {hasAnalyzedScore ? (
             <View style={[sm.scoreExplain, { backgroundColor: '#ECFDF5', borderColor: '#A7F3D0' }]}>
               <View style={sm.scoreExplainHeader}>
                 <Text style={sm.scoreExplainLabel}>Score contextuel de la source</Text>
@@ -708,7 +717,7 @@ function SourcesModal({ visible, onClose, sources, colors, analysisInProgress = 
       <Pressable style={tsm.backdrop} onPress={onClose} />
       <View style={[tsm.sheet, { backgroundColor: colors.backgroundElevated }]}>
         <View style={[tsm.sheetHeader, { borderBottomColor: colors.borderSubtle }]}>
-          <Text style={[tsm.sheetTitle, { color: colors.text }]}>{sources.length > 0 ? `Sources analysees (${sources.length})` : analysisInProgress ? 'Analyse des sources en cours' : 'Sources non disponibles'}</Text>
+          <Text style={[tsm.sheetTitle, { color: colors.text }]}>{sources.length > 0 ? `Sources (${sources.length})` : analysisInProgress ? 'Analyse des sources en cours' : 'Sources non disponibles'}</Text>
           <Pressable onPress={onClose} style={tsm.closeBtn}>
             <X size={20} color={colors.textMuted} />
           </Pressable>
@@ -1098,7 +1107,6 @@ export function ArticleDetailScreenContent({ loadArticle, missingText = 'Aucun d
   const [isSubmittingContribution, setIsSubmittingContribution] = useState(false);
   const [isGatewayOpen, setIsGatewayOpen] = useState(false);
   const [submitMessage, setSubmitMessage] = useState<string | null>(null);
-  const [sourcesExpanded, setSourcesExpanded] = useState(false);
   const [toolbarPanel, setToolbarPanel] = useState<'interactions' | 'share' | 'info' | null>(null);
   const [copyState, setCopyState] = useState<'idle' | 'copied' | 'error'>('idle');
   const [isHighlightActive, setIsHighlightActive] = useState(false);
@@ -1189,16 +1197,6 @@ export function ArticleDetailScreenContent({ loadArticle, missingText = 'Aucun d
     void load();
   }, [load]);
 
-  useEffect(() => {
-    if (!articleAnalysisInProgress(article?.factCheckStatus, article?.sources)) return;
-
-    const interval = setInterval(() => {
-      void load();
-    }, 3000);
-
-    return () => clearInterval(interval);
-  }, [article?.factCheckStatus, article?.sources, load]);
-
   // --- DERIVED STATE ---
 
   const publishedAt = formatDate(article?.publishedAt);
@@ -1214,6 +1212,8 @@ export function ArticleDetailScreenContent({ loadArticle, missingText = 'Aucun d
   const sourceHighlightTerms = useMemo(() => article?.sourceHighlights?.map((highlight) => highlight.text?.trim()).filter((text): text is string => Boolean(text)) ?? [], [article?.sourceHighlights]);
   const hasSourceHighlightMapping = sourceHighlightTerms.length > 0;
   const hasHighlightMapping = hasHighlightableCitations || hasStructuredHighlightMapping || hasSourceHighlightMapping;
+  const articleSummary = getArticleSummary(article);
+  const summaryTakeaways = article?.structuredContent?.lead?.keyTakeaways ?? [];
 
   const visibleAdvancedInteractions = advancedInteractions ?? (!advancedLoading ? EMPTY_ADVANCED_INTERACTIONS : null);
   const confirmedPosition = visibleAdvancedInteractions?.currentUserOpinionPosition ?? null;
@@ -1443,33 +1443,11 @@ export function ArticleDetailScreenContent({ loadArticle, missingText = 'Aucun d
 
   // --- RENDER HELPERS ---
 
-  const renderSource = (source: ArticleSource, index: number) => {
-    const scoreColor = getScoreColor(source.trustScore);
-    return (
-      <Pressable
-        key={source.id ?? source.url ?? `${source.domain}-${index}`}
-        style={[s.sourceItem, { borderColor: colors.border, backgroundColor: colors.backgroundElevated }]}
-        onPress={() => { if (source.url) void Linking.openURL(source.url); }}
-      >
-        <View style={s.sourceRow}>
-          <View style={[s.sourceFavicon, { backgroundColor: colors.backgroundSubtle }]}>
-            <Text style={[s.sourceFaviconText, { color: colors.textMuted }]}>{(source.name || source.domain || '?')[0].toUpperCase()}</Text>
-          </View>
-          <View style={s.sourceInfo}>
-            <Text style={[s.sourceDomain, { color: colors.text }]} numberOfLines={1}>{source.name || source.domain}</Text>
-            <Text style={[s.sourceDomainSub, { color: colors.textMuted }]} numberOfLines={1}>{source.domain}</Text>
-          </View>
-          {typeof source.trustScore === 'number' ? (
-            <View style={[s.scorePill, { backgroundColor: scoreColor }]}>
-              <Text style={s.scorePillText}>{source.trustScore}%</Text>
-            </View>
-          ) : null}
-        </View>
-        {source.description ? <Text style={[s.sourceDesc, { color: colors.textTertiary }]} numberOfLines={2}>{source.description}</Text> : null}
-        {source.type ? <Text style={[s.sourceType, { color: colors.textMuted }]}>{source.type}</Text> : null}
-      </Pressable>
-    );
-  };
+  const openArticleCategory = useCallback(() => {
+    const categorySlug = article?.categorySlug;
+    if (!categorySlug) return;
+    router.push({ pathname: '/news/[slug]', params: { slug: categorySlug } });
+  }, [article?.categorySlug, router]);
 
   const renderStructuredSection = (section: StructuredArticleSection) => {
     const sectionClaims = article?.structuredContent?.claims.filter((claim) => claim.sectionId === section.id) ?? [];
@@ -1501,10 +1479,10 @@ export function ArticleDetailScreenContent({ loadArticle, missingText = 'Aucun d
     );
   };
 
-  const renderStructuredContent = (content: StructuredArticleContent) => (
+  const renderStructuredContent = (content: StructuredArticleContent, includeLead = true) => (
     <View style={s.structuredContent}>
-      {content.lead?.summary ? <Text style={[s.structuredLead, { color: colors.textSecondary }]}>{content.lead.summary}</Text> : null}
-      {content.lead?.keyTakeaways?.length ? (
+      {includeLead && content.lead?.summary ? <Text style={[s.structuredLead, { color: colors.textSecondary }]}>{content.lead.summary}</Text> : null}
+      {includeLead && content.lead?.keyTakeaways?.length ? (
         <View style={s.structuredTakeaways}>
           {content.lead.keyTakeaways.map((item, index) => (
             <View key={`${item}-${index}`} style={[s.structuredTakeaway, { borderColor: colors.border, backgroundColor: colors.backgroundSubtle }]}>
@@ -1691,46 +1669,36 @@ export function ArticleDetailScreenContent({ loadArticle, missingText = 'Aucun d
                 </View>
               ) : null}
 
-              {/* Trust header — vivid badge like web */}
-              <View style={[s.trustCard, { borderColor: colors.border, backgroundColor: colors.backgroundElevated }]}>
-                {typeof article.factCheckScore === 'number' ? (
-                  <Pressable 
-                    style={[s.trustScoreBadge, { backgroundColor: getScoreColor(article.factCheckScore) }]}
-                    onPress={() => { if (article.factCheckDetail) setShowTrustModal(true); }}
-                  >
-                    <Text style={s.trustScoreText}>Fiabilité : {article.factCheckScore}%</Text>
-                  </Pressable>
-                ) : (
-                  <View style={[s.trustScoreBadge, { backgroundColor: colors.backgroundSubtle }]}>
-                    <Text style={[s.trustScoreTextMuted, { color: colors.textMuted }]}>Score indisponible</Text>
-                  </View>
-                )}
-                <View style={s.trustMeta}>
-                  {typeof article.factCheckScore === 'number' ? (
-                    <Text style={[s.trustMetaLabel, { color: colors.textTertiary }]}>
-                      {getScoreLabel(article.factCheckScore)} · {getSupportLabel(article.factCheckScore)}
-                    </Text>
-                  ) : null}
-                  {sourceCount > 0 ? (
-                    <Pressable style={[s.trustSourcesBtn, { borderColor: colors.border }]} onPress={() => setShowSourcesModal(true)}>
-                      <Text style={[s.trustSourcesBtnText, { color: colors.textTertiary }]}>{sourceCount} sources analysees</Text>
-                    </Pressable>
-                  ) : analysisInProgress ? (
-                    <Text style={[s.trustMetaLabel, { color: colors.textMuted }]}>Analyse des sources en cours</Text>
-                  ) : (
-                    <Text style={[s.trustMetaLabel, { color: colors.textMuted }]}>Sources non disponibles</Text>
-                  )}
-                </View>
-                {statusLabel ? <Text style={[s.trustStatusLabel, { color: colors.textMuted }]}>{statusLabel}</Text> : null}
+              {/* Article action bar */}
+              <View style={[s.articleActionBar, { borderColor: colors.border, backgroundColor: colors.backgroundElevated }] }>
+                <Pressable style={({ pressed }) => [s.articleActionPill, { backgroundColor: colors.backgroundSubtle }, pressed ? { opacity: 0.78 } : null]} onPress={() => setShowSourcesModal(true)}>
+                  <Text style={[s.articleActionLabel, { color: colors.text }]}>Sources</Text>
+                  <Text style={[s.articleActionValue, { color: colors.textMuted }]} numberOfLines={1}>
+                    {sourceCount > 0 ? `${sourceCount}` : analysisInProgress ? 'En cours' : 'Indispo.'}
+                  </Text>
+                </Pressable>
+                <Pressable
+                  style={({ pressed }) => [s.articleActionPill, { backgroundColor: typeof article.factCheckScore === 'number' ? `${getScoreColor(article.factCheckScore)}16` : colors.backgroundSubtle }, pressed ? { opacity: 0.78 } : null]}
+                  onPress={() => { if (article.factCheckDetail) setShowTrustModal(true); }}
+                  disabled={!article.factCheckDetail}
+                >
+                  <Text style={[s.articleActionLabel, { color: typeof article.factCheckScore === 'number' ? getScoreColor(article.factCheckScore) : colors.text }]}>FactScore</Text>
+                  <Text style={[s.articleActionValue, { color: colors.textMuted }]} numberOfLines={1}>
+                    {typeof article.factCheckScore === 'number' ? `${article.factCheckScore}% - ${getSupportLabel(article.factCheckScore)}` : statusLabel ?? 'Non evalue'}
+                  </Text>
+                </Pressable>
+                <Pressable
+                  style={({ pressed }) => [s.articleActionPill, { backgroundColor: colors.backgroundSubtle }, !article.categorySlug ? s.disabledPill : null, pressed ? { opacity: 0.78 } : null]}
+                  onPress={openArticleCategory}
+                  disabled={!article.categorySlug}
+                >
+                  <Text style={[s.articleActionLabel, { color: colors.text }]}>Categorie</Text>
+                  <Text style={[s.articleActionValue, { color: colors.textMuted }]} numberOfLines={1}>{article.category ?? 'Non classe'}</Text>
+                </Pressable>
               </View>
 
               {/* Meta */}
               <View style={s.metaRow}>
-                {article.category ? (
-                  <View style={[s.categoryPill, { borderColor: colors.border }]}>
-                    <Text style={[s.categoryPillText, { color: colors.accent }]}>{article.category}</Text>
-                  </View>
-                ) : null}
                 {publishedAt ? <Text style={[s.metaText, { color: colors.textMuted }]}>{publishedAt}</Text> : null}
                 {typeof article.viewsAll === 'number' ? <Text style={[s.metaText, { color: colors.textMuted }]}>· {article.viewsAll} vues</Text> : null}
                 {article.authorName ? <Text style={[s.metaText, { color: colors.textMuted }]}>· {article.authorName}</Text> : null}
@@ -1739,14 +1707,20 @@ export function ArticleDetailScreenContent({ loadArticle, missingText = 'Aucun d
               {/* Title */}
               <Text style={[s.title, { color: colors.text, fontFamily: Fonts.display }]}>{article.title}</Text>
 
-              {/* Excerpt */}
-              {article.excerpt ? <Text style={[s.excerpt, { color: colors.textSecondary }]}>{article.excerpt}</Text> : null}
-
-              {/* AI Summary */}
-              {article.aiSummary ? (
-                <View style={[s.summaryCard, { borderColor: `${EPION_GREEN}30`, backgroundColor: `${EPION_GREEN}06` }]}>
-                  <Text style={[s.summaryLabel, { color: EPION_GREEN }]}>RÉSUMÉ IA</Text>
-                  <Text style={[s.summaryText, { color: colors.textSecondary }]}>{article.aiSummary}</Text>
+              {/* Article summary */}
+              {articleSummary ? (
+                <View style={[s.summaryCard, { borderColor: colors.border, backgroundColor: colors.backgroundElevated }] }>
+                  <Text style={[s.summaryLabel, { color: colors.textTertiary }]}>Resume de l'article</Text>
+                  <Text style={[s.summaryText, { color: colors.textSecondary }]}>{articleSummary}</Text>
+                  {summaryTakeaways.length ? (
+                    <View style={s.summaryTakeaways}>
+                      {summaryTakeaways.map((item, index) => (
+                        <View key={`${item}-${index}`} style={[s.summaryTakeaway, { borderColor: colors.borderSubtle, backgroundColor: colors.backgroundSubtle }] }>
+                          <Text style={[s.summaryTakeawayText, { color: colors.textSecondary }]}>{item}</Text>
+                        </View>
+                      ))}
+                    </View>
+                  ) : null}
                 </View>
               ) : null}
 
@@ -1764,7 +1738,7 @@ export function ArticleDetailScreenContent({ loadArticle, missingText = 'Aucun d
                     </View>
                   ) : null}
                   {renderMarkdownContent(article.body, colors.text, colors.text, colors.textTertiary, colors.border, isHighlightActive, sourceHighlightTerms)}
-                  {article.structuredContent ? renderStructuredContent(article.structuredContent) : null}
+                  {article.structuredContent ? renderStructuredContent(article.structuredContent, !articleSummary) : null}
                 </View>
               ) : article.structuredContent ? (
                 <View style={s.bodyContainer}>
@@ -1778,24 +1752,11 @@ export function ArticleDetailScreenContent({ loadArticle, missingText = 'Aucun d
                       </Text>
                     </View>
                   ) : null}
-                  {renderStructuredContent(article.structuredContent)}
+                  {renderStructuredContent(article.structuredContent, !articleSummary)}
                 </View>
               ) : (
                 <Text style={[s.emptyText, { color: colors.textMuted }]}>Aucun contenu disponible.</Text>
               )}
-
-              {/* Sources (expandable) */}
-              {article.sources?.length ? (
-                <View style={s.sourcesSection}>
-                  <Pressable style={[s.sourcesToggle, { borderColor: colors.border }]} onPress={() => setSourcesExpanded(!sourcesExpanded)}>
-                    <Text style={[s.sourcesToggleText, { color: colors.text }]}>Sources ({article.sources.length})</Text>
-                    <Text style={[s.sourcesToggleArrow, { color: colors.textMuted }]}>{sourcesExpanded ? '▾' : '▸'}</Text>
-                  </Pressable>
-                  {sourcesExpanded ? (
-                    <View style={s.sourcesList}>{article.sources.map(renderSource)}</View>
-                  ) : null}
-                </View>
-              ) : null}
             </View>
 
             {/* ========== ESPACE EPION (PRIMARY) ========== */}
@@ -2204,7 +2165,7 @@ export function ArticleDetailScreenContent({ loadArticle, missingText = 'Aucun d
                 {/* Sources */}
                 <Pressable
                   style={[s.floatingBtn, showSourcesModal ? s.floatingBtnActive : null]}
-                  accessibilityLabel={`Sources analysees (${sourceCount})`}
+                  accessibilityLabel={`Sources (${sourceCount})`}
                   onPress={() => { setToolbarPanel(null); setShowSourcesModal(true); }}
                 >
                   <ShieldCheck size={20} color={showSourcesModal ? '#FFFFFF' : colors.textTertiary} />
@@ -2289,21 +2250,15 @@ const s = StyleSheet.create({
   imageWrap: { borderRadius: Radius.xl, borderWidth: 1, overflow: 'hidden', aspectRatio: 16 / 9, marginBottom: Spacing.xs },
   heroImage: { width: '100%', height: '100%' },
 
-  // Trust header — vivid badge
-  trustCard: { borderRadius: Radius.xl, borderWidth: 1, padding: Spacing.md, gap: Spacing.sm, shadowColor: '#000', shadowOffset: { width: 0, height: 1 }, shadowOpacity: 0.04, shadowRadius: 3, elevation: 1 },
-  trustScoreBadge: { alignSelf: 'flex-start', borderRadius: Radius.full, paddingHorizontal: 12, paddingVertical: 5, shadowColor: '#000', shadowOffset: { width: 0, height: 2 }, shadowOpacity: 0.1, shadowRadius: 4, elevation: 2 },
-  trustScoreText: { color: '#FFFFFF', fontSize: FontSize.sm, fontWeight: '700' },
-  trustScoreTextMuted: { fontSize: FontSize.sm, fontWeight: '500' },
-  trustMeta: { flexDirection: 'row', flexWrap: 'wrap', alignItems: 'center', gap: Spacing.sm },
-  trustMetaLabel: { fontSize: FontSize.sm },
-  trustSourcesBtn: { borderRadius: Radius.full, borderWidth: 1, paddingHorizontal: 10, paddingVertical: 3 },
-  trustSourcesBtnText: { fontSize: FontSize.xs, fontWeight: '500' },
-  trustStatusLabel: { fontSize: FontSize.xs, fontStyle: 'italic' },
+  // Article action bar
+  articleActionBar: { borderRadius: Radius.full, borderWidth: 1, flexDirection: 'row', gap: Spacing.xs, padding: 4, shadowColor: '#000', shadowOffset: { width: 0, height: 1 }, shadowOpacity: 0.04, shadowRadius: 3, elevation: 1 },
+  articleActionPill: { flex: 1, minHeight: 58, borderRadius: Radius.full, alignItems: 'center', justifyContent: 'center', paddingHorizontal: Spacing.xs, paddingVertical: Spacing.sm },
+  articleActionLabel: { fontSize: FontSize.xs, fontWeight: '800' },
+  articleActionValue: { fontSize: 11, fontWeight: '500', marginTop: 2, textAlign: 'center' },
+  disabledPill: { opacity: 0.45 },
 
   // Meta
   metaRow: { flexDirection: 'row', flexWrap: 'wrap', alignItems: 'center', gap: 6 },
-  categoryPill: { borderRadius: Radius.full, borderWidth: 1, paddingHorizontal: Spacing.sm, paddingVertical: 2 },
-  categoryPillText: { fontSize: FontSize.sm, fontWeight: '600' },
   metaText: { fontSize: FontSize.sm },
 
   // Title + excerpt
@@ -2312,8 +2267,11 @@ const s = StyleSheet.create({
 
   // Summary
   summaryCard: { borderRadius: Radius.xl, borderWidth: 1, padding: Spacing.lg, gap: Spacing.sm },
-  summaryLabel: { fontSize: FontSize.xs, fontWeight: '700', letterSpacing: 0.8 },
+  summaryLabel: { fontSize: FontSize.xs, fontWeight: '800' },
   summaryText: { fontSize: FontSize.md, lineHeight: 24 },
+  summaryTakeaways: { gap: Spacing.sm, marginTop: Spacing.xs },
+  summaryTakeaway: { borderRadius: Radius.md, borderWidth: 1, paddingHorizontal: Spacing.md, paddingVertical: Spacing.sm },
+  summaryTakeawayText: { fontSize: FontSize.sm, lineHeight: 19 },
 
   // Body
   bodyContainer: { gap: 0 },
@@ -2332,24 +2290,6 @@ const s = StyleSheet.create({
   structuredItems: { gap: Spacing.sm },
   structuredItem: { borderLeftWidth: 3, borderRadius: Radius.sm, paddingLeft: Spacing.md, paddingVertical: 4 },
   structuredItemText: { fontSize: FontSize.md, lineHeight: 24 },
-
-  // Sources (expandable)
-  sourcesSection: { gap: Spacing.sm },
-  sourcesToggle: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', borderRadius: Radius.lg, borderWidth: 1, paddingHorizontal: Spacing.md, paddingVertical: Spacing.md },
-  sourcesToggleText: { fontSize: FontSize.base, fontWeight: '600' },
-  sourcesToggleArrow: { fontSize: FontSize.lg },
-  sourcesList: { gap: Spacing.sm },
-  sourceItem: { borderRadius: Radius.lg, borderWidth: 1, padding: Spacing.md, gap: Spacing.sm },
-  sourceRow: { flexDirection: 'row', alignItems: 'center', gap: Spacing.sm },
-  sourceFavicon: { width: 28, height: 28, borderRadius: 14, alignItems: 'center', justifyContent: 'center' },
-  sourceFaviconText: { fontSize: FontSize.xs, fontWeight: '600' },
-  sourceInfo: { flex: 1, gap: 1 },
-  sourceDomain: { fontSize: FontSize.base, fontWeight: '600' },
-  sourceDomainSub: { fontSize: FontSize.xs },
-  sourceDesc: { fontSize: FontSize.sm, lineHeight: 18 },
-  sourceType: { fontSize: FontSize.xs, textTransform: 'uppercase' as const },
-  scorePill: { borderRadius: Radius.full, paddingHorizontal: 8, paddingVertical: 3 },
-  scorePillText: { color: '#FFFFFF', fontSize: FontSize.xs, fontWeight: '700' },
 
   // --- ESPACE EPION (PRIMARY INTERACTION) ---
   interactionSpace: { marginTop: Spacing['2xl'], borderTopWidth: 1, paddingTop: Spacing['2xl'], gap: Spacing.lg },

@@ -362,13 +362,22 @@ function normalizeArticleSource(item: unknown, index: number): ArticleSource | n
   const trustScore = resolveSourceScore(record);
   const sourceId = readOptionalText(record.sourceId);
   const id = readOptionalText(record.id) ?? sourceId ?? (url ? undefined : String(index));
-  const type = readOptionalText(record.type) ?? readOptionalText(record.category);
-  const description = readOptionalText(record.description) ?? readOptionalText(readRecord(record.metadata)?.description);
+  const rawType = readOptionalText(record.type);
+  const type = rawType && !['PENDING', 'RUNNING', 'COMPLETED', 'FAILED', 'UNAVAILABLE', 'METADATA_ONLY', 'ANALYZED'].includes(rawType.toUpperCase())
+    ? rawType
+    : readOptionalText(record.category);
+  const metadata = readRecord(record.metadata);
+  const description = readOptionalText(record.description) ?? readOptionalText(metadata?.description);
+  const rawAnalysisStatus = readOptionalText(record.analysisStatus)?.toUpperCase();
+  const analysisStatus = rawAnalysisStatus === 'ANALYZED' || rawAnalysisStatus === 'METADATA_ONLY' || rawAnalysisStatus === 'UNAVAILABLE' || rawAnalysisStatus === 'PENDING'
+    ? rawAnalysisStatus
+    : undefined;
+  const metadataOnly = record.metadataOnly === true || metadata?.metadataOnly === true;
 
   // Enriched fields
-  const politicalBias = readOptionalText(record.politicalBias);
-  const reliability = readOptionalText(record.reliability);
-  const country = readOptionalText(record.country);
+  const politicalBias = readOptionalText(record.politicalBias) ?? readOptionalText(metadata?.politicalBias);
+  const reliability = readOptionalText(record.reliability) ?? readOptionalText(metadata?.reliability);
+  const country = readOptionalText(record.country) ?? readOptionalText(metadata?.country);
   const reputationScore = readOptionalNumber(record.reputationScore) ?? readNestedNumber(readRecord(record.metadata), ['reputationScore']);
   const analysisScore = readOptionalNumber(record.analysisScore) ?? readNestedNumber(readRecord(record.metadata), ['analysisScore']);
   const liveScore = readOptionalNumber(record.liveScore);
@@ -397,6 +406,8 @@ function normalizeArticleSource(item: unknown, index: number): ArticleSource | n
     ...(url ? { url } : {}),
     ...(trustScore !== undefined ? { trustScore } : {}),
     ...(type ? { type } : {}),
+    ...(analysisStatus ? { analysisStatus } : {}),
+    ...(metadataOnly ? { metadataOnly: true } : {}),
     ...(description ? { description } : {}),
     ...(politicalBias ? { politicalBias } : {}),
     ...(reliability ? { reliability } : {}),

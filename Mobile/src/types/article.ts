@@ -40,6 +40,8 @@ export type ArticleSource = {
   url?: string;
   trustScore?: number;
   type?: string;
+  analysisStatus?: 'ANALYZED' | 'METADATA_ONLY' | 'UNAVAILABLE' | 'PENDING';
+  metadataOnly?: boolean;
   description?: string;
   // Enriched fields (from factCheckData / source enrichment)
   politicalBias?: string;
