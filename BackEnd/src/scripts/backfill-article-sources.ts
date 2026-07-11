@@ -51,6 +51,7 @@ export interface BackfillWriteClient extends BackfillReadClient {
 type Log = (message: string) => void;
 
 export function parseBackfillOptions(argv: string[]): BackfillOptions {
+  assertKnownCliArguments(argv);
   const dryRun = argv.includes('--dry-run');
   const write = argv.includes('--write');
   if (dryRun === write) {
@@ -63,6 +64,23 @@ export function parseBackfillOptions(argv: string[]): BackfillOptions {
     batchSize: readPositiveIntegerOption(argv, '--batch-size') ?? 100,
     cursor: readStringOption(argv, '--cursor'),
   };
+}
+
+function assertKnownCliArguments(argv: string[]): void {
+  const modes = new Set(['--dry-run', '--write']);
+  const valuedOptions = new Set(['--limit', '--batch-size', '--cursor']);
+
+  for (let index = 0; index < argv.length; index++) {
+    const argument = argv[index];
+    if (modes.has(argument)) continue;
+    if (valuedOptions.has(argument)) {
+      const value = argv[index + 1];
+      if (!value || value.startsWith('--')) throw new Error(`${argument} requires a value.`);
+      index++;
+      continue;
+    }
+    throw new Error(`Unexpected CLI argument: ${argument}. Use named options only.`);
+  }
 }
 
 export async function runArticleSourceBackfill(

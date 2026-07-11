@@ -12,9 +12,14 @@ function clientFor(input: {
   existing?: Array<{ articleId: string; sourceUrlHash: string }>;
   write?: boolean;
 }) {
-  const articleFindMany = vi.fn()
-    .mockResolvedValueOnce(input.articles)
-    .mockResolvedValueOnce([]);
+  const articleFindMany = vi.fn(async (args: any) => {
+    const cursorId = args.cursor?.id;
+    const cursorIndex = cursorId
+      ? input.articles.findIndex((article) => article.id === cursorId)
+      : -1;
+    const start = cursorId ? cursorIndex + 1 : 0;
+    return input.articles.slice(start, start + args.take);
+  });
   const sourceFindMany = vi.fn().mockResolvedValue(input.sources ?? []);
   const articleSourceFindMany = vi.fn().mockResolvedValue(input.existing ?? []);
   const articleSourceUpsert = vi.fn().mockResolvedValue({ id: 'article-source-1' });
@@ -44,6 +49,8 @@ describe('ArticleSource backfill dry-run', () => {
       .toEqual({ mode: 'dry-run', limit: 20, batchSize: 5, cursor: undefined });
     expect(parseBackfillOptions(['--write', '--limit', '2']))
       .toEqual({ mode: 'write', limit: 2, batchSize: 100, cursor: undefined });
+    expect(() => parseBackfillOptions(['--write', '1', '1']))
+      .toThrow(/Unexpected CLI argument/);
   });
 
   it('simulates IMPORTED_LEGACY relations without exposing any write operation', async () => {
@@ -207,5 +214,43 @@ describe('ArticleSource backfill dry-run', () => {
       skip: 1,
       take: 5,
     }));
+  });
+
+  it('honors --limit 1 as a hard maximum of one scanned article', async () => {
+    const fixture = clientFor({
+      articles: [
+        { id: 'article-1', factCheckData: { sources: [] } },
+        { id: 'article-2', factCheckData: { sources: [] } },
+      ],
+    });
+
+    const report = await runArticleSourceBackfill(
+      fixture.client,
+      parseBackfillOptions(['--dry-run', '--limit', '1', '--batch-size', '1']),
+      vi.fn(),
+    );
+
+    expect(report.articlesScanned).toBe(1);
+    expect(fixture.reads.articleFindMany).toHaveBeenCalledTimes(1);
+    expect(fixture.reads.articleFindMany).toHaveBeenCalledWith(expect.objectContaining({ take: 1 }));
+  });
+
+  it('honors --batch-size 1 for every paginated article batch', async () => {
+    const fixture = clientFor({
+      articles: [
+        { id: 'article-1', factCheckData: { sources: [] } },
+        { id: 'article-2', factCheckData: { sources: [] } },
+        { id: 'article-3', factCheckData: { sources: [] } },
+      ],
+    });
+
+    const report = await runArticleSourceBackfill(
+      fixture.client,
+      parseBackfillOptions(['--dry-run', '--batch-size', '1']),
+      vi.fn(),
+    );
+
+    expect(report.articlesScanned).toBe(3);
+    expect(fixture.reads.articleFindMany.mock.calls.every(([args]) => args.take === 1)).toBe(true);
   });
 });
