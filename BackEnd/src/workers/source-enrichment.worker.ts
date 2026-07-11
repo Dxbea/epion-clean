@@ -11,6 +11,13 @@ import {
     buildEnrichedSourceScoreEntry,
     type SourceEnrichmentMetadata,
 } from '../lib/source-enrichment-source.js';
+import {
+    buildArticleSourceProfileSnapshot,
+    buildArticleSourceUpsertInput,
+    deriveArticleSourceSupportStrength,
+    hashArticleSourceUrl,
+    normalizeArticleSourceUrl,
+} from '../lib/article-source-service.js';
 
 const SOURCE_ENRICHMENT_WORKER_CONCURRENCY = 3;
 
@@ -204,23 +211,61 @@ export function startSourceEnrichmentWorker(): Worker<SourceEnrichmentJobData> {
                 factCheckData.status = 'FAILED';
             }
 
+            const snapshotAt = new Date();
+            const articleSourceUpserts = enrichedSources.flatMap((source, position) => {
+                if (!source.durableSourceId) return [];
+
+                const normalizedUrl = normalizeArticleSourceUrl(source.url);
+                if (!normalizedUrl || !hashArticleSourceUrl(normalizedUrl)) return [];
+
+                const profileSnapshot = buildArticleSourceProfileSnapshot({
+                    profileData: source.profileData,
+                    profileConfidence: source.profileConfidence,
+                    publicTrustLabel: source.publicTrustLabel,
+                    lastProfiledAt: source.lastProfiledAt,
+                    snapshotAt,
+                });
+                const upsert = buildArticleSourceUpsertInput({
+                    articleId,
+                    durableSourceId: source.durableSourceId,
+                    sourceUrl: normalizedUrl,
+                    role: source.role,
+                    supportStrength: deriveArticleSourceSupportStrength(source.metadata?.supportStrength),
+                    provenance: source.provenance,
+                    profileSnapshot,
+                    profileVersion: source.profileVersion,
+                    snapshotAt,
+                    position,
+                    preserveExistingSnapshot: true,
+                });
+
+                return upsert ? [upsert] : [];
+            });
+
             try {
-                await prisma.article.update({
-                    where: { id: articleId },
-                    data: {
-                        factCheckScore,
-                        factCheckData: factCheckData as any,
-                        factCheckStatus: hasEnrichedSources ? 'COMPLETED' : 'FAILED',
-                        factCheckContentHash: contentHash,
-                        factCheckCompletedAt: new Date(),
-                        factCheckError: hasEnrichedSources ? null : 'No sources were available for enrichment',
-                    },
+                await prisma.$transaction(async (tx) => {
+                    for (const upsert of articleSourceUpserts) {
+                        await tx.articleSource.upsert(upsert);
+                    }
+
+                    await tx.article.update({
+                        where: { id: articleId },
+                        data: {
+                            factCheckScore,
+                            factCheckData: factCheckData as any,
+                            factCheckStatus: hasEnrichedSources ? 'COMPLETED' : 'FAILED',
+                            factCheckContentHash: contentHash,
+                            factCheckCompletedAt: new Date(),
+                            factCheckError: hasEnrichedSources ? null : 'No sources were available for enrichment',
+                        },
+                    });
                 });
             } catch (error: any) {
-                logger.error('[Worker] Failed to persist Article.factCheckData.sources', {
+                logger.error('[Worker] Failed to persist article source enrichment transaction', {
                     articleId,
                     jobId: job.id,
                     sourceCount: sources.length,
+                    articleSourceUpsertCount: articleSourceUpserts.length,
                     ...sourceOutcomeCounts,
                     error: error?.message,
                 });

@@ -100,4 +100,28 @@ describe('article-source-service', () => {
 
     expect(first?.where).toEqual(second?.where);
   });
+
+  it('can preserve an existing snapshot while still updating relationship metadata', () => {
+    const upsert = buildArticleSourceUpsertInput({
+      articleId: 'article-1',
+      durableSourceId: 'durable-source-1',
+      sourceUrl: 'https://example.com/report',
+      profileSnapshot: buildArticleSourceProfileSnapshot({
+        profileData: null,
+        snapshotAt: '2026-07-11T10:00:00.000Z',
+      }),
+      profileVersion: 1,
+      position: 2,
+      preserveExistingSnapshot: true,
+    });
+
+    expect(upsert?.create).toMatchObject({
+      profileVersion: 1,
+      profileSnapshot: expect.any(Object),
+    });
+    expect(upsert?.update).toMatchObject({ position: 2 });
+    expect(upsert?.update).not.toHaveProperty('profileSnapshot');
+    expect(upsert?.update).not.toHaveProperty('profileVersion');
+    expect(upsert?.update).not.toHaveProperty('snapshotAt');
+  });
 });

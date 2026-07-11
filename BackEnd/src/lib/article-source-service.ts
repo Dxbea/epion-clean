@@ -38,6 +38,7 @@ export interface BuildArticleSourceUpsertInput {
   profileVersion?: number | null;
   snapshotAt?: Date | string | null;
   position?: number | null;
+  preserveExistingSnapshot?: boolean;
 }
 
 export function normalizeArticleSourceUrl(input: unknown): string | null {
@@ -134,22 +135,24 @@ export function buildArticleSourceUpsertInput(
   const profileSnapshot = input.profileSnapshot
     ? toPrismaJson(input.profileSnapshot)
     : Prisma.JsonNull;
+  const snapshotValues = {
+    profileSnapshot,
+    profileVersion: Number.isInteger(input.profileVersion) ? input.profileVersion as number : null,
+    snapshotAt,
+  };
   const values = {
     sourceId: durableSourceId,
     sourceUrl,
     role,
     supportStrength,
     provenance,
-    profileSnapshot,
-    profileVersion: Number.isInteger(input.profileVersion) ? input.profileVersion as number : null,
-    snapshotAt,
     position,
   };
 
   return {
     where: { articleId_sourceUrlHash: { articleId, sourceUrlHash } },
-    create: { articleId, sourceUrlHash, ...values },
-    update: values,
+    create: { articleId, sourceUrlHash, ...values, ...snapshotValues },
+    update: input.preserveExistingSnapshot ? values : { ...values, ...snapshotValues },
   };
 }
 
