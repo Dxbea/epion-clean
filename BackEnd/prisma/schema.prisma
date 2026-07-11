@@ -41,6 +41,31 @@ enum FactCheckStatus {
   STALE
 }
 
+enum ArticleSourceRole {
+  PRIMARY_EVIDENCE
+  CONTEXT
+  COUNTERPOINT
+  OFFICIAL_STATEMENT
+  BACKGROUND
+  UNKNOWN
+}
+
+enum ArticleSourceSupportStrength {
+  STRONG
+  MODERATE
+  WEAK
+  UNKNOWN
+}
+
+enum ArticleSourceProvenance {
+  WEB_SEARCH
+  INTERNAL_RAG
+  USER_PROVIDED
+  EDITORIAL
+  IMPORTED_LEGACY
+  UNKNOWN
+}
+
 model User {
   id           String   @id @default(cuid())
   email        String   @unique
@@ -261,6 +286,7 @@ model Article {
   opinionQuestion  ArticleOpinionQuestion?
   opinionPositions ArticleOpinionPosition[]
   contributions    ArticleContribution[]
+  articleSources   ArticleSource[]
 
   // RAG / Indexing
   isIndexed       Boolean         @default(false)
@@ -623,6 +649,38 @@ model Source {
 
   createdAt       DateTime @default(now())
   updatedAt       DateTime @updatedAt
+
+  articleSources ArticleSource[]
+}
+
+model ArticleSource {
+  id String @id @default(cuid())
+
+  articleId String
+  article   Article @relation(fields: [articleId], references: [id], onDelete: Cascade)
+
+  sourceId String
+  source   Source @relation(fields: [sourceId], references: [id], onDelete: Restrict)
+
+  sourceUrl     String
+  sourceUrlHash String
+
+  role            ArticleSourceRole            @default(UNKNOWN)
+  supportStrength ArticleSourceSupportStrength @default(UNKNOWN)
+  provenance      ArticleSourceProvenance      @default(UNKNOWN)
+
+  profileSnapshot Json?
+  profileVersion  Int?
+  snapshotAt      DateTime?
+  position        Int?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@unique([articleId, sourceUrlHash])
+  @@index([articleId, position])
+  @@index([sourceId])
+  @@index([articleId, role])
 }
 
 enum PoliticalBias {
