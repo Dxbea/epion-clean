@@ -60,7 +60,10 @@ describe('live-analysis article generation worker', () => {
     });
     articleUpdate.mockResolvedValue({ id: 'article-1' });
     articleFindUnique.mockResolvedValue({ content: null, factCheckStatus: 'PENDING' });
-    sourceEnrichmentAdd.mockResolvedValue({ id: 'enrich-1' });
+    sourceEnrichmentAdd.mockImplementation(async (_name: string, _data: unknown, options: { jobId?: string }) => {
+      if (options.jobId?.includes(':')) throw new Error('Custom Id cannot contain :');
+      return { id: 'enrich-1' };
+    });
     runLiveAnalysisWithGeneration.mockResolvedValue({
       globalScore: 78,
       contentIntent: 'INFORMATIVE',
@@ -151,7 +154,7 @@ describe('live-analysis article generation worker', () => {
           'https://example.com/story': { extractionStatus: 'metadata_only' },
         },
       }),
-      expect.objectContaining({ jobId: 'source-enrichment:article-1' }),
+      expect.objectContaining({ jobId: 'source-enrichment-article-1' }),
     );
   });
 });

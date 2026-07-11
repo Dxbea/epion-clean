@@ -1835,6 +1835,8 @@ router.get('/:id/status', async (req, res, next) => {
         factCheckStartedAt: true,
         factCheckCompletedAt: true,
         generationPrompt: true,
+        content: true,
+        updatedAt: true,
       },
     });
 
@@ -1862,12 +1864,16 @@ router.get('/:id/status', async (req, res, next) => {
 
     const generationStatus = article.factCheckStatus ?? 'PENDING';
     return res.json({
+      id: article.id,
       articleId: article.id,
       slug: article.slug,
       status: article.status,
       generationStatus,
       factCheckStatus: article.factCheckStatus,
+      factCheckError: article.factCheckError ?? null,
       error: article.factCheckError ?? null,
+      updatedAt: article.updatedAt.toISOString(),
+      contentReady: Boolean(article.content?.trim()),
       startedAt: article.factCheckStartedAt ? article.factCheckStartedAt.toISOString() : null,
       completedAt: article.factCheckCompletedAt ? article.factCheckCompletedAt.toISOString() : null,
     });

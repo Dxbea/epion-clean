@@ -400,7 +400,7 @@ export function startLiveAnalysisWorker(): Worker<LiveAnalysisJobData> {
                 removeOnFail: 100,
                 attempts: 3,
                 backoff: { type: 'exponential', delay: 5000 },
-                jobId: `source-enrichment:${result.articleId}`,
+                jobId: `source-enrichment-${result.articleId}`,
             });
             logger.info('[LiveAnalysis Worker] Job completed', {
                 articleId: result.articleId,

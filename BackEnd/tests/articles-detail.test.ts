@@ -289,4 +289,26 @@ describe('article detail fact-check payloads', () => {
     expect(response.status).toBe(200);
     expect(response.body.sources[0].analysisStatus).toBe('ANALYZED');
   });
+
+  it('returns the generation status contract from GET /api/articles/:id/status', async () => {
+    articleFindUnique.mockResolvedValueOnce(publishedArticle({
+      factCheckStatus: 'RUNNING',
+      factCheckError: null,
+    }));
+
+    const response = await request(buildApp()).get('/api/articles/article-id/status');
+
+    expect(response.status).toBe(200);
+    expect(response.body).toMatchObject({
+      id: 'article-id',
+      articleId: 'article-id',
+      status: 'PUBLISHED',
+      generationStatus: 'RUNNING',
+      factCheckStatus: 'RUNNING',
+      factCheckError: null,
+      error: null,
+      updatedAt: '2026-01-02T00:00:00.000Z',
+      contentReady: true,
+    });
+  });
 });
