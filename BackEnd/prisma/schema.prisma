@@ -251,7 +251,7 @@ model Article {
   updatedAt DateTime      @updatedAt
 
   authorId String?
-  author   User?   @relation("AuthorArticles", fields: [authorId], references: [id], onDelete: Cascade)
+  author   User?   @relation("AuthorArticles", fields: [authorId], references: [id], onDelete: SetNull)
 
   categoryId String?
   category   Category? @relation(fields: [categoryId], references: [id], onDelete: SetNull)
@@ -422,7 +422,7 @@ model ArticleOpinionPosition {
 model ArticleContribution {
   id                   String                  @id @default(cuid())
   articleId            String
-  userId               String
+  userId               String?
   targetContributionId String?
   type                 ArticleContributionType
   status               ArticleContributionStatus @default(ACTIVE)
@@ -437,7 +437,7 @@ model ArticleContribution {
   updatedAt            DateTime                @updatedAt
 
   article            Article                         @relation(fields: [articleId], references: [id], onDelete: Cascade)
-  user               User                            @relation("UserArticleContributions", fields: [userId], references: [id], onDelete: Cascade)
+  user               User?                           @relation("UserArticleContributions", fields: [userId], references: [id], onDelete: SetNull)
   targetContribution ArticleContribution?             @relation("ArticleContributionNotes", fields: [targetContributionId], references: [id], onDelete: Cascade)
   children           ArticleContribution[]            @relation("ArticleContributionNotes")
   validations        ArticleContributionValidation[]
@@ -468,7 +468,7 @@ model ArticleContributionValidation {
 model ArticleContributionReport {
   id             String                           @id @default(cuid())
   contributionId String
-  reporterId     String
+  reporterId     String?
   reason         ArticleContributionReportReason
   details        String?
   status         ArticleContributionReportStatus @default(PENDING)
@@ -478,7 +478,7 @@ model ArticleContributionReport {
   reviewedById   String?
 
   contribution ArticleContribution @relation(fields: [contributionId], references: [id], onDelete: Cascade)
-  reporter     User                @relation("UserArticleContributionReports", fields: [reporterId], references: [id], onDelete: Cascade)
+  reporter     User?               @relation("UserArticleContributionReports", fields: [reporterId], references: [id], onDelete: SetNull)
   reviewedBy   User?               @relation("UserReviewedArticleContributionReports", fields: [reviewedById], references: [id], onDelete: SetNull)
 
   @@unique([contributionId, reporterId, reason])
