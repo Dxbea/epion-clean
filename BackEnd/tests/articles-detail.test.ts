@@ -8,6 +8,7 @@ process.env.OPENAI_API_KEY ??= 'test-openai-key';
 const articleFindUnique = vi.fn();
 const articleFindFirst = vi.fn();
 const sourceFindMany = vi.fn();
+const articleSourceFindMany = vi.fn();
 
 vi.mock('../src/lib/db.js', () => ({
   prisma: {
@@ -17,6 +18,9 @@ vi.mock('../src/lib/db.js', () => ({
     },
     source: {
       findMany: sourceFindMany,
+    },
+    articleSource: {
+      findMany: articleSourceFindMany,
     },
     user: {
       findUnique: vi.fn(),
@@ -123,6 +127,7 @@ describe('article detail fact-check payloads', () => {
   beforeEach(() => {
     vi.clearAllMocks();
     sourceFindMany.mockResolvedValue([]);
+    articleSourceFindMany.mockResolvedValue([]);
   });
 
   it('keeps an already rich source snapshot instead of overwriting it', async () => {
@@ -186,6 +191,106 @@ describe('article detail fact-check payloads', () => {
 
     expect(response.body.sources[0]).not.toHaveProperty('profileData');
     expect(response.body.sources[0]).not.toHaveProperty('publicTrustLabel');
+  });
+
+  it('uses ArticleSource metadata and its historical snapshot when a relation exists', async () => {
+    articleFindUnique.mockResolvedValueOnce(publishedArticle());
+    articleSourceFindMany.mockResolvedValueOnce([{
+      id: 'article-source-1',
+      articleId: 'article-id',
+      sourceId: 'durable-source-1',
+      sourceUrl: 'https://example.com/story',
+      sourceUrlHash: 'hash',
+      role: 'PRIMARY_EVIDENCE',
+      supportStrength: 'STRONG',
+      provenance: 'WEB_SEARCH',
+      profileSnapshot: {
+        profileData: { description: 'Profil historique', type: 'MÃ©dia' },
+        profileConfidence: 'MEDIUM',
+        publicTrustLabel: 'strong',
+        lastProfiledAt: '2026-01-01T00:00:00.000Z',
+        snapshotAt: '2026-01-02T00:00:00.000Z',
+      },
+      profileVersion: 1,
+      snapshotAt: new Date('2026-01-02T00:00:00.000Z'),
+      position: 0,
+      createdAt: new Date('2026-01-02T00:00:00.000Z'),
+      source: {
+        id: 'durable-source-1',
+        domain: 'example.com',
+        name: 'Example',
+        type: 'MEDIA',
+        trustScore: 92,
+        description: 'Profil courant',
+        justification: 'Current audit',
+        profileData: { description: 'Profil courant', type: 'MÃ©dia' },
+        profileVersion: 2,
+        profileConfidence: 'HIGH',
+        lastProfiledAt: new Date('2026-06-01T00:00:00.000Z'),
+        publicTrustLabel: 'very_strong',
+      },
+    }]);
+
+    const response = await request(buildApp()).get('/api/articles/article-id');
+
+    expect(response.status).toBe(200);
+    expect(response.body.sources).toHaveLength(1);
+    expect(response.body.sources[0]).toMatchObject({
+      sourceId: 'src_1',
+      durableSourceId: 'durable-source-1',
+      role: 'PRIMARY_EVIDENCE',
+      supportStrength: 'STRONG',
+      provenance: 'WEB_SEARCH',
+      profileData: { description: 'Profil historique' },
+      profileVersion: 1,
+      snapshotAt: '2026-01-02T00:00:00.000Z',
+      currentProfile: {
+        profileData: { description: 'Profil courant' },
+        profileVersion: 2,
+        profileConfidence: 'HIGH',
+      },
+    });
+    expect(response.body.factCheckData.sources).toEqual(response.body.sources);
+  });
+
+  it('does not duplicate a source present in both ArticleSource and legacy JSON', async () => {
+    articleFindUnique.mockResolvedValueOnce(publishedArticle({
+      factCheckData: {
+        ...publishedArticle().factCheckData,
+        sources: [
+          { id: 1, sourceId: 'src_1', domain: 'example.com', url: 'https://EXAMPLE.com/story#fragment', trustScore: 88 },
+          { id: 2, sourceId: 'src_2', domain: 'other.test', url: 'https://other.test/story', trustScore: 70 },
+        ],
+      },
+    }));
+    articleSourceFindMany.mockResolvedValueOnce([{
+      sourceId: 'durable-source-1',
+      sourceUrl: 'https://example.com/story',
+      role: 'PRIMARY_EVIDENCE',
+      supportStrength: 'UNKNOWN',
+      provenance: 'WEB_SEARCH',
+      profileSnapshot: null,
+      profileVersion: null,
+      snapshotAt: null,
+      position: 0,
+      createdAt: new Date(),
+      source: { id: 'durable-source-1', domain: 'example.com', name: 'Example', type: 'MEDIA', trustScore: 88 },
+    }]);
+
+    const response = await request(buildApp()).get('/api/articles/article-id');
+
+    expect(response.body.sources).toHaveLength(2);
+    expect(response.body.sources.filter((source: any) => source.domain === 'example.com')).toHaveLength(1);
+    expect(response.body.factCheckData.sources).toEqual(response.body.sources);
+  });
+
+  it('does not break when the legacy fact-check JSON is malformed', async () => {
+    articleFindUnique.mockResolvedValueOnce(publishedArticle({ factCheckData: 'malformed' }));
+
+    const response = await request(buildApp()).get('/api/articles/article-id');
+
+    expect(response.status).toBe(200);
+    expect(response.body.sources).toEqual([]);
   });
 
   it('looks up all unique article source domains in one grouped query', async () => {

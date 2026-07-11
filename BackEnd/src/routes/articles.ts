@@ -25,6 +25,7 @@ import { enforceContributionRateLimit } from '../lib/contribution-rate-limit.js'
 
 import { getArticleImageProposals } from '../lib/images/proposals.js';
 import { hydrateSourcesWithProfiles } from '../lib/source-profile.js';
+import { normalizeArticleSourceUrl } from '../lib/article-source-service.js';
 
 export const router = Router();
 
@@ -90,7 +91,7 @@ async function buildArticleDetailResponse(article: any) {
     : [];
 
   const articleStatus = article.factCheckStatus ?? normalizedFactCheckData?.status ?? null;
-  const normalizedSources = await hydrateSourcesWithProfiles(rawSources.map((source: any) => ({
+  const legacySources = await hydrateSourcesWithProfiles(rawSources.map((source: any) => ({
     ...source,
     analysisStatus: deriveSourceAnalysisStatus(source, articleStatus),
   })), (domains) => prisma.source.findMany({
@@ -105,8 +106,35 @@ async function buildArticleDetailResponse(article: any) {
     },
   }));
 
+  const articleSources = await prisma.articleSource.findMany({
+    where: { articleId: article.id },
+    orderBy: [{ position: 'asc' }, { createdAt: 'asc' }],
+    include: {
+      source: {
+        select: {
+          id: true,
+          domain: true,
+          name: true,
+          type: true,
+          trustScore: true,
+          description: true,
+          justification: true,
+          profileData: true,
+          profileVersion: true,
+          profileConfidence: true,
+          lastProfiledAt: true,
+          publicTrustLabel: true,
+        },
+      },
+    },
+  });
+
+  const responseSources = articleSources.length > 0
+    ? mergeArticleSourcesForResponse(legacySources, articleSources, articleStatus)
+    : legacySources;
+
   const hydratedFactCheckData = normalizedFactCheckData
-    ? { ...normalizedFactCheckData, sources: normalizedSources }
+    ? { ...normalizedFactCheckData, sources: responseSources }
     : normalizedFactCheckData;
 
   return {
@@ -127,9 +155,103 @@ async function buildArticleDetailResponse(article: any) {
     factCheckScore: article.factCheckScore ?? normalizedFactCheckData?.score ?? null,
     factCheckStatus: articleStatus,
     factCheckData: hydratedFactCheckData ?? article.factCheckData ?? null,
-    sources: normalizedSources,
+    sources: responseSources,
     generationPrompt: article.generationPrompt ?? null,
   };
+}
+
+function mergeArticleSourcesForResponse(
+  legacySources: any[],
+  articleSources: any[],
+  articleStatus: unknown,
+): any[] {
+  const legacyByUrl = new Map<string, any>();
+  const legacyWithoutUrl: any[] = [];
+
+  for (const legacySource of legacySources) {
+    const key = normalizeArticleSourceUrl(legacySource?.url);
+    if (key) {
+      if (!legacyByUrl.has(key)) legacyByUrl.set(key, legacySource);
+    } else {
+      legacyWithoutUrl.push(legacySource);
+    }
+  }
+
+  const merged: any[] = [];
+  const relationUrls = new Set<string>();
+
+  for (const relation of articleSources) {
+    const key = normalizeArticleSourceUrl(relation.sourceUrl);
+    if (!key || relationUrls.has(key)) continue;
+    relationUrls.add(key);
+
+    const legacySource = legacyByUrl.get(key);
+    if (legacySource) legacyByUrl.delete(key);
+
+    const snapshot = asRecord(relation.profileSnapshot);
+    const currentSource = relation.source;
+    const currentProfile = currentSource
+      ? {
+          profileData: currentSource.profileData ?? null,
+          profileVersion: currentSource.profileVersion ?? null,
+          profileConfidence: currentSource.profileConfidence ?? null,
+          lastProfiledAt: toResponseDate(currentSource.lastProfiledAt),
+          publicTrustLabel: currentSource.publicTrustLabel ?? null,
+        }
+      : null;
+
+    const source = {
+      ...(legacySource ?? {}),
+      url: relation.sourceUrl,
+      domain: legacySource?.domain ?? currentSource?.domain ?? '',
+      name: legacySource?.name ?? currentSource?.name ?? currentSource?.domain ?? 'Source inconnue',
+      type: legacySource?.type ?? currentSource?.type ?? 'UNKNOWN',
+      trustScore: legacySource?.trustScore ?? currentSource?.trustScore ?? null,
+      description: legacySource?.description ?? currentSource?.description ?? null,
+      justification: legacySource?.justification ?? currentSource?.justification ?? null,
+      durableSourceId: relation.sourceId,
+      role: relation.role,
+      supportStrength: relation.supportStrength,
+      provenance: relation.provenance,
+      profileSnapshot: relation.profileSnapshot ?? null,
+      profileVersion: relation.profileVersion ?? legacySource?.profileVersion ?? null,
+      snapshotAt: toResponseDate(relation.snapshotAt),
+      currentProfile,
+      analysisStatus: deriveSourceAnalysisStatus(legacySource ?? {}, articleStatus as any),
+    };
+
+    if (snapshot) {
+      if (snapshot.profileData !== undefined && snapshot.profileData !== null) {
+        source.profileData = snapshot.profileData;
+      }
+      if (snapshot.profileConfidence !== undefined && snapshot.profileConfidence !== null) {
+        source.profileConfidence = snapshot.profileConfidence;
+      }
+      if (snapshot.publicTrustLabel !== undefined && snapshot.publicTrustLabel !== null) {
+        source.publicTrustLabel = snapshot.publicTrustLabel;
+      }
+      if (snapshot.lastProfiledAt !== undefined && snapshot.lastProfiledAt !== null) {
+        source.lastProfiledAt = snapshot.lastProfiledAt;
+      }
+    }
+
+    merged.push(source);
+  }
+
+  merged.push(...legacyByUrl.values(), ...legacyWithoutUrl);
+  return merged;
+}
+
+function asRecord(value: unknown): Record<string, any> | null {
+  return value && typeof value === 'object' && !Array.isArray(value)
+    ? value as Record<string, any>
+    : null;
+}
+
+function toResponseDate(value: unknown): string | null {
+  if (value instanceof Date) return value.toISOString();
+  if (typeof value === 'string' && value) return value;
+  return null;
 }
 async function findPublishedArticleBySlugOrId(slugOrId: string) {
   const exact = await prisma.article.findFirst({
