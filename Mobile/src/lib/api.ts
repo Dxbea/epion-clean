@@ -376,6 +376,7 @@ function normalizeArticleSource(item: unknown, index: number): ArticleSource | n
 
   // Enriched fields
   const politicalBias = readOptionalText(record.politicalBias) ?? readOptionalText(metadata?.politicalBias);
+  const biasScore = readOptionalNumber(record.biasScore) ?? readNestedNumber(readRecord(record.metadata), ['biasScore']);
   const reliability = readOptionalText(record.reliability) ?? readOptionalText(metadata?.reliability);
   const country = readOptionalText(record.country) ?? readOptionalText(metadata?.country);
   const reputationScore = readOptionalNumber(record.reputationScore) ?? readNestedNumber(readRecord(record.metadata), ['reputationScore']);
@@ -410,6 +411,7 @@ function normalizeArticleSource(item: unknown, index: number): ArticleSource | n
     ...(metadataOnly ? { metadataOnly: true } : {}),
     ...(description ? { description } : {}),
     ...(politicalBias ? { politicalBias } : {}),
+    ...(biasScore !== undefined ? { biasScore } : {}),
     ...(reliability ? { reliability } : {}),
     ...(country ? { country } : {}),
     ...(reputationScore !== undefined ? { reputationScore } : {}),

@@ -45,6 +45,7 @@ export type ArticleSource = {
   description?: string;
   // Enriched fields (from factCheckData / source enrichment)
   politicalBias?: string;
+  biasScore?: number;
   reliability?: string;
   country?: string;
   reputationScore?: number;

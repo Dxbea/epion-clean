@@ -3,7 +3,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { ActivityIndicator, Linking, Modal, PanResponder, Pressable, ScrollView, Share, StyleSheet, Text, TextInput, View } from 'react-native';
 import { Image } from 'expo-image';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
-import { Check, ChevronLeft, Forward, Heart, Highlighter, MessageSquare, Info, Star, ThumbsUp, ThumbsDown, Repeat2, X, ShieldCheck, BrainCircuit, AlertTriangle, ShieldAlert } from 'lucide-react-native';
+import { Check, ChevronDown, ChevronLeft, ExternalLink, Forward, Heart, Highlighter, MessageSquare, Info, Star, ThumbsUp, ThumbsDown, Repeat2, X, ShieldCheck, BrainCircuit, AlertTriangle, ShieldAlert, Lock, Plus, SlidersHorizontal, Tag } from 'lucide-react-native';
 
 import { useTheme } from '@/hooks/use-theme';
 import { Fonts, FontSize, Radius, Spacing } from '@/constants/theme';
@@ -87,11 +87,11 @@ const CONTRIBUTION_TYPES: Array<{
   help: string;
   colors: { border: string; bg: string; text: string };
 }> = [
-  { type: 'SOURCE', label: 'Source', help: 'Ajouter une source vérifiable.', colors: { border: '#BFDBFE', bg: '#EFF6FF', text: '#1D4ED8' } },
-  { type: 'NUANCE', label: 'Nuance', help: 'Ajouter du contexte ou une distinction.', colors: { border: '#FDE68A', bg: '#FFFBEB', text: '#92400E' } },
+  { type: 'SOURCE', label: 'Source', help: 'Ajouter une source vérifiable.', colors: { border: '#99F6E4', bg: '#F0FDFA', text: '#0F766E' } },
+  { type: 'NUANCE', label: 'Nuance', help: 'Ajouter du contexte ou une distinction.', colors: { border: '#C7D2FE', bg: '#EEF2FF', text: '#4338CA' } },
   { type: 'CONTRADICTION', label: 'Contradiction', help: 'Signaler un conflit avec un élément.', colors: { border: '#FECACA', bg: '#FEF2F2', text: '#B91C1C' } },
   { type: 'QUESTION', label: 'Question', help: 'Ouvrir un point précis à clarifier.', colors: { border: '#BAE6FD', bg: '#F0F9FF', text: '#0369A1' } },
-  { type: 'CORRECTION', label: 'Correction', help: 'Proposer une correction factuelle.', colors: { border: '#A7F3D0', bg: '#ECFDF5', text: '#065F46' } },
+  { type: 'CORRECTION', label: 'Correction', help: 'Proposer une correction factuelle.', colors: { border: '#DDD6FE', bg: '#F5F3FF', text: '#6D28D9' } },
 ];
 
 const VALIDATION_TYPES: Array<{ type: ArticleValidationType; label: string }> = [
@@ -593,17 +593,25 @@ function SourceItemCard({ source, colors }: { source: ArticleSource; colors: Ret
   const [expanded, setExpanded] = useState(false);
   const scoreColor = getScoreColor(source.trustScore);
   const analysisStatus = source.analysisStatus ?? 'UNAVAILABLE';
-  const hasAnalyzedScore = analysisStatus === 'ANALYZED' && typeof source.trustScore === 'number';
+  const isPending = analysisStatus === 'PENDING' || source.isEnriching === true;
+  const hasScore = typeof source.trustScore === 'number';
+  const hasScoredAnalysis = hasScore || Boolean(source.metrics) || typeof source.reputationScore === 'number' || typeof source.analysisScore === 'number' || typeof source.biasScore === 'number';
+  const isMetadataOnly = analysisStatus === 'METADATA_ONLY' || source.metadataOnly === true;
+  const hasAnalyzedScore = hasScore && !isPending;
 
   const categoryLabel = source.type ?? 'Source';
-  const hasDetails = Boolean(source.description || source.politicalBias || source.country || source.reliability || source.metrics || source.justification || typeof source.trustScore === 'number');
+  const hasDetails = Boolean(source.description || source.politicalBias || source.country || source.reliability || source.metrics || source.justification || hasScore || typeof source.biasScore === 'number' || source.url);
 
   return (
     <View style={[sm.card, { borderColor: colors.border, backgroundColor: colors.backgroundElevated }]}>
       {/* Header row */}
       <Pressable
         style={sm.cardHeader}
-        onPress={() => { if (hasDetails) setExpanded(!expanded); if (source.url) Linking.openURL(source.url).catch(() => {}); }}
+        disabled={!hasDetails}
+        accessibilityRole="button"
+        accessibilityState={{ expanded }}
+        accessibilityLabel={`${source.name || source.domain}, ${expanded ? 'replier' : 'afficher'} les d\u00e9tails`}
+        onPress={() => hasDetails && setExpanded(!expanded)}
       >
         {/* Logo / initials */}
         <View style={[sm.logo, { backgroundColor: colors.backgroundSubtle }]}>
@@ -635,15 +643,20 @@ function SourceItemCard({ source, colors }: { source: ArticleSource; colors: Ret
               <Text style={sm.scoreCircleText}>{source.trustScore}</Text>
             </View>
           </View>
+        ) : hasScoredAnalysis && !isPending ? (
+          <View style={[sm.scoreBadge, { backgroundColor: '#047857' }]}>
+            <Text style={sm.scoreBadgeText}>Analys\u00e9e</Text>
+          </View>
         ) : (
           <View style={[sm.scoreBadge, {
-            backgroundColor: analysisStatus === 'METADATA_ONLY' ? '#D97706' : analysisStatus === 'UNAVAILABLE' ? '#6B7280' : colors.backgroundSubtle,
+            backgroundColor: isMetadataOnly ? '#D97706' : analysisStatus === 'UNAVAILABLE' ? '#6B7280' : colors.backgroundSubtle,
           }]}>
-            <Text style={[sm.scoreBadgeText, analysisStatus === 'PENDING' ? { color: colors.textMuted } : null]}>
-              {analysisStatus === 'METADATA_ONLY' ? 'M\u00e9tadonn\u00e9es seules' : analysisStatus === 'UNAVAILABLE' ? 'Indisponible' : 'Analyse...'}
+            <Text style={[sm.scoreBadgeText, isPending ? { color: colors.textMuted } : null]}>
+              {isMetadataOnly ? 'M\u00e9tadonn\u00e9es seules' : analysisStatus === 'UNAVAILABLE' ? 'Indisponible' : 'Analyse...'}
             </Text>
           </View>
         )}
+        {hasDetails ? <ChevronDown size={18} color={colors.textMuted} style={expanded ? sm.chevronExpanded : undefined} /> : null}
       </Pressable>
 
       {/* Expanded details */}
@@ -668,6 +681,12 @@ function SourceItemCard({ source, colors }: { source: ArticleSource; colors: Ret
             </View>
           ) : null}
 
+          {isMetadataOnly && hasScoredAnalysis ? (
+            <View style={[sm.metadataWarning, { borderColor: '#FCD34D', backgroundColor: '#FFFBEB' }]}>
+              <Text style={sm.metadataWarningText}>M\u00e9tadonn\u00e9es seules : certains \u00e9l\u00e9ments descriptifs peuvent \u00eatre incomplets.</Text>
+            </View>
+          ) : null}
+
           {/* Identity: country + political bias */}
           {(source.country || source.politicalBias || source.reliability) ? (
             <View style={[sm.identityRow, { backgroundColor: colors.backgroundSubtle, borderColor: colors.border }]}>
@@ -689,6 +708,7 @@ function SourceItemCard({ source, colors }: { source: ArticleSource; colors: Ret
                 { label: 'Éditorial', value: source.metrics.editorial, color: '#10B981' },
                 { label: 'Sémantique', value: source.metrics.semantic, color: '#8B5CF6' },
                 { label: 'Intégrité', value: source.metrics.logic, color: '#F59E0B' },
+                ...(typeof source.biasScore === 'number' ? [{ label: 'Biais', value: source.biasScore, color: '#DC2626' }] : []),
               ].map((m) => (
                 <View key={m.label} style={sm.metricRow}>
                   <Text style={[sm.metricLabel, { color: colors.textSecondary }]}>{m.label}</Text>
@@ -701,9 +721,18 @@ function SourceItemCard({ source, colors }: { source: ArticleSource; colors: Ret
             </View>
           ) : null}
 
-          {/* Description */}
+          {/* Description and justification */}
           {source.description ? (
             <Text style={[sm.description, { color: colors.textSecondary }]}>{source.description}</Text>
+          ) : null}
+          {source.justification ? (
+            <Text style={[sm.justification, { color: colors.textSecondary }]}>{source.justification}</Text>
+          ) : null}
+          {source.url ? (
+            <Pressable style={[sm.sourceLink, { borderColor: colors.border, backgroundColor: colors.backgroundSubtle }]} accessibilityRole="link" accessibilityLabel={`Voir la source ${source.name || source.domain}`} onPress={() => void Linking.openURL(source.url!).catch(() => {})}>
+              <Text style={[sm.sourceLinkText, { color: colors.text }]}>Voir la source</Text>
+              <ExternalLink size={14} color={colors.textSecondary} />
+            </Pressable>
           ) : null}
         </View>
       ) : null}
@@ -751,12 +780,15 @@ const sm = StyleSheet.create({
   scoreBadgeText: { fontSize: 9, fontWeight: '700', textTransform: 'uppercase', color: '#fff', letterSpacing: 0.4 },
   scoreCircle: { width: 20, height: 20, borderRadius: 10, backgroundColor: 'rgba(255,255,255,0.25)', alignItems: 'center', justifyContent: 'center' },
   scoreCircleText: { fontSize: 9, fontWeight: '800', color: '#fff' },
+  chevronExpanded: { transform: [{ rotate: '180deg' }] },
   details: { borderTopWidth: 1, padding: 14, gap: 12 },
   scoreExplain: { borderRadius: 12, borderWidth: 1, padding: 12, gap: 6 },
   scoreExplainHeader: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' },
   scoreExplainLabel: { fontSize: 11, fontWeight: '700', color: '#065F46', textTransform: 'uppercase', letterSpacing: 0.4 },
   scoreExplainValue: { fontSize: 14, fontWeight: '800', color: '#065F46' },
   scoreExplainText: { fontSize: 12, lineHeight: 18, color: '#047857' },
+  metadataWarning: { borderRadius: 10, borderWidth: 1, padding: 10 },
+  metadataWarningText: { fontSize: 12, lineHeight: 17, color: '#92400E' },
   identityRow: { flexDirection: 'row', flexWrap: 'wrap', gap: 8, borderRadius: 12, borderWidth: 1, padding: 10 },
   identityChip: { fontSize: 13, fontWeight: '500' },
   metricsGrid: { gap: 8 },
@@ -766,6 +798,9 @@ const sm = StyleSheet.create({
   metricBarFill: { height: 6, borderRadius: 3 },
   metricValue: { width: 28, fontSize: 11, fontWeight: '700', textAlign: 'right' },
   description: { fontSize: 12, lineHeight: 18 },
+  justification: { fontSize: 12, lineHeight: 18, fontStyle: 'italic' },
+  sourceLink: { alignSelf: 'flex-start', flexDirection: 'row', alignItems: 'center', gap: 6, borderWidth: 1, borderRadius: 8, paddingHorizontal: 10, paddingVertical: 8 },
+  sourceLinkText: { fontSize: 12, fontWeight: '600' },
   empty: { textAlign: 'center', padding: 32, fontSize: 14 },
 });
 
@@ -858,7 +893,8 @@ function OpinionSliderCard({
         <Text style={[ss.opinionCardTitle, { color: colors.text }]}>Positionnez-vous</Text>
         {isConfirmed ? (
           <View style={[ss.confirmedBadge, { backgroundColor: `${EPION_GREEN}12`, borderColor: `${EPION_GREEN}40` }]}>
-            <Text style={ss.confirmedBadgeText}>🔒 Position confirmée</Text>
+            <Lock size={13} color="#065F46" />
+            <Text style={ss.confirmedBadgeText}>Position confirmée</Text>
           </View>
         ) : null}
       </View>
@@ -932,9 +968,8 @@ function OpinionSliderCard({
         disabled={isConfirmed}
         onPress={onLacksContext}
       >
-        <Text style={[ss.lacksContextText, { color: lacksContext ? '#0369A1' : colors.textTertiary }]}>
-          🛡  Je manque d'éléments de contexte
-        </Text>
+        <ShieldCheck size={16} color={lacksContext ? '#0369A1' : colors.textTertiary} />
+        <Text style={[ss.lacksContextText, { color: lacksContext ? '#0369A1' : colors.textTertiary }]}>Je manque d'éléments de contexte</Text>
       </Pressable>
 
       {/* Confirm button */}
@@ -946,8 +981,9 @@ function OpinionSliderCard({
           disabled={isSubmittingPosition || (selectedPosition === null && !lacksContext)}
           onPress={onConfirm}
         >
+          <Check size={17} color={(selectedPosition !== null || lacksContext) ? '#000' : colors.textMuted} />
           <Text style={[ss.confirmBtnText, { color: (selectedPosition !== null || lacksContext) ? '#000' : colors.textMuted }]}>
-            {isSubmittingPosition ? 'Confirmation...' : '✓  Confirmer ma position'}
+            {isSubmittingPosition ? 'Confirmation...' : 'Confirmer ma position'}
           </Text>
         </Pressable>
       ) : null}
@@ -970,7 +1006,7 @@ const ss = StyleSheet.create({
   },
   opinionCardHeader: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', flexWrap: 'wrap', gap: 8 },
   opinionCardTitle: { fontSize: 16, fontWeight: '600' },
-  confirmedBadge: { borderRadius: 99, borderWidth: 1, paddingHorizontal: 10, paddingVertical: 4 },
+  confirmedBadge: { flexDirection: 'row', alignItems: 'center', gap: 5, borderRadius: 99, borderWidth: 1, paddingHorizontal: 10, paddingVertical: 4 },
   confirmedBadgeText: { color: '#065F46', fontSize: 12, fontWeight: '600' },
   questionBox: { borderRadius: 12, borderWidth: 1, padding: 14, gap: 6 },
   questionLabel: { fontSize: 10, fontWeight: '700', letterSpacing: 0.8 },
@@ -1052,7 +1088,10 @@ const ss = StyleSheet.create({
   lacksContextBtn: {
     borderRadius: 12,
     borderWidth: 1,
+    flexDirection: 'row',
     alignItems: 'center',
+    justifyContent: 'center',
+    gap: 7,
     paddingVertical: 10,
     paddingHorizontal: 12,
   },
@@ -1062,7 +1101,10 @@ const ss = StyleSheet.create({
   },
   confirmBtn: {
     borderRadius: 99,
+    flexDirection: 'row',
     alignItems: 'center',
+    justifyContent: 'center',
+    gap: 7,
     paddingVertical: 12,
   },
   confirmBtnText: {
@@ -1213,7 +1255,6 @@ export function ArticleDetailScreenContent({ loadArticle, missingText = 'Aucun d
   const hasSourceHighlightMapping = sourceHighlightTerms.length > 0;
   const hasHighlightMapping = hasHighlightableCitations || hasStructuredHighlightMapping || hasSourceHighlightMapping;
   const articleSummary = getArticleSummary(article);
-  const summaryTakeaways = article?.structuredContent?.lead?.keyTakeaways ?? [];
 
   const visibleAdvancedInteractions = advancedInteractions ?? (!advancedLoading ? EMPTY_ADVANCED_INTERACTIONS : null);
   const confirmedPosition = visibleAdvancedInteractions?.currentUserOpinionPosition ?? null;
@@ -1479,18 +1520,19 @@ export function ArticleDetailScreenContent({ loadArticle, missingText = 'Aucun d
     );
   };
 
-  const renderStructuredContent = (content: StructuredArticleContent, includeLead = true) => (
+  const renderStructuredContent = (content: StructuredArticleContent, includeLead = true, body?: string | null) => (
     <View style={s.structuredContent}>
       {includeLead && content.lead?.summary ? <Text style={[s.structuredLead, { color: colors.textSecondary }]}>{content.lead.summary}</Text> : null}
       {includeLead && content.lead?.keyTakeaways?.length ? (
         <View style={s.structuredTakeaways}>
           {content.lead.keyTakeaways.map((item, index) => (
-            <View key={`${item}-${index}`} style={[s.structuredTakeaway, { borderColor: colors.border, backgroundColor: colors.backgroundSubtle }]}>
+            <View key={`${item}-${index}`} style={[s.structuredTakeaway, { borderColor: colors.border, backgroundColor: colors.backgroundElevated }]}>
               <Text style={[s.structuredTakeawayText, { color: colors.textSecondary }]}>{item}</Text>
             </View>
           ))}
         </View>
       ) : null}
+      {body ? <View>{renderMarkdownContent(body, colors.text, colors.text, colors.textTertiary, colors.border, isHighlightActive, sourceHighlightTerms)}</View> : null}
       {content.sections.map(renderStructuredSection)}
     </View>
   );
@@ -1505,17 +1547,17 @@ export function ArticleDetailScreenContent({ loadArticle, missingText = 'Aucun d
       <View key={contribution.id} style={[s.contributionCard, { borderColor: isContested ? '#F59E0B80' : colors.border, backgroundColor: colors.backgroundElevated }]}>
         {/* Header */}
         <View style={s.contributionHeader}>
-          <View style={[s.contributionAvatar, { backgroundColor: colors.backgroundSubtle }]}>
-            <Text style={[s.contributionAvatarText, { color: colors.textTertiary }]}>{(contributionAuthorLabel(contribution))[0]?.toUpperCase()}</Text>
-          </View>
-          <View style={s.contributionMeta}>
-            <Text style={[s.contributionAuthor, { color: colors.text }]}>{contributionAuthorLabel(contribution)}</Text>
-            <View style={s.contributionTypeBadgeRow}>
-              <View style={[s.typeBadgeInline, { backgroundColor: typeInfo.colors.bg, borderColor: typeInfo.colors.border }]}>
-                <Text style={[s.typeBadgeInlineText, { color: typeInfo.colors.text }]}>{typeInfo.label}</Text>
-              </View>
+          <View style={s.contributionAuthorBlock}>
+            <View style={[s.contributionAvatar, { backgroundColor: colors.backgroundSubtle }]}>
+              <Text style={[s.contributionAvatarText, { color: colors.textTertiary }]}>{(contributionAuthorLabel(contribution))[0]?.toUpperCase()}</Text>
+            </View>
+            <View style={s.contributionMeta}>
+              <Text style={[s.contributionAuthor, { color: colors.text }]}>{contributionAuthorLabel(contribution)}</Text>
               {contribution.editCount > 0 ? <Text style={[s.contributionEdited, { color: colors.textMuted }]}>Modifié</Text> : null}
             </View>
+          </View>
+          <View style={[s.typeBadgeInline, { backgroundColor: typeInfo.colors.bg, borderColor: typeInfo.colors.border }]}>
+            <Text style={[s.typeBadgeInlineText, { color: typeInfo.colors.text }]}>{typeInfo.label}</Text>
           </View>
         </View>
 
@@ -1543,38 +1585,39 @@ export function ArticleDetailScreenContent({ loadArticle, missingText = 'Aucun d
           </Pressable>
         ) : null}
 
-        {/* Validation buttons (only WELL_SOURCED + ADDS_NUANCE for main contributions) */}
+        {/* Contribution actions */}
         <View style={s.validationRow}>
           {VALIDATION_TYPES.filter((v) => v.type !== 'NEEDS_CHECK').map((v) => {
             const isActive = contribution.currentUserValidations.includes(v.type);
             const count = contribution.validationSummary[v.type];
+            const ValidationIcon = v.type === 'WELL_SOURCED' ? ShieldCheck : SlidersHorizontal;
             return (
               <Pressable
                 key={v.type}
                 style={[s.validationPill, {
                   borderColor: isActive ? `${EPION_GREEN}66` : colors.border,
-                  backgroundColor: isActive ? `${EPION_GREEN}12` : 'transparent',
+                  backgroundColor: isActive ? `${EPION_GREEN}12` : colors.backgroundSubtle,
                 }]}
                 disabled={!canValidate}
                 onPress={() => void validateContribution(contribution.id, v.type)}
               >
+                <ValidationIcon size={14} color={isActive ? '#065F46' : colors.textTertiary} />
                 <Text style={[s.validationPillText, { color: isActive ? '#065F46' : colors.textTertiary }]}>
                   {v.label}{count > 0 ? ` ${count}` : ''}
                 </Text>
               </Pressable>
             );
           })}
+          {canValidate ? (
+            <Pressable
+              style={[s.validationPill, { borderColor: colors.border, backgroundColor: colors.backgroundSubtle }]}
+              onPress={() => { setContributionTargetId(contribution.id); setContributionType('CORRECTION'); setContributionText(''); setContributionSourceUrl(''); }}
+            >
+              <Plus size={14} color={colors.textSecondary} />
+              <Text style={[s.validationPillText, { color: colors.textSecondary }]}>Ajouter un contexte</Text>
+            </Pressable>
+          ) : null}
         </View>
-
-        {/* Context reply */}
-        {canValidate ? (
-          <Pressable
-            style={[s.contextReplyBtn, { borderColor: '#FDE68A', backgroundColor: '#FFFBEB' }]}
-            onPress={() => { setContributionTargetId(contribution.id); setContributionType('CORRECTION'); setContributionText(''); setContributionSourceUrl(''); }}
-          >
-            <Text style={[s.contextReplyText, { color: '#92400E' }]}>＋ Ajouter un contexte</Text>
-          </Pressable>
-        ) : null}
 
         {/* Best community note (highest validation count, min 2 validations) */}
         {(() => {
@@ -1669,31 +1712,38 @@ export function ArticleDetailScreenContent({ loadArticle, missingText = 'Aucun d
                 </View>
               ) : null}
 
-              {/* Article action bar */}
+              {/* Trust header adapted from the web article page */}
               <View style={[s.articleActionBar, { borderColor: colors.border, backgroundColor: colors.backgroundElevated }] }>
-                <Pressable style={({ pressed }) => [s.articleActionPill, { backgroundColor: colors.backgroundSubtle }, pressed ? { opacity: 0.78 } : null]} onPress={() => setShowSourcesModal(true)}>
-                  <Text style={[s.articleActionLabel, { color: colors.text }]}>Sources</Text>
-                  <Text style={[s.articleActionValue, { color: colors.textMuted }]} numberOfLines={1}>
-                    {sourceCount > 0 ? `${sourceCount}` : analysisInProgress ? 'En cours' : 'Indispo.'}
-                  </Text>
-                </Pressable>
                 <Pressable
-                  style={({ pressed }) => [s.articleActionPill, { backgroundColor: typeof article.factCheckScore === 'number' ? `${getScoreColor(article.factCheckScore)}16` : colors.backgroundSubtle }, pressed ? { opacity: 0.78 } : null]}
+                  style={({ pressed }) => [s.articleActionPill, s.articleReliabilityPill, { backgroundColor: '#FEF3C7', borderColor: '#FDE68A' }, pressed ? { opacity: 0.78 } : null]}
                   onPress={() => { if (article.factCheckDetail) setShowTrustModal(true); }}
                   disabled={!article.factCheckDetail}
                 >
-                  <Text style={[s.articleActionLabel, { color: typeof article.factCheckScore === 'number' ? getScoreColor(article.factCheckScore) : colors.text }]}>FactScore</Text>
-                  <Text style={[s.articleActionValue, { color: colors.textMuted }]} numberOfLines={1}>
-                    {typeof article.factCheckScore === 'number' ? `${article.factCheckScore}% - ${getSupportLabel(article.factCheckScore)}` : statusLabel ?? 'Non evalue'}
+                  <ShieldCheck size={13} color="#B45309" />
+                  <Text style={[s.articleActionText, { color: '#92400E' }]} numberOfLines={1}>
+                    {'Fiabilité : ' + (typeof article.factCheckScore === 'number' ? article.factCheckScore + '%' : statusLabel ?? 'en cours')}
                   </Text>
                 </Pressable>
+
                 <Pressable
-                  style={({ pressed }) => [s.articleActionPill, { backgroundColor: colors.backgroundSubtle }, !article.categorySlug ? s.disabledPill : null, pressed ? { opacity: 0.78 } : null]}
+                  style={({ pressed }) => [s.articleActionPill, s.articleSourcesPill, { backgroundColor: colors.backgroundSubtle, borderColor: colors.border }, pressed ? { opacity: 0.78 } : null]}
+                  onPress={() => setShowSourcesModal(true)}
+                >
+                  <Info size={13} color={colors.textSecondary} />
+                  <Text style={[s.articleActionText, { color: colors.text }]} numberOfLines={1}>
+                    {sourceCount} sources analysées
+                  </Text>
+                </Pressable>
+
+                <Pressable
+                  style={({ pressed }) => [s.articleActionPill, s.articleCategoryPill, { backgroundColor: colors.backgroundSubtle, borderColor: colors.border }, !article.categorySlug ? s.disabledPill : null, pressed ? { opacity: 0.78 } : null]}
                   onPress={openArticleCategory}
                   disabled={!article.categorySlug}
                 >
-                  <Text style={[s.articleActionLabel, { color: colors.text }]}>Categorie</Text>
-                  <Text style={[s.articleActionValue, { color: colors.textMuted }]} numberOfLines={1}>{article.category ?? 'Non classe'}</Text>
+                  <Tag size={13} color={colors.textSecondary} />
+                  <Text style={[s.articleActionText, { color: colors.text }]} numberOfLines={1}>
+                    {'Catégorie : ' + (article.category ?? 'Non classée')}
+                  </Text>
                 </Pressable>
               </View>
 
@@ -1706,23 +1756,6 @@ export function ArticleDetailScreenContent({ loadArticle, missingText = 'Aucun d
 
               {/* Title */}
               <Text style={[s.title, { color: colors.text, fontFamily: Fonts.display }]}>{article.title}</Text>
-
-              {/* Article summary */}
-              {articleSummary ? (
-                <View style={[s.summaryCard, { borderColor: colors.border, backgroundColor: colors.backgroundElevated }] }>
-                  <Text style={[s.summaryLabel, { color: colors.textTertiary }]}>Resume de l'article</Text>
-                  <Text style={[s.summaryText, { color: colors.textSecondary }]}>{articleSummary}</Text>
-                  {summaryTakeaways.length ? (
-                    <View style={s.summaryTakeaways}>
-                      {summaryTakeaways.map((item, index) => (
-                        <View key={`${item}-${index}`} style={[s.summaryTakeaway, { borderColor: colors.borderSubtle, backgroundColor: colors.backgroundSubtle }] }>
-                          <Text style={[s.summaryTakeawayText, { color: colors.textSecondary }]}>{item}</Text>
-                        </View>
-                      ))}
-                    </View>
-                  ) : null}
-                </View>
-              ) : null}
 
               {/* Body content — rendered markdown */}
               {article.body ? (
@@ -1737,8 +1770,9 @@ export function ArticleDetailScreenContent({ loadArticle, missingText = 'Aucun d
                       </Text>
                     </View>
                   ) : null}
-                  {renderMarkdownContent(article.body, colors.text, colors.text, colors.textTertiary, colors.border, isHighlightActive, sourceHighlightTerms)}
-                  {article.structuredContent ? renderStructuredContent(article.structuredContent, !articleSummary) : null}
+                  {article.structuredContent
+                    ? renderStructuredContent(article.structuredContent, true, article.body)
+                    : renderMarkdownContent(article.body, colors.text, colors.text, colors.textTertiary, colors.border, isHighlightActive, sourceHighlightTerms)}
                 </View>
               ) : article.structuredContent ? (
                 <View style={s.bodyContainer}>
@@ -1752,8 +1786,10 @@ export function ArticleDetailScreenContent({ loadArticle, missingText = 'Aucun d
                       </Text>
                     </View>
                   ) : null}
-                  {renderStructuredContent(article.structuredContent, !articleSummary)}
+                  {renderStructuredContent(article.structuredContent)}
                 </View>
+              ) : articleSummary ? (
+                <Text style={[s.structuredLead, { color: colors.textSecondary }]}>{articleSummary}</Text>
               ) : (
                 <Text style={[s.emptyText, { color: colors.textMuted }]}>Aucun contenu disponible.</Text>
               )}
@@ -2162,14 +2198,6 @@ export function ArticleDetailScreenContent({ loadArticle, missingText = 'Aucun d
                   <MessageSquare size={20} color={isChatLoading ? EPION_GREEN : colors.textTertiary} />
                 </Pressable>
 
-                {/* Sources */}
-                <Pressable
-                  style={[s.floatingBtn, showSourcesModal ? s.floatingBtnActive : null]}
-                  accessibilityLabel={`Sources (${sourceCount})`}
-                  onPress={() => { setToolbarPanel(null); setShowSourcesModal(true); }}
-                >
-                  <ShieldCheck size={20} color={showSourcesModal ? '#FFFFFF' : colors.textTertiary} />
-                </Pressable>
 
                 {/* Highlight sources */}
                 <Pressable
@@ -2251,10 +2279,12 @@ const s = StyleSheet.create({
   heroImage: { width: '100%', height: '100%' },
 
   // Article action bar
-  articleActionBar: { borderRadius: Radius.full, borderWidth: 1, flexDirection: 'row', gap: Spacing.xs, padding: 4, shadowColor: '#000', shadowOffset: { width: 0, height: 1 }, shadowOpacity: 0.04, shadowRadius: 3, elevation: 1 },
-  articleActionPill: { flex: 1, minHeight: 58, borderRadius: Radius.full, alignItems: 'center', justifyContent: 'center', paddingHorizontal: Spacing.xs, paddingVertical: Spacing.sm },
-  articleActionLabel: { fontSize: FontSize.xs, fontWeight: '800' },
-  articleActionValue: { fontSize: 11, fontWeight: '500', marginTop: 2, textAlign: 'center' },
+  articleActionBar: { borderRadius: Radius.xl, borderWidth: 1, flexDirection: 'row', gap: Spacing.xs, padding: 6, shadowColor: '#000', shadowOffset: { width: 0, height: 1 }, shadowOpacity: 0.08, shadowRadius: 4, elevation: 2 },
+  articleActionPill: { flex: 1, minHeight: 42, borderRadius: Radius.full, borderWidth: 1, flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 4, paddingHorizontal: 6, paddingVertical: 7 },
+  articleReliabilityPill: { flex: 1.05 },
+  articleSourcesPill: { flex: 1.15 },
+  articleCategoryPill: { flex: 1 },
+  articleActionText: { flexShrink: 1, fontSize: 10, fontWeight: '600', letterSpacing: -0.1, textAlign: 'center' },
   disabledPill: { opacity: 0.45 },
 
   // Meta
@@ -2266,8 +2296,9 @@ const s = StyleSheet.create({
   excerpt: { fontSize: FontSize.lg, lineHeight: 26, marginTop: -4 },
 
   // Summary
-  summaryCard: { borderRadius: Radius.xl, borderWidth: 1, padding: Spacing.lg, gap: Spacing.sm },
-  summaryLabel: { fontSize: FontSize.xs, fontWeight: '800' },
+  summarySection: { gap: Spacing.sm },
+  summaryTitle: { fontSize: FontSize.lg, fontWeight: '700', letterSpacing: -0.15 },
+  summaryCard: { borderRadius: Radius.xl, borderWidth: 1, padding: Spacing.lg },
   summaryText: { fontSize: FontSize.md, lineHeight: 24 },
   summaryTakeaways: { gap: Spacing.sm, marginTop: Spacing.xs },
   summaryTakeaway: { borderRadius: Radius.md, borderWidth: 1, paddingHorizontal: Spacing.md, paddingVertical: Spacing.sm },
@@ -2359,21 +2390,21 @@ const s = StyleSheet.create({
   submitBtnText: { color: '#000000', fontSize: FontSize.base, fontWeight: '700' },
 
   // Contributions list header
-  contributionsListHeader: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' },
-  contributionsListTitle: { fontSize: FontSize.md, fontWeight: '600' },
+  contributionsListHeader: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginTop: Spacing.sm },
+  contributionsListTitle: { fontSize: FontSize.lg, fontWeight: '700', letterSpacing: -0.15 },
   contributionsList: { gap: Spacing.sm },
   sortRow: { flexDirection: 'row', borderRadius: Radius.lg, borderWidth: 1, overflow: 'hidden', padding: 2 },
   sortBtn: { paddingHorizontal: Spacing.md, paddingVertical: 5, borderRadius: Radius.md },
   sortBtnText: { fontSize: FontSize.xs },
 
   // Contribution cards
-  contributionCard: { borderRadius: Radius.xl, borderWidth: 1, padding: Spacing.lg, gap: Spacing.md },
-  contributionHeader: { flexDirection: 'row', alignItems: 'center', gap: Spacing.sm },
+  contributionCard: { borderRadius: Radius.xl, borderWidth: 1, padding: Spacing.lg, gap: Spacing.md, shadowColor: '#000', shadowOffset: { width: 0, height: 1 }, shadowOpacity: 0.035, shadowRadius: 3, elevation: 1 },
+  contributionHeader: { flexDirection: 'row', alignItems: 'flex-start', justifyContent: 'space-between', gap: Spacing.sm },
+  contributionAuthorBlock: { flex: 1, flexDirection: 'row', alignItems: 'center', gap: Spacing.sm },
   contributionAvatar: { width: 32, height: 32, borderRadius: 16, alignItems: 'center', justifyContent: 'center' },
   contributionAvatarText: { fontSize: FontSize.xs, fontWeight: '600' },
   contributionMeta: { flex: 1, gap: 2 },
   contributionAuthor: { fontSize: FontSize.sm, fontWeight: '600' },
-  contributionTypeBadgeRow: { flexDirection: 'row', gap: Spacing.sm, alignItems: 'center' },
   typeBadgeInline: { borderRadius: Radius.md, borderWidth: 1, paddingHorizontal: 6, paddingVertical: 1 },
   typeBadgeInlineText: { fontSize: 10, fontWeight: '700', textTransform: 'uppercase' as const },
   contributionEdited: { fontSize: FontSize.xs },
@@ -2386,10 +2417,8 @@ const s = StyleSheet.create({
   sourceLinkText: { flex: 1, fontSize: FontSize.sm },
   sourceLinkArrow: { fontSize: FontSize.base },
   validationRow: { flexDirection: 'row', flexWrap: 'wrap', gap: Spacing.sm },
-  validationPill: { borderRadius: Radius.full, borderWidth: 1, paddingHorizontal: Spacing.md, paddingVertical: 5 },
+  validationPill: { flexDirection: 'row', alignItems: 'center', gap: 5, borderRadius: Radius.full, borderWidth: 1, paddingHorizontal: Spacing.sm, paddingVertical: 7 },
   validationPillText: { fontSize: FontSize.xs, fontWeight: '500' },
-  contextReplyBtn: { borderRadius: Radius.lg, borderWidth: 1, alignItems: 'center', paddingVertical: 8 },
-  contextReplyText: { fontSize: FontSize.sm, fontWeight: '500' },
   childNote: { borderRadius: Radius.lg, borderWidth: 1, padding: Spacing.md, gap: Spacing.xs, marginTop: Spacing.sm },
   childNoteLabel: { color: '#0369A1', fontSize: 10, fontWeight: '700', letterSpacing: 0.5 },
   childNoteBody: { fontSize: FontSize.sm, lineHeight: 20 },
