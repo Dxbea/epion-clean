@@ -7,12 +7,16 @@ process.env.OPENAI_API_KEY ??= 'test-openai-key';
 
 const articleFindUnique = vi.fn();
 const articleFindFirst = vi.fn();
+const sourceFindMany = vi.fn();
 
 vi.mock('../src/lib/db.js', () => ({
   prisma: {
     article: {
       findUnique: articleFindUnique,
       findFirst: articleFindFirst,
+    },
+    source: {
+      findMany: sourceFindMany,
     },
     user: {
       findUnique: vi.fn(),
@@ -118,6 +122,90 @@ function publishedArticle(overrides: Record<string, unknown> = {}) {
 describe('article detail fact-check payloads', () => {
   beforeEach(() => {
     vi.clearAllMocks();
+    sourceFindMany.mockResolvedValue([]);
+  });
+
+  it('keeps an already rich source snapshot instead of overwriting it', async () => {
+    articleFindUnique.mockResolvedValueOnce(publishedArticle({
+      factCheckData: {
+        ...publishedArticle().factCheckData,
+        sources: [{
+          domain: 'example.com',
+          url: 'https://example.com/story',
+          trustScore: 88,
+          profileData: { description: 'Snapshot', type: 'Média' },
+          profileConfidence: 'HIGH',
+          publicTrustLabel: 'very_strong',
+        }],
+      },
+    }));
+    sourceFindMany.mockResolvedValueOnce([{
+      domain: 'example.com',
+      profileData: { description: 'Durable', type: 'MEDIA' },
+      profileVersion: 1,
+      profileConfidence: 'LOW',
+      lastProfiledAt: new Date('2026-02-01T00:00:00.000Z'),
+      publicTrustLabel: 'fragile',
+    }]);
+
+    const response = await request(buildApp()).get('/api/articles/article-id');
+
+    expect(response.body.sources[0]).toMatchObject({
+      profileData: { description: 'Snapshot' },
+      profileConfidence: 'HIGH',
+      publicTrustLabel: 'very_strong',
+    });
+  });
+
+  it('hydrates a poor article snapshot from the durable Source profile', async () => {
+    articleFindUnique.mockResolvedValueOnce(publishedArticle());
+    sourceFindMany.mockResolvedValueOnce([{
+      domain: 'example.com',
+      profileData: { description: 'Profil durable', type: 'MEDIA' },
+      profileVersion: 1,
+      profileConfidence: 'MEDIUM',
+      lastProfiledAt: new Date('2026-02-01T00:00:00.000Z'),
+      publicTrustLabel: 'strong',
+    }]);
+
+    const response = await request(buildApp()).get('/api/articles/article-id');
+
+    expect(response.body.sources[0]).toMatchObject({
+      profileData: { description: 'Profil durable', type: 'Média' },
+      profileVersion: 1,
+      profileConfidence: 'MEDIUM',
+      publicTrustLabel: 'strong',
+    });
+    expect(response.body.factCheckData.sources[0].profileData.description).toBe('Profil durable');
+  });
+
+  it('keeps a legacy article source unchanged when no durable Source exists', async () => {
+    articleFindUnique.mockResolvedValueOnce(publishedArticle());
+
+    const response = await request(buildApp()).get('/api/articles/article-id');
+
+    expect(response.body.sources[0]).not.toHaveProperty('profileData');
+    expect(response.body.sources[0]).not.toHaveProperty('publicTrustLabel');
+  });
+
+  it('looks up all unique article source domains in one grouped query', async () => {
+    articleFindUnique.mockResolvedValueOnce(publishedArticle({
+      factCheckData: {
+        ...publishedArticle().factCheckData,
+        sources: [
+          { domain: 'www.example.com', url: 'https://example.com/a' },
+          { domain: 'EXAMPLE.com', url: 'https://example.com/b' },
+          { domain: 'other.test', url: 'https://other.test/c' },
+        ],
+      },
+    }));
+
+    await request(buildApp()).get('/api/articles/article-id');
+
+    expect(sourceFindMany).toHaveBeenCalledTimes(1);
+    expect(sourceFindMany).toHaveBeenCalledWith(expect.objectContaining({
+      where: { domain: { in: ['example.com', 'other.test'], mode: 'insensitive' } },
+    }));
   });
 
   it('returns normalized fact-check fields and array sources from GET /api/articles/:id', async () => {

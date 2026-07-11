@@ -31,6 +31,7 @@ import {
   type WebPromptMode,
 } from '../lib/web-chat.js';
 import { buildAnswerScorePayload } from '../lib/score-helpers.js';
+import { hydrateSourcesWithProfiles } from '../lib/source-profile.js';
 
 // OpenAI Client for RAG mode (fast)
 // Verify API Key availability
@@ -38,6 +39,18 @@ if (!process.env.OPENAI_API_KEY) {
   logger.warn("OPENAI_API_KEY missing, RAG mode will fail.");
 }
 const openai = new OpenAI({ apiKey: process.env.OPENAI_API_KEY });
+
+const lookupDurableSourceProfiles = (domains: string[]) => prisma.source.findMany({
+  where: { domain: { in: domains, mode: 'insensitive' } },
+  select: {
+    domain: true,
+    profileData: true,
+    profileVersion: true,
+    profileConfidence: true,
+    lastProfiledAt: true,
+    publicTrustLabel: true,
+  },
+});
 
 
 // ————————————————————————————————————————————————————————————————
@@ -476,12 +489,20 @@ router.get('/sessions/:id/messages', async (req, res, next) => {
     });
 
     const hasMore = rows.length > take;
+    const pageRows = rows.slice(0, take);
+    const hydratedSources = await hydrateSourcesWithProfiles(
+      pageRows.flatMap((message: any) => Array.isArray(message.sources) ? message.sources : []),
+      lookupDurableSourceProfiles,
+    );
+    let hydratedSourceIndex = 0;
     res.json({
-      items: rows.slice(0, take).map((m: any) => ({
+      items: pageRows.map((m: any) => ({
         id: m.id,
         role: m.role,
         content: m.content,
-        sources: m.sources,
+        sources: Array.isArray(m.sources)
+          ? hydratedSources.slice(hydratedSourceIndex, hydratedSourceIndex += m.sources.length)
+          : m.sources,
         metadata: m.metadata,
         createdAt: m.createdAt.toISOString(),
       })),
@@ -1041,7 +1062,7 @@ ${formatWebSourcesForPrompt(promptSources)}`;
         // After LLM stream completes, await enrichment with a longer timeout budget
         // Prevents the response from hanging if enrichment is abnormally slow
         const enrichmentPayload = await resolveEnrichmentPayload();
-        sources = enrichmentPayload.sources;
+        sources = await hydrateSourcesWithProfiles(enrichmentPayload.sources, lookupDurableSourceProfiles);
         sourcesMean = enrichmentPayload.sourcesMean;
         writeEnrichmentEvent(sources, sourcesMean);
 
@@ -1054,7 +1075,7 @@ ${formatWebSourcesForPrompt(promptSources)}`;
         });
         try {
           const enrichmentPayload = await resolveEnrichmentPayload();
-          sources = enrichmentPayload.sources;
+          sources = await hydrateSourcesWithProfiles(enrichmentPayload.sources, lookupDurableSourceProfiles);
           sourcesMean = enrichmentPayload.sourcesMean;
           writeEnrichmentEvent(sources, sourcesMean);
         } catch (enrichmentError: any) {
@@ -1106,6 +1127,8 @@ ${formatWebSourcesForPrompt(promptSources)}`;
       hasRagChunks: mode === 'fast' && sources.length > 0,
       outputAnalysis,
     });
+
+    sources = await hydrateSourcesWithProfiles(sources, lookupDurableSourceProfiles);
 
     const aiMsg = await prisma.chatMessage.create({
       data: {

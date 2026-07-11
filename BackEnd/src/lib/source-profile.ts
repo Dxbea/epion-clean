@@ -34,6 +34,26 @@ export interface SourceProfileTrustScoreInput {
   profileData?: unknown;
 }
 
+export interface DurableSourceProfile {
+  domain: string;
+  profileData: unknown;
+  profileVersion: number | null;
+  profileConfidence: ConfidenceLevel | null;
+  lastProfiledAt: Date | null;
+  publicTrustLabel: string | null;
+}
+
+export type SourceProfileLookup = (domains: string[]) => Promise<DurableSourceProfile[]>;
+
+const PUBLIC_TRUST_LABELS = new Set<PublicTrustLabelKey>([
+  'very_strong',
+  'strong',
+  'nuanced',
+  'fragile',
+  'unverified',
+  'unsourced',
+]);
+
 const PUBLIC_TYPE_LABELS: Record<string, string | null> = {
   AGENCY: 'Agence de presse',
   MEDIA: 'Média',
@@ -77,6 +97,86 @@ function sanitizeType(value: unknown): string | undefined {
   const normalized = normalizeKey(type);
   if (normalized === 'UNKNOWN' || normalized === 'REPORT') return undefined;
   return type;
+}
+
+export function normalizeSourceDomain(value: unknown): string | null {
+  if (typeof value !== 'string') return null;
+  const cleaned = value.trim().toLowerCase();
+  if (!cleaned) return null;
+
+  try {
+    const url = new URL(cleaned.includes('://') ? cleaned : `https://${cleaned}`);
+    return url.hostname.replace(/^www\./, '') || null;
+  } catch {
+    return cleaned
+      .replace(/^www\./, '')
+      .replace(/[/:].*$/, '') || null;
+  }
+}
+
+function sanitizePublicTrustLabel(value: unknown): PublicTrustLabelKey | undefined {
+  return typeof value === 'string' && PUBLIC_TRUST_LABELS.has(value as PublicTrustLabelKey)
+    ? value as PublicTrustLabelKey
+    : undefined;
+}
+
+function sanitizeProfileConfidence(value: unknown): SourceProfileConfidence | undefined {
+  return value === 'LOW' || value === 'MEDIUM' || value === 'HIGH' ? value : undefined;
+}
+
+function sourceDomain(source: Record<string, unknown>): string | null {
+  return normalizeSourceDomain(source.domain) ?? normalizeSourceDomain(source.url);
+}
+
+export async function hydrateSourcesWithProfiles<T extends Record<string, any>>(
+  sources: T[],
+  lookup: SourceProfileLookup,
+): Promise<T[]> {
+  if (!Array.isArray(sources) || sources.length === 0) return sources;
+
+  const domains = Array.from(new Set(sources.map(sourceDomain).filter((domain): domain is string => Boolean(domain))));
+  const durableProfiles = domains.length > 0 ? await lookup(domains) : [];
+  const profilesByDomain = new Map(
+    durableProfiles.map((profile) => [normalizeSourceDomain(profile.domain), profile] as const)
+      .filter((entry): entry is [string, DurableSourceProfile] => Boolean(entry[0])),
+  );
+
+  return sources.map((source) => {
+    const domain = sourceDomain(source);
+    const durable = domain ? profilesByDomain.get(domain) : undefined;
+
+    const snapshotProfile = sanitizeSourceProfileData(source.profileData);
+    const durableProfile = sanitizeSourceProfileData(durable?.profileData);
+    const profileData = snapshotProfile ?? durableProfile;
+    const publicTrustLabel = sanitizePublicTrustLabel(source.publicTrustLabel)
+      ?? sanitizePublicTrustLabel(durable?.publicTrustLabel);
+    const profileConfidence = sanitizeProfileConfidence(source.profileConfidence)
+      ?? sanitizeProfileConfidence(durable?.profileConfidence);
+    const profileVersion = Number.isInteger(source.profileVersion) && source.profileVersion > 0
+      ? source.profileVersion
+      : durable?.profileVersion && durable.profileVersion > 0 ? durable.profileVersion : undefined;
+    const lastProfiledAt = typeof source.lastProfiledAt === 'string' && source.lastProfiledAt.trim()
+      ? source.lastProfiledAt
+      : durable?.lastProfiledAt?.toISOString();
+
+    const {
+      profileData: _profileData,
+      profileVersion: _profileVersion,
+      profileConfidence: _profileConfidence,
+      lastProfiledAt: _lastProfiledAt,
+      publicTrustLabel: _publicTrustLabel,
+      ...legacySource
+    } = source;
+
+    return {
+      ...legacySource,
+      ...(profileData ? { profileData } : {}),
+      ...(profileVersion ? { profileVersion } : {}),
+      ...(profileConfidence ? { profileConfidence } : {}),
+      ...(lastProfiledAt ? { lastProfiledAt } : {}),
+      ...(publicTrustLabel ? { publicTrustLabel } : {}),
+    } as T;
+  });
 }
 
 function listItems(value: unknown): unknown[] {

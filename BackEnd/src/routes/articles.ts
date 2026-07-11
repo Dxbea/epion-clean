@@ -24,6 +24,7 @@ import { enforceContributionRateLimit } from '../lib/contribution-rate-limit.js'
 
 
 import { getArticleImageProposals } from '../lib/images/proposals.js';
+import { hydrateSourcesWithProfiles } from '../lib/source-profile.js';
 
 export const router = Router();
 
@@ -78,7 +79,7 @@ function normalizeOptionalUrl(value: unknown): string | null {
   }
 }
 
-function buildArticleDetailResponse(article: any) {
+async function buildArticleDetailResponse(article: any) {
   const normalizedFactCheckData = normalizeArticleScorePayload(
     article.factCheckData,
     article.factCheckScore ?? null,
@@ -89,10 +90,24 @@ function buildArticleDetailResponse(article: any) {
     : [];
 
   const articleStatus = article.factCheckStatus ?? normalizedFactCheckData?.status ?? null;
-  const normalizedSources = rawSources.map((source: any) => ({
+  const normalizedSources = await hydrateSourcesWithProfiles(rawSources.map((source: any) => ({
     ...source,
     analysisStatus: deriveSourceAnalysisStatus(source, articleStatus),
+  })), (domains) => prisma.source.findMany({
+    where: { domain: { in: domains, mode: 'insensitive' } },
+    select: {
+      domain: true,
+      profileData: true,
+      profileVersion: true,
+      profileConfidence: true,
+      lastProfiledAt: true,
+      publicTrustLabel: true,
+    },
   }));
+
+  const hydratedFactCheckData = normalizedFactCheckData
+    ? { ...normalizedFactCheckData, sources: normalizedSources }
+    : normalizedFactCheckData;
 
   return {
     id: article.id,
@@ -111,7 +126,7 @@ function buildArticleDetailResponse(article: any) {
     aiSummary: article.aiSummary ?? null,
     factCheckScore: article.factCheckScore ?? normalizedFactCheckData?.score ?? null,
     factCheckStatus: articleStatus,
-    factCheckData: normalizedFactCheckData ?? article.factCheckData ?? null,
+    factCheckData: hydratedFactCheckData ?? article.factCheckData ?? null,
     sources: normalizedSources,
     generationPrompt: article.generationPrompt ?? null,
   };
@@ -1687,7 +1702,7 @@ router.get('/slug/:slug', async (req, res, next) => {
       factCheckDataSample: a.factCheckData ? JSON.stringify(a.factCheckData).slice(0, 100) : null
     });
 
-    const responseData = buildArticleDetailResponse(a);
+    const responseData = await buildArticleDetailResponse(a);
 
     // --- cas 1 : article publié → accessible à tous, pas besoin d'userId
     if (a.status === 'PUBLISHED') {
@@ -1922,7 +1937,7 @@ router.get('/:id', async (req, res, next) => {
 
     // Articles publiés -> OK pour tout le monde
     if (item.status === 'PUBLISHED') {
-      return res.json(buildArticleDetailResponse(item));
+      return res.json(await buildArticleDetailResponse(item));
     }
 
     // Pour les autres statuts, on vérifie l'auteur (ou admin)
@@ -1947,7 +1962,7 @@ router.get('/:id', async (req, res, next) => {
       return res.status(404).json({ error: 'Not Found' });
     }
 
-    res.json(buildArticleDetailResponse(item));
+    res.json(await buildArticleDetailResponse(item));
   } catch (e) {
     next(e);
   }

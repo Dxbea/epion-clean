@@ -1,7 +1,8 @@
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
 import {
   buildSourceProfileDataFromTrustScore,
   derivePublicTrustLabelFromTrustScore,
+  hydrateSourcesWithProfiles,
   mergeSourceProfileData,
   normalizeSourceProfileData,
   sanitizeSourceProfileData,
@@ -85,5 +86,48 @@ describe('source-profile', () => {
       warnings: ['Contexte à vérifier'],
       externalReferences: [{ label: 'Notice', url: 'https://example.com/notice' }],
     });
+  });
+
+  it('hydrates a poor chat source snapshot from one durable profile lookup', async () => {
+    const lookup = vi.fn(async () => [{
+      domain: 'example.com',
+      profileData: { description: 'Profil durable', type: 'REPORT', warnings: ['Contexte requis'] },
+      profileVersion: 1,
+      profileConfidence: 'MEDIUM' as const,
+      lastProfiledAt: new Date('2026-02-01T00:00:00.000Z'),
+      publicTrustLabel: 'strong',
+    }]);
+
+    const result = await hydrateSourcesWithProfiles([
+      { domain: 'WWW.Example.com', url: 'https://example.com/a', description: 'Champ legacy conservé' },
+      { domain: 'example.com', url: 'https://example.com/b' },
+    ], lookup);
+
+    expect(lookup).toHaveBeenCalledOnce();
+    expect(lookup).toHaveBeenCalledWith(['example.com']);
+    expect(result[0]).toMatchObject({
+      description: 'Champ legacy conservé',
+      profileData: { description: 'Profil durable', warnings: ['Contexte requis'] },
+      profileConfidence: 'MEDIUM',
+      publicTrustLabel: 'strong',
+    });
+    expect(result[0].profileData).not.toHaveProperty('type');
+    expect(JSON.stringify(result)).not.toContain('REPORT');
+  });
+
+  it('omits unreliable profile fields when neither snapshot nor DB profile is usable', async () => {
+    const result = await hydrateSourcesWithProfiles(
+      [{ domain: 'unknown.test', title: 'Legacy source' }],
+      async () => [{
+        domain: 'unknown.test',
+        profileData: { type: 'UNKNOWN', country: 'UNKNOWN' },
+        profileVersion: null,
+        profileConfidence: null,
+        lastProfiledAt: null,
+        publicTrustLabel: 'UNKNOWN',
+      }],
+    );
+
+    expect(result).toEqual([{ domain: 'unknown.test', title: 'Legacy source' }]);
   });
 });
