@@ -111,3 +111,36 @@ export function parsePotentialSources(input: unknown): RawSourceLike[] {
 
     return [];
 }
+
+export type SourceAnalysisStatus = 'ANALYZED' | 'METADATA_ONLY' | 'UNAVAILABLE' | 'PENDING';
+
+const SOURCE_ANALYSIS_LABELS: Record<SourceAnalysisStatus, { fr: string; en: string }> = {
+    ANALYZED: { fr: '', en: '' },
+    METADATA_ONLY: { fr: 'M\u00e9tadonn\u00e9es seules', en: 'Metadata only' },
+    UNAVAILABLE: { fr: 'Indisponible', en: 'Unavailable' },
+    PENDING: { fr: 'Analyse en cours...', en: 'Analysis in progress...' },
+};
+
+function readSourceAnalysisStatus(source: RawSourceLike): SourceAnalysisStatus | null {
+    const status = typeof source?.analysisStatus === 'string' ? source.analysisStatus.toUpperCase() : '';
+    return status in SOURCE_ANALYSIS_LABELS ? status as SourceAnalysisStatus : null;
+}
+
+export function isSourceAnalysisPending(source: RawSourceLike): boolean {
+    const status = readSourceAnalysisStatus(source);
+    if (status) return status === 'PENDING';
+
+    const score = typeof source?.score === 'number'
+        ? source.score
+        : typeof source?.trustScore === 'number'
+            ? source.trustScore
+            : null;
+
+    return source?.isEnriching === true || score === null || source?.type === 'PENDING';
+}
+
+export function getSourceAnalysisLabel(source: RawSourceLike, lang: 'fr' | 'en' = 'fr'): string | null {
+    const status = readSourceAnalysisStatus(source);
+    if (!status || status === 'ANALYZED') return null;
+    return SOURCE_ANALYSIS_LABELS[status][lang];
+}

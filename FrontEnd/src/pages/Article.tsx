@@ -16,7 +16,7 @@ import MarkdownRenderer from '@/components/shared/MarkdownRenderer';
 import StructuredArticleRenderer from '@/components/articles/StructuredArticleRenderer';
 import type { Article as CardArticle } from '@/types/article';
 import type { StructuredArticleClaim, StructuredArticleContent } from '@/types/structuredArticle';
-import { normalizeSourceForUi, parsePotentialSources } from '@/lib/source-ui';
+import { isSourceAnalysisPending, normalizeSourceForUi, parsePotentialSources } from '@/lib/source-ui';
 import { deriveSupportLevelFromScore } from '@/lib/score-labels';
 import { claimsForSource, getSourceKey, isStructuredArticleContent } from '@/lib/structured-article';
 import { useI18n } from '@/i18n/I18nContext';
@@ -283,7 +283,7 @@ export default function Article() {
   // Polling Intelligent : Si l'article ou des sources sont en generation, on rafraichit.
   const isPending = React.useMemo(() => {
     const sources = topLevelTransparencyData?.sources || [];
-    const hasPendingSources = sources.some((s: any) => s.trustScore === null || s.type === 'PENDING');
+    const hasPendingSources = sources.some((s: any) => isSourceAnalysisPending(s));
     return articleGenerationInProgress || hasPendingSources;
   }, [articleGenerationInProgress, topLevelTransparencyData]);
 

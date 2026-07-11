@@ -162,6 +162,20 @@ export function startSourceEnrichmentWorker(): Worker<SourceEnrichmentJobData> {
                 }
             });
 
+            const sourceOutcomeCounts = {
+                analyzed: enrichedSources.filter((source) => source.analysisStatus === 'ANALYZED').length,
+                metadataOnly: enrichedSources.filter((source) => source.analysisStatus === 'METADATA_ONLY').length,
+                unavailable: enrichedSources.filter((source) => source.analysisStatus === 'UNAVAILABLE').length,
+            };
+            logger.info('[Worker] Source enrichment source outcomes', {
+                articleId,
+                jobId: job.id,
+                sourceCount: sources.length,
+                processedCount: enrichedSources.length,
+                skippedCount: results.filter((result) => !result).length,
+                ...sourceOutcomeCounts,
+                failed: sourceOutcomeCounts.unavailable,
+            });
             const scoreLiveBrut = job.data.scoreLiveBrut ?? 75;
             const sourcesMean = validScores > 0 ? Math.round(totalScore / validScores) : null;
 
@@ -204,17 +218,28 @@ export function startSourceEnrichmentWorker(): Worker<SourceEnrichmentJobData> {
                 factCheckData.status = 'FAILED';
             }
 
-            await prisma.article.update({
-                where: { id: articleId },
-                data: {
-                    factCheckScore,
-                    factCheckData: factCheckData as any,
-                    factCheckStatus: hasEnrichedSources ? 'COMPLETED' : 'FAILED',
-                    factCheckContentHash: contentHash,
-                    factCheckCompletedAt: new Date(),
-                    factCheckError: hasEnrichedSources ? null : 'No sources were available for enrichment',
-                },
-            });
+            try {
+                await prisma.article.update({
+                    where: { id: articleId },
+                    data: {
+                        factCheckScore,
+                        factCheckData: factCheckData as any,
+                        factCheckStatus: hasEnrichedSources ? 'COMPLETED' : 'FAILED',
+                        factCheckContentHash: contentHash,
+                        factCheckCompletedAt: new Date(),
+                        factCheckError: hasEnrichedSources ? null : 'No sources were available for enrichment',
+                    },
+                });
+            } catch (error: any) {
+                logger.error('[Worker] Failed to persist Article.factCheckData.sources', {
+                    articleId,
+                    jobId: job.id,
+                    sourceCount: sources.length,
+                    ...sourceOutcomeCounts,
+                    error: error?.message,
+                });
+                throw error;
+            }
 
             logger.info(`[Worker] Source enrichment complete for article ${articleId}`, {
                 enrichedCount: enrichedSources.length,

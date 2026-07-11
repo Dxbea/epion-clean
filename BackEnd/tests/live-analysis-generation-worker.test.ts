@@ -6,6 +6,7 @@ process.env.OPENAI_API_KEY ??= 'test-openai-key';
 let capturedProcessor: any;
 let capturedWorkerOptions: any;
 const workerOn = vi.fn();
+let workerEvents: Record<string, (job: any, result?: any) => Promise<void> | void>;
 const articleUpdate = vi.fn();
 const articleFindUnique = vi.fn();
 const sourceEnrichmentAdd = vi.fn();
@@ -53,6 +54,10 @@ describe('live-analysis article generation worker', () => {
     vi.clearAllMocks();
     capturedProcessor = undefined;
     capturedWorkerOptions = undefined;
+    workerEvents = {};
+    workerOn.mockImplementation((event: string, handler: (job: any, result?: any) => Promise<void> | void) => {
+      workerEvents[event] = handler;
+    });
     articleUpdate.mockResolvedValue({ id: 'article-1' });
     articleFindUnique.mockResolvedValue({ content: null, factCheckStatus: 'PENDING' });
     sourceEnrichmentAdd.mockResolvedValue({ id: 'enrich-1' });
@@ -61,7 +66,7 @@ describe('live-analysis article generation worker', () => {
       contentIntent: 'INFORMATIVE',
       pillarScores: { transparency: { score: 80 }, editorial: { score: 75 }, semantic: { score: 79 }, logic: { score: 77 } },
       judges: { primary: {}, auditor: {} },
-      sources: [{ url: 'https://example.com/story', domain: 'example.com' }],
+      sources: [{ url: 'https://example.com/story', domain: 'example.com', extractionStatus: 'metadata_only' }],
       generatedContent: {
         title: 'Generated title',
         summary: 'Generated summary',
@@ -133,6 +138,21 @@ describe('live-analysis article generation worker', () => {
     });
     expect(result.articleId).toBe('article-1');
     expect(result.citationUrls).toEqual(['https://example.com/story']);
+
+    await workerEvents.completed(
+      { id: 'job-1', data: { articleId: 'article-1', mode: 'article-generation', requestedByUserId: 'user-1' } },
+      result,
+    );
+
+    expect(sourceEnrichmentAdd).toHaveBeenCalledWith(
+      'enrich',
+      expect.objectContaining({
+        sourceMetadata: {
+          'https://example.com/story': { extractionStatus: 'metadata_only' },
+        },
+      }),
+      expect.objectContaining({ jobId: 'source-enrichment:article-1' }),
+    );
   });
 });
 

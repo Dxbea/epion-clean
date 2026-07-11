@@ -316,6 +316,7 @@ export function startLiveAnalysisWorker(): Worker<LiveAnalysisJobData> {
                 judges: result.judges,
                 generatedContent: result.generatedContent,
                 citationUrls,
+                sources: result.sources,
             };
         },
         {
@@ -374,6 +375,14 @@ export function startLiveAnalysisWorker(): Worker<LiveAnalysisJobData> {
             }
         }
 
+        logger.info('[LiveAnalysis Worker] Source enrichment enqueue payload prepared', {
+            articleId: result.articleId,
+            jobId: job.id,
+            sourceCount: citationUrls.length,
+            metadataOnlyCount: Object.values(sourceMetadata)
+                .filter((metadata) => metadata.extractionStatus === 'metadata_only')
+                .length,
+        });
         try {
             await sourceEnrichmentQueue.add('enrich', {
                 articleId: result.articleId,
