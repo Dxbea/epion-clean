@@ -1,6 +1,7 @@
 import { getRichTrustScore } from './trust-score.js';
 import { logger } from './logger.js';
 import type { WebSearchSource } from './web-chat.js';
+import type { PublicTrustLabelKey, SourceProfileConfidence, SourceProfileDataV1 } from './source-profile.js';
 
 const DEFAULT_ENRICHMENT_CONCURRENCY = 6;
 const DEFAULT_ENRICHMENT_TIMEOUT_MS = 80_000;
@@ -25,6 +26,11 @@ export interface ChatTransparencySource {
     confidence: 'HIGH' | 'MEDIUM' | 'LOW';
     description?: string | null;
     justification?: string | null;
+    profileData?: SourceProfileDataV1 | null;
+    profileVersion?: number | null;
+    profileConfidence?: SourceProfileConfidence | null;
+    lastProfiledAt?: string | null;
+    publicTrustLabel?: PublicTrustLabelKey | null;
     metrics?: {
         transparency: number;
         editorial: number;
@@ -38,7 +44,7 @@ export interface ChatTransparencySource {
         isOwnerPublic?: boolean;
     };
     dbScore: number;
-    country?: string;
+    country?: string | null;
     politicalBias?: string;
     biasScore?: number;
     reliability?: string;
@@ -56,7 +62,7 @@ export interface ChatTransparencySource {
         politicalBias?: string;
         biasScore?: number;
         reliability?: string;
-        country?: string;
+        country?: string | null;
         type?: string;
         explanation?: {
             formula: string;
@@ -107,6 +113,11 @@ function buildFallbackSource(
         justification: provider === 'rag'
             ? `${fallbackReason} Source interne Epion issue du RAG, rattachee au media ${source.domain}.`
             : `${fallbackReason} Source web issue de Serper sur ${source.domain}.`,
+        profileData: null,
+        profileVersion: null,
+        profileConfidence: null,
+        lastProfiledAt: null,
+        publicTrustLabel: null,
         dbScore: fallbackScore,
         country: 'FR',
         politicalBias: 'UNKNOWN',
@@ -188,6 +199,11 @@ function buildEnrichedSource(source: WebSearchSource, index: number, trustScore:
         confidence: computeConfidence(sourceScore),
         description: finalBio,
         justification: trustScore.metadata.justification || null,
+        profileData: trustScore.profileData,
+        profileVersion: trustScore.profileVersion,
+        profileConfidence: trustScore.profileConfidence,
+        lastProfiledAt: trustScore.lastProfiledAt,
+        publicTrustLabel: trustScore.publicTrustLabel,
         metrics: {
             transparency: trustScore.details.transparency,
             editorial: trustScore.details.editorial,

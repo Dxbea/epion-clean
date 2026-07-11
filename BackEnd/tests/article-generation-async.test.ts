@@ -216,18 +216,24 @@ describe('async article generation', () => {
       factCheckStartedAt: new Date('2026-07-04T12:00:00.000Z'),
       factCheckCompletedAt: null,
       generationPrompt: 'Topic',
+      content: null,
+      updatedAt: new Date('2026-07-04T12:05:00.000Z'),
     });
 
     const response = await request(buildApp()).get('/api/articles/article-1/status');
 
     expect(response.status).toBe(200);
     expect(response.body).toEqual({
+      id: 'article-1',
       articleId: 'article-1',
       slug: 'generation-pending-article-1',
       status: 'DRAFT',
       generationStatus: 'RUNNING',
       factCheckStatus: 'RUNNING',
+      factCheckError: null,
       error: null,
+      updatedAt: '2026-07-04T12:05:00.000Z',
+      contentReady: false,
       startedAt: '2026-07-04T12:00:00.000Z',
       completedAt: null,
     });

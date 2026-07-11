@@ -9,6 +9,12 @@
  * Labels are internal English keys; the UI layer handles i18n (FR/EN).
  */
 
+import type {
+  PublicTrustLabelKey,
+  SourceProfileConfidence,
+  SourceProfileDataV1,
+} from './source-profile.js';
+
 // ---------------------------------------------------------------------------
 //  Enums / Literals
 // ---------------------------------------------------------------------------
@@ -116,6 +122,11 @@ export interface SourceScoreEntry {
   flags: SourceScoreFlags | null;
   analysisStatus?: SourceAnalysisStatus;
   extractionStatus?: 'full' | 'metadata_only' | 'failed';
+  profileData?: SourceProfileDataV1 | null;
+  profileVersion?: number | null;
+  profileConfidence?: SourceProfileConfidence | null;
+  lastProfiledAt?: string | null;
+  publicTrustLabel?: PublicTrustLabelKey | null;
   metadata: {
     reliability?: string;
     dbScore?: number;

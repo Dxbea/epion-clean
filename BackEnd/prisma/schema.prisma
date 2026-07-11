@@ -606,6 +606,11 @@ model Source {
   metadata        Json?    // Métadonnées étendues (ex: owners, headquarters...)
   auditCount      Int      @default(0) // Nombre d'audits réalisés (pour la moyenne cumulative)
   lastAuditDate   DateTime?
+  profileData        Json?
+  profileVersion     Int?
+  profileConfidence  ConfidenceLevel?
+  lastProfiledAt     DateTime?
+  publicTrustLabel   String?
   
   // --- EXTENSION CONSENSUS PROTOCOL ---
   // Données brutes pour la transparence

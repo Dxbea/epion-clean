@@ -117,6 +117,11 @@ export function startSourceEnrichmentWorker(): Worker<SourceEnrichmentJobData> {
                         flags: richScore.flags ?? null,
                         analysisStatus,
                         extractionStatus: isMetadataOnly ? 'metadata_only' as const : 'full' as const,
+                        profileData: richScore.profileData,
+                        profileVersion: richScore.profileVersion,
+                        profileConfidence: richScore.profileConfidence,
+                        lastProfiledAt: richScore.lastProfiledAt,
+                        publicTrustLabel: richScore.publicTrustLabel,
                         metadata: {
                             reliability: richScore.metadata.reliability,
                             dbScore: richScore.globalScore,

@@ -8,8 +8,15 @@ import { resolveImmediateSourceDescription } from "../services/sourceProfiler.js
 import { analyzeEditorial } from "./scanners/editorial-scanner.js";
 import { analyzeBias } from "./scanners/bias-scanner.js";
 import { evaluateUnknownSource, type InvestigationResult } from "./cold-profiler.js";
-import { PoliticalBias, Reliability, Source } from "@prisma/client";
+import { ConfidenceLevel, PoliticalBias, Reliability, Source } from "@prisma/client";
 import { TRUST_SCORE_RANGES } from "../config/trust-constants.js";
+import {
+    buildSourceProfileDataFromTrustScore,
+    derivePublicTrustLabelFromTrustScore,
+    mergeSourceProfileData,
+    normalizeSourceProfileData,
+    resolveSourceProfileConfidence,
+} from "./source-profile.js";
 
 export interface RichTrustScore {
     globalScore: number;
@@ -33,7 +40,7 @@ export interface RichTrustScore {
         politicalBias: PoliticalBias;
         biasScore: number;
         reliability: Reliability;
-        country: string;
+        country: string | null;
         type: string;
         explanation?: {
             formula: string;
@@ -42,6 +49,11 @@ export interface RichTrustScore {
             penalties: string[];
         };
     };
+    profileData: ReturnType<typeof normalizeSourceProfileData>;
+    profileVersion: number | null;
+    profileConfidence: ConfidenceLevel | null;
+    lastProfiledAt: string | null;
+    publicTrustLabel: ReturnType<typeof derivePublicTrustLabelFromTrustScore>;
 }
 
 export interface TrustScoreAuditInput {
@@ -61,7 +73,7 @@ function buildBiasResultFromInvestigation(
         bias: investigation.politicalBias,
         score: investigation.biasScore,
         reliability: investigation.reliability,
-        detectedCountry: source?.detectedCountry || "FR",
+        detectedCountry: source?.detectedCountry ?? null,
     };
 }
 
@@ -230,6 +242,40 @@ export async function getRichTrustScore(
         source?.description,
     );
 
+    const sourceMetadata = source?.metadata;
+    const legacyProfileData = sourceMetadata && typeof sourceMetadata === 'object' && !Array.isArray(sourceMetadata)
+        ? (sourceMetadata as Record<string, unknown>).profileData
+        : null;
+    const existingProfileData = normalizeSourceProfileData(source?.profileData ?? legacyProfileData);
+    const generatedProfileData = buildSourceProfileDataFromTrustScore({
+        metadata: {
+            description: resolvedDescription,
+            country: source?.detectedCountry,
+            type: detectedSourceType,
+        },
+    });
+    const mergedProfileData = mergeSourceProfileData(existingProfileData, generatedProfileData);
+    const profileDataChanged = JSON.stringify(existingProfileData) !== JSON.stringify(mergedProfileData);
+    const shouldWriteProfile = Boolean(
+        mergedProfileData
+        && generatedProfileData
+        && (!source?.profileData || profileDataChanged || source.profileVersion === null || source.profileConfidence === null),
+    );
+    const profileWasBuiltOrUpdated = Boolean(mergedProfileData && generatedProfileData && (!source?.profileData || profileDataChanged));
+    const profileConfidence = resolveSourceProfileConfidence(
+        source?.profileConfidence,
+        source?.isConsensusVerified ?? false,
+    ) as ConfidenceLevel;
+    const profileFields = shouldWriteProfile
+        ? {
+            profileData: mergedProfileData as object,
+            profileVersion: source?.profileVersion ?? 1,
+            profileConfidence,
+            ...(profileWasBuiltOrUpdated ? { lastProfiledAt: now } : {}),
+        }
+        : {};
+    const publicTrustLabel = derivePublicTrustLabelFromTrustScore(finalTrustScore);
+
     const updatedSource = await prisma.source.upsert({
         where: { domain },
         update: {
@@ -249,6 +295,8 @@ export async function getRichTrustScore(
             lastAuditDate: now,
             description: resolvedDescription ?? source?.description,
             auditCount: nextAuditCount,
+            ...profileFields,
+            publicTrustLabel,
         },
         create: {
             domain,
@@ -269,6 +317,8 @@ export async function getRichTrustScore(
             lastAuditDate: now,
             description: resolvedDescription,
             auditCount: 1,
+            ...profileFields,
+            publicTrustLabel,
         },
     });
 
@@ -298,14 +348,20 @@ function formatResponse(source: Source, min: number, max: number, qualityRatio: 
             politicalBias: source.politicalBias,
             biasScore: source.biasScore,
             reliability: source.reliability,
-            country: source.detectedCountry || 'FR',
+            country: source.detectedCountry,
             type: source.type,
             explanation: {
-                formula: `Range ${source.reliability} [${min}-${max}] + Qualité`,
+                formula: `Range ${source.reliability} [${min}-${max}] + QualitÃ©`,
                 range: `[${min}-${max}]`,
                 qualityCursor: `${Math.round(qualityRatio * 100)}%`,
                 penalties,
             },
         },
+        profileData: normalizeSourceProfileData(source.profileData),
+        profileVersion: source.profileVersion,
+        profileConfidence: source.profileConfidence,
+        lastProfiledAt: source.lastProfiledAt?.toISOString() ?? null,
+        publicTrustLabel: (source.publicTrustLabel as ReturnType<typeof derivePublicTrustLabelFromTrustScore> | null)
+            ?? derivePublicTrustLabelFromTrustScore(source.trustScore),
     };
 }
