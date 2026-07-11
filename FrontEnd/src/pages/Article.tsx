@@ -17,7 +17,7 @@ import StructuredArticleRenderer from '@/components/articles/StructuredArticleRe
 import type { Article as CardArticle } from '@/types/article';
 import type { StructuredArticleClaim, StructuredArticleContent } from '@/types/structuredArticle';
 import { isSourceAnalysisPending, normalizeSourceForUi, parsePotentialSources } from '@/lib/source-ui';
-import { deriveSupportLevelFromScore } from '@/lib/score-labels';
+import { deriveSupportLevelFromScore, getPublicSupportLabel } from '@/lib/score-labels';
 import { claimsForSource, getSourceKey, isStructuredArticleContent } from '@/lib/structured-article';
 import { useI18n } from '@/i18n/I18nContext';
 
@@ -89,7 +89,7 @@ export default function Article() {
 
     // 2. Normalize for UI display (no score recalculation)
     const normalized = parsedData.map((s: any) =>
-      normalizeSourceForUi(s, 'Source analysée par Epion.')
+      normalizeSourceForUi(s, '')
     );
 
     // 3. Read scores from backend payload (backend is source of truth)
@@ -563,7 +563,9 @@ export default function Article() {
 
   const { title, content, structuredContent, excerpt, publishedAt, imageUrl, category, author } = article;
   const transparencyData = topLevelTransparencyData;
-  const displayScore = transparencyData?.factScore || 0;
+  const displayScore = articleGenerationStatus === 'COMPLETED' || articleGenerationStatus === 'STALE' || articleGenerationStatus === null
+    ? transparencyData?.factScore ?? null
+    : null;
   const normalizedSources = transparencyData?.sources || [];
   const focusedSourceIndex = normalizedSources.findIndex((source: any, index: number) => {
     return getSourceKey(source, index) === focusedSourceKey || String(source.id) === focusedSourceKey;
@@ -637,6 +639,8 @@ export default function Article() {
           ) : (
             <TrustHeader
               score={displayScore}
+              supportLevel={transparencyData?.supportLevel || null}
+              status={articleGenerationStatus}
               sources={normalizedSources}
               onShowSources={() => setActiveModal('sources')}
               onShowScoreDetails={() => setActiveModal('reliability')}
@@ -742,11 +746,9 @@ export default function Article() {
               <div className="rounded-2xl border border-black/10 bg-white px-5 py-4 dark:border-white/10 dark:bg-neutral-900 shadow-sm mt-4">
                 <div className="space-y-4 text-gray-800 dark:text-gray-100">
                   <div className="flex flex-wrap items-center gap-2 text-sm">
-                    {typeof factCheckSummary.factScore === 'number' && (
-                      <span className="rounded-full bg-black/5 px-3 py-1 font-medium dark:bg-white/10">
-                        Score: {factCheckSummary.factScore}%
-                      </span>
-                    )}
+                    <span className="rounded-full bg-black/5 px-3 py-1 font-medium dark:bg-white/10">
+                      Niveau d'appui : {getPublicSupportLabel({ backendScore: factCheckSummary.factScore, status: articleGenerationStatus })}
+                    </span>
                     {factCheckSummary.contentIntent && (
                       <span className="rounded-full bg-black/5 px-3 py-1 font-medium dark:bg-white/10">
                         Intent: {factCheckSummary.contentIntent}
@@ -757,35 +759,9 @@ export default function Article() {
                     </span>
                   </div>
 
-                  {factCheckSummary.pillarScores ? (
-                    <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
-                      {Object.entries(factCheckSummary.pillarScores).map(([pillar, value]: [string, any]) => (
-                        <div
-                          key={pillar}
-                          className="rounded-xl border border-black/10 bg-black/5 p-3 dark:border-white/10 dark:bg-white/5"
-                        >
-                          <div className="flex items-center justify-between gap-3">
-                            <span className="text-sm font-semibold capitalize">{pillar}</span>
-                            <span className="text-sm font-medium">{value?.score ?? 0}/100</span>
-                          </div>
-                          {value?.reasoning && (
-                            <p className="mt-2 text-sm leading-6 text-black/70 dark:text-white/70">
-                              {value.reasoning}
-                            </p>
-                          )}
-                          {value?.quote && (
-                            <p className="mt-2 text-xs italic text-black/60 dark:text-white/60">
-                              "{value.quote}"
-                            </p>
-                          )}
-                        </div>
-                      ))}
-                    </div>
-                  ) : (
-                    <p className="text-sm leading-6 text-black/70 dark:text-white/70">
-                      Fact-check complete. The trust panel above has been refreshed with the latest source analysis.
-                    </p>
-                  )}
+                  <p className="text-sm leading-6 text-black/70 dark:text-white/70">
+                    Analyse terminée. Consultez les sources structurées pour vérifier les éléments d'appui.
+                  </p>
                 </div>
               </div>
             ) : null}

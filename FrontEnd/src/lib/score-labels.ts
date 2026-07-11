@@ -28,9 +28,40 @@ const SUPPORT_LABELS: Record<SupportLevel, { fr: string; en: string }> = {
   unsourced:   { fr: 'Appui non évalué', en: 'Not evaluated' },
 };
 
+const SUPPORT_BADGE_CLASSES: Record<SupportLevel, string> = {
+  very_strong: 'border-emerald-400/60 bg-gradient-to-r from-emerald-500 to-green-500 text-white shadow-sm',
+  strong: 'border-teal-400/60 bg-gradient-to-r from-teal-500 to-emerald-500 text-white shadow-sm',
+  nuanced: 'border-yellow-400/70 bg-gradient-to-r from-yellow-400 to-amber-400 text-gray-900 shadow-sm',
+  fragile: 'border-amber-500/60 bg-gradient-to-r from-amber-500 to-orange-500 text-white shadow-sm',
+  unverified: 'border-rose-500/60 bg-gradient-to-r from-rose-500 to-red-500 text-white shadow-sm',
+  unsourced: 'border-gray-400/60 bg-gradient-to-r from-gray-400 to-slate-500 text-white shadow-sm',
+};
+
+export function getPublicSupportBadgeClass(level: SupportLevel): string {
+  return SUPPORT_BADGE_CLASSES[level] ?? SUPPORT_BADGE_CLASSES.unsourced;
+}
+
 /** Get the localized label for a support level. */
 export function getSupportLabel(level: SupportLevel, lang: 'fr' | 'en' = 'fr'): string {
   return SUPPORT_LABELS[level]?.[lang] ?? SUPPORT_LABELS.unverified[lang];
+}
+
+export function getPublicSupportLabel({
+  supportLevel,
+  backendScore,
+  status = 'COMPLETED',
+  lang = 'fr',
+}: {
+  supportLevel?: SupportLevel | null;
+  backendScore?: number | null;
+  status?: ScoreStatus;
+  lang?: 'fr' | 'en';
+}): string {
+  if (status && status !== 'COMPLETED' && status !== 'STALE') {
+    return getSupportLabel('unsourced', lang);
+  }
+  if (supportLevel) return getSupportLabel(supportLevel, lang);
+  return getSupportLabel(deriveSupportLevelFromScore(backendScore ?? null), lang);
 }
 
 /**

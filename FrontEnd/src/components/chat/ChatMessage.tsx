@@ -8,7 +8,6 @@ import { GlobalTrustScoreModal } from './trust-score-ui/GlobalTrustScoreModal';
 import TrustHeader from '@/components/shared/TrustHeader';
 import ReactMarkdown from 'react-markdown';
 import { normalizeSourceForUi } from '@/lib/source-ui';
-import { deriveSupportLevelFromScore } from '@/lib/score-labels';
 
 export interface ScoreBreakdownItem {
   id: string;
@@ -70,7 +69,7 @@ export default function ChatMessage({ message }: { message: Msg }) {
 
     // Normalize sources for UI (no score recalculation)
     const contextualSources = extractedSources.map((source) =>
-      normalizeSourceForUi(source, 'Source identifiee sur le web.')
+      normalizeSourceForUi(source, '')
     );
 
     // Read scores directly from backend AnswerScorePayload (v1 or legacy)
@@ -91,7 +90,7 @@ export default function ChatMessage({ message }: { message: Msg }) {
         : 0;
 
     // Support level: read from payload or derive (fallback for legacy data)
-    const supportLevel = meta?.supportLevel || deriveSupportLevelFromScore(score);
+    const supportLevel = meta?.supportLevel || null;
 
     const uniqueDomains = new Set(contextualSources.map((source) => source.domain)).size;
     const diversityScore = Math.min(100, Math.round((uniqueDomains / Math.max(1, 3)) * 100));
@@ -401,6 +400,7 @@ export default function ChatMessage({ message }: { message: Msg }) {
             {transparencyData && (
               <TrustHeader
                 score={transparencyData.factScore}
+                supportLevel={transparencyData.supportLevel as any}
                 sources={transparencyData.sources}
                 isHighlightActive={highlightEnabled}
                 onHighlightClick={() => {
@@ -488,8 +488,8 @@ export default function ChatMessage({ message }: { message: Msg }) {
                         metrics: s.metrics || null,
                         flags: s.flags || null,
                         justification: s.justification || null,
-                        category: s.type || 'GENERAL',
-                        description: s.description || (s.type === 'MEDIA' ? 'Média de référence international.' : s.type === 'GOVERNMENT' ? 'Source officielle gouvernementale.' : s.type === 'ACADEMIC' ? 'Publication académique ou scientifique.' : s.type === 'SOCIAL' ? 'Contenu issu des réseaux sociaux.' : 'Source identifiée sur le web.'),
+                        category: s.type || s.category || undefined,
+                        description: s.description || undefined,
                         criteria: s.criteria || []
                       };
                       return (

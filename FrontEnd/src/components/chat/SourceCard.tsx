@@ -1,10 +1,9 @@
 import React, { useState } from 'react';
 import { ChevronDown, ShieldAlert } from 'lucide-react';
 import { SourceIdentityCard } from './trust-score-ui/SourceIdentityCard';
-import { UnifiedTrustCard } from './trust-score-ui/UnifiedTrustCard';
-import { getBadgeStyle } from '@/lib/color-utils';
+import { deriveSupportLevelFromScore, getPublicSupportBadgeClass, getPublicSupportLabel } from '@/lib/score-labels';
 
-import { getSourceAnalysisLabel, isSourceAnalysisPending, type SourceAnalysisStatus } from '@/lib/source-ui';
+import { getPublicSourceTypeLabel, getSourceAnalysisLabel, isSourceAnalysisPending, type SourceAnalysisStatus } from '@/lib/source-ui';
 export interface SourceCriteria {
     label: string;
     value: string;
@@ -31,8 +30,9 @@ export interface SourceData {
     domain: string;
     url?: string;
     logo: string;
-    category: string;
+    category?: string;
     score: number | null;
+    supportLevel?: import('@/lib/score-labels').SupportLevel | null;
     analysisStatus?: SourceAnalysisStatus;
     isEnriching?: boolean;
     description?: string | null;
@@ -55,6 +55,7 @@ export interface SourceData {
         livePenalties: string[];
         pillarWeights: { [key: string]: string };
     };
+    [key: string]: any;
 }
 
 interface SourceCardProps {
@@ -72,9 +73,9 @@ function getCategoryStyle(category: string) {
     return `${base} bg-gray-100 text-gray-900 dark:bg-neutral-800 dark:text-white border-gray-200`;
 }
 
-function ScoreBadge({ score, isEnriching = false, analysisStatus }: { score: number | null; isEnriching?: boolean; analysisStatus?: SourceAnalysisStatus }) {
+function ScoreBadge({ score, supportLevel, isEnriching = false, analysisStatus }: { score: number | null; supportLevel?: import('@/lib/score-labels').SupportLevel | null; isEnriching?: boolean; analysisStatus?: SourceAnalysisStatus }) {
     const analysisLabel = getSourceAnalysisLabel({ analysisStatus });
-    if (analysisLabel || score === null || isEnriching) {
+    if (analysisStatus === 'PENDING' || isEnriching) {
         return (
             <div className="flex items-center gap-2 rounded-full px-2 py-1 bg-gray-100 dark:bg-white/10 border border-gray-200 dark:border-white/5 animate-pulse">
                 <span className="text-[10px] font-bold uppercase tracking-wider text-gray-400 dark:text-gray-500">
@@ -84,24 +85,10 @@ function ScoreBadge({ score, isEnriching = false, analysisStatus }: { score: num
             </div>
         );
     }
-    const badgeStyle = getBadgeStyle(score);
+    const resolvedLevel = supportLevel ?? deriveSupportLevelFromScore(score);
     return (
-        <div
-            className="flex items-center gap-2 rounded-full px-2 py-1 transition-all duration-300"
-            style={badgeStyle}
-        >
-            <span className="text-[10px] font-bold uppercase tracking-wider drop-shadow-sm">
-                Fact Score
-            </span>
-            <div
-                className="flex h-5 w-5 items-center justify-center rounded-full text-[10px] font-bold backdrop-blur-sm shadow-inner"
-                style={{
-                    backgroundColor: 'rgba(255,255,255,0.25)',
-                    color: '#FFFFFF'
-                }}
-            >
-                {score}
-            </div>
+        <div className={`rounded-full border px-2.5 py-1 text-[11px] font-semibold ${getPublicSupportBadgeClass(resolvedLevel)}`}>
+            {getPublicSupportLabel({ backendScore: score, supportLevel })}
         </div>
     );
 }
@@ -110,6 +97,10 @@ export default function SourceCard({ source, isFocused }: SourceCardProps) {
     const [isExpanded, setIsExpanded] = useState(false);
     const cardRef = React.useRef<HTMLDivElement>(null);
     const isPending = isSourceAnalysisPending(source);
+    const publicType = getPublicSourceTypeLabel(source.category);
+    const toggleExpanded = React.useCallback(() => {
+        if (!isPending) setIsExpanded((current) => !current);
+    }, [isPending]);
 
     React.useEffect(() => {
         if (isFocused && cardRef.current) {
@@ -118,8 +109,9 @@ export default function SourceCard({ source, isFocused }: SourceCardProps) {
         }
     }, [isFocused]);
 
-    const containerStyle = isFocused
-        ? "border-2 border-[#00dc82] ring-1 ring-[#00dc82] shadow-lg bg-white dark:bg-neutral-900 transition-all duration-300"
+    const isOpen = isExpanded;
+    const containerStyle = isOpen
+        ? "border border-gray-300 ring-1 ring-inset ring-gray-200 shadow-sm bg-white dark:border-white/20 dark:ring-white/10 dark:bg-neutral-900 transition-all duration-300"
         : "border border-gray-200 bg-white dark:border-white/10 dark:bg-neutral-900";
 
     const InternalContent = () => (
@@ -136,12 +128,14 @@ export default function SourceCard({ source, isFocused }: SourceCardProps) {
             </div>
             <div className="flex flex-col min-w-0">
                 <div className="flex items-center gap-2 flex-wrap">
-                    <h4 className={`font-bold text-sm text-gray-900 dark:text-white truncate ${source.url ? 'group-hover:underline group-hover:text-epion-blue' : ''}`}>
+                    <h4 className="font-bold text-sm text-gray-900 dark:text-white truncate">
                         {source.name}
                     </h4>
-                    <span className={`rounded px-1.5 py-0.5 text-[10px] font-medium shrink-0 ${getCategoryStyle(source.category)}`}>
-                        {source.category}
-                    </span>
+                    {publicType && (
+                        <span className="shrink-0 rounded bg-gray-100 px-1.5 py-0.5 text-[10px] font-medium text-gray-600 dark:bg-white/5 dark:text-gray-300">
+                            {publicType}
+                        </span>
+                    )}
                     {source.flags?.hasFactCheckFailures && (
                         <span className="flex items-center gap-1 rounded px-1.5 py-0.5 text-[10px] font-bold bg-red-100 text-red-900 dark:bg-red-900/30 dark:text-red-200 shrink-0">
                             <ShieldAlert className="w-3 h-3" />
@@ -149,7 +143,7 @@ export default function SourceCard({ source, isFocused }: SourceCardProps) {
                         </span>
                     )}
                 </div>
-                <span className="text-xs text-gray-500 dark:text-gray-400 truncate w-full group-hover:text-gray-700 dark:group-hover:text-gray-200 transition-colors">
+                <span className="text-xs text-gray-500 dark:text-gray-400 truncate w-full transition-colors">
                     {source.domain}
                 </span>
             </div>
@@ -163,37 +157,35 @@ export default function SourceCard({ source, isFocused }: SourceCardProps) {
         >
             <div
                 className="flex cursor-pointer items-center justify-between p-4"
-                onClick={() => !isPending && setIsExpanded(!isExpanded)}
+                onClick={toggleExpanded}
             >
-                {source.url ? (
-                    <a
-                        href={source.url}
-                        target="_blank"
-                        rel="noopener noreferrer"
-                        onClick={(e) => e.stopPropagation()}
-                        className="group flex-1 min-w-0 mr-4 transition-opacity hover:opacity-80"
-                        title="Lire l'article original"
-                    >
-                        <InternalContent />
-                    </a>
-                ) : (
-                    <div className="flex-1 min-w-0 mr-4">
-                        <InternalContent />
-                    </div>
-                )}
+                <div className="flex-1 min-w-0 mr-4">
+                    <InternalContent />
+                </div>
 
                 <div className="flex items-center gap-3 shrink-0">
-                    <ScoreBadge score={source.score} isEnriching={source.isEnriching} analysisStatus={source.analysisStatus} />
+                    <ScoreBadge score={source.score} supportLevel={source.supportLevel} isEnriching={source.isEnriching} analysisStatus={source.analysisStatus} />
                     {!isPending && (
-                        <ChevronDown
-                            className={`h-5 w-5 text-gray-600 transition-transform duration-200 ${isExpanded ? 'rotate-180' : ''}`}
-                        />
+                        <button
+                            type="button"
+                            aria-label={isOpen ? 'Fermer la fiche source' : 'Ouvrir la fiche source'}
+                            aria-expanded={isOpen}
+                            onClick={(event) => {
+                                event.stopPropagation();
+                                toggleExpanded();
+                            }}
+                            className="flex h-8 w-8 items-center justify-center rounded-md text-gray-600 transition-colors hover:bg-gray-100 hover:text-gray-900 focus:outline-none focus:ring-2 focus:ring-gray-300 dark:text-gray-400 dark:hover:bg-white/10 dark:hover:text-white dark:focus:ring-white/20"
+                        >
+                            <ChevronDown
+                                className={`h-5 w-5 transition-transform duration-200 ${isOpen ? 'rotate-180' : ''}`}
+                            />
+                        </button>
                     )}
                 </div>
             </div>
 
             {/* EXPANDED VIEW: COMPLETE TRANSPARENCY UI */}
-            {isExpanded && !isPending && (
+            {isOpen && !isPending && (
                 <div className="animate-in slide-in-from-top-2 fade-in duration-200 border-t border-gray-100 p-4 bg-gray-50/50 dark:bg-white/5 dark:border-white/5">
 
                     <div className="space-y-6">
@@ -202,58 +194,31 @@ export default function SourceCard({ source, isFocused }: SourceCardProps) {
                             name={source.name}
                             description={source.description}
                             country={source.country}
-                            politicalBias={source.politicalBias}
+                            sourceType={source.category}
+                            source={source}
                             compact={true}
                         />
 
                         {typeof source.score === 'number' && (
-                            <div className="rounded-xl border border-emerald-100 bg-emerald-50/70 p-4 dark:border-emerald-900/30 dark:bg-emerald-900/10">
+                            <details className="rounded-xl border border-gray-200 bg-white p-4 dark:border-white/10 dark:bg-neutral-900">
+                                <summary className="cursor-pointer text-xs font-bold uppercase tracking-wide text-gray-600 dark:text-gray-300">Détails techniques</summary>
+                                <div className="mt-3">
                                 <div className="flex items-center justify-between gap-3">
-                                    <span className="text-[11px] font-bold uppercase tracking-wide text-emerald-700 dark:text-emerald-300">
-                                        Score contextuel de la source
+                                    <span className="text-[11px] font-medium text-gray-600 dark:text-gray-300">
+                                        Score backend de la source
                                     </span>
-                                    <span className="text-sm font-black text-emerald-700 dark:text-emerald-300">
+                                    <span className="text-xs font-medium text-gray-500 dark:text-gray-400">
                                         {source.score}/100
                                     </span>
                                 </div>
-                                <p className="mt-2 text-xs leading-relaxed text-emerald-800 dark:text-emerald-200/80">
-                                    {typeof source.reputationScore === 'number' && typeof source.analysisScore === 'number'
-                                        ? `Ce score combine la reputation de la source (${source.reputationScore}/100) et son analyse contextuelle (${source.analysisScore}/100) avec une ponderation 70/30, pour un resultat final de ${source.score}/100.`
-                                        : typeof source.reputationScore === 'number'
-                                            ? `Ce score correspond directement a la reputation de la source (${source.reputationScore}/100), faute d'analyse complementaire exploitable.`
-                                            : typeof source.analysisScore === 'number'
-                                                ? `Ce score correspond directement a l'analyse contextuelle de la source (${source.analysisScore}/100), faute de score de reputation exploitable.`
-                                                : `Aucun detail de calcul complementaire n'est disponible pour cette source.`}
+                                <p className="mt-2 text-xs leading-relaxed text-gray-500 dark:text-gray-400">
+                                    Valeur technique fournie directement par le backend. Elle ne représente pas une probabilité de vérité.
                                 </p>
-                            </div>
+                                </div>
+                            </details>
                         )}
 
                         {/* 2. Unified Trust Analysis (Replacement for Pillars + Transparency) */}
-                        {source.metrics && (
-                            <UnifiedTrustCard
-                                details={{
-                                    transparency: source.metrics.transparency,
-                                    editorial: source.metrics.editorial,
-                                    semantic: source.metrics.semantic,
-                                    logic: source.metrics.logic || (source.metrics as any).pluralism || 50
-                                }}
-                                flags={{
-                                    ...source.flags,
-                                    isAdsTxtValid: source.flags?.isAdsTxtValid ?? true
-                                }}
-                                metadata={{
-                                    name: source.name,
-                                    dbScore: source.dbScore,
-                                    country: source.country,
-                                    politicalBias: source.politicalBias,
-                                    explanation: source.explanation,
-                                    reliability: source.reliability,
-                                    justification: source.justification,
-                                    liveScore: source.liveScore
-                                }}
-                            />
-                        )}
-
                         {/* Fallback Justification if no explanation */}
                         {!source.explanation && source.justification && (
                             <div className="pt-2 border-t border-gray-200 dark:border-white/5">
