@@ -21,7 +21,8 @@
     "start:api": "node --import ./dist/instrument.js dist/server.js",
     "start:worker": "node --import ./dist/instrument.js dist/workers/index.js",
     "worker:live-analysis": "node --import ./dist/instrument.js dist/workers/live-analysis.worker.js",
-    "backfill:article-sources:dry-run": "tsx src/scripts/backfill-article-sources.ts --dry-run"
+    "backfill:article-sources:dry-run": "tsx src/scripts/backfill-article-sources.ts --dry-run",
+    "backfill:article-sources:write": "tsx src/scripts/backfill-article-sources.ts --write"
   },
   "dependencies": {
     "@aws-sdk/client-sesv2": "^3.893.0",

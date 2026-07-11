@@ -8,17 +8,19 @@ import {
   normalizeArticleSourceUrl,
 } from '../lib/article-source-service.js';
 
-export interface BackfillDryRunOptions {
-  dryRun: true;
+export interface BackfillOptions {
+  mode: 'dry-run' | 'write';
   limit?: number;
   batchSize: number;
   cursor?: string;
 }
 
-export interface BackfillDryRunReport {
+export interface BackfillReport {
   articlesScanned: number;
   sourcesRead: number;
   relationsWouldCreate: number;
+  relationsCreated: number;
+  relationsUpdatedOrSkipped: number;
   duplicatesDetected: number;
   invalidUrls: number;
   domainsWithoutSource: number;
@@ -40,30 +42,44 @@ export interface BackfillReadClient {
   };
 }
 
+export interface BackfillWriteClient extends BackfillReadClient {
+  $transaction<T>(callback: (tx: {
+    articleSource: { upsert(args: Prisma.ArticleSourceUpsertArgs): Promise<unknown> };
+  }) => Promise<T>): Promise<T>;
+}
+
 type Log = (message: string) => void;
 
-export function parseBackfillDryRunOptions(argv: string[]): BackfillDryRunOptions {
-  if (!argv.includes('--dry-run')) {
-    throw new Error('This script is read-only and requires --dry-run.');
+export function parseBackfillOptions(argv: string[]): BackfillOptions {
+  const dryRun = argv.includes('--dry-run');
+  const write = argv.includes('--write');
+  if (dryRun === write) {
+    throw new Error('Choose exactly one explicit mode: --dry-run or --write.');
   }
 
   return {
-    dryRun: true,
+    mode: write ? 'write' : 'dry-run',
     limit: readPositiveIntegerOption(argv, '--limit'),
     batchSize: readPositiveIntegerOption(argv, '--batch-size') ?? 100,
     cursor: readStringOption(argv, '--cursor'),
   };
 }
 
-export async function runArticleSourceBackfillDryRun(
-  client: BackfillReadClient,
-  options: BackfillDryRunOptions,
+export async function runArticleSourceBackfill(
+  client: BackfillReadClient | BackfillWriteClient,
+  options: BackfillOptions,
   log: Log = console.log,
-): Promise<BackfillDryRunReport> {
-  const report: BackfillDryRunReport = {
+): Promise<BackfillReport> {
+  if (options.mode === 'write' && !isWriteClient(client)) {
+    throw new Error('Write mode requires an explicit transactional write client.');
+  }
+
+  const report: BackfillReport = {
     articlesScanned: 0,
     sourcesRead: 0,
     relationsWouldCreate: 0,
+    relationsCreated: 0,
+    relationsUpdatedOrSkipped: 0,
     duplicatesDetected: 0,
     invalidUrls: 0,
     domainsWithoutSource: 0,
@@ -98,8 +114,7 @@ export async function runArticleSourceBackfillDryRun(
 
     if (articles.length === 0) break;
     report.articlesScanned += articles.length;
-    cursor = articles[articles.length - 1].id;
-    report.lastCursor = cursor;
+    const batchCursor = articles[articles.length - 1].id;
 
     const preparedByArticle = new Map<string, PreparedLegacySource[]>();
     const articlesWithLegacySources = new Set<string>();
@@ -152,7 +167,7 @@ export async function runArticleSourceBackfillDryRun(
       ]);
     } catch (error) {
       report.errors++;
-      log(`[ERROR] Source lookup failed for batch ending at ${cursor}: ${errorMessage(error)}`);
+      log(`[ERROR] Source lookup failed for batch ending at ${batchCursor}: ${errorMessage(error)}`);
       break;
     }
 
@@ -162,6 +177,7 @@ export async function runArticleSourceBackfillDryRun(
     const seenRelationKeys = new Set(
       existingRelations.map((relation) => relationKey(relation.articleId, relation.sourceUrlHash)),
     );
+    const pendingUpserts: Prisma.ArticleSourceUpsertArgs[] = [];
 
     for (const article of articles) {
       const prepared = preparedByArticle.get(article.id) ?? [];
@@ -177,6 +193,7 @@ export async function runArticleSourceBackfillDryRun(
         const key = relationKey(article.id, candidate.sourceUrlHash);
         if (seenRelationKeys.has(key)) {
           report.duplicatesDetected++;
+          report.relationsUpdatedOrSkipped++;
           continue;
         }
         seenRelationKeys.add(key);
@@ -200,13 +217,18 @@ export async function runArticleSourceBackfillDryRun(
           profileVersion: integerOrNull(candidate.source.profileVersion),
           snapshotAt: profileSnapshot?.snapshotAt ?? null,
           position: candidate.position,
+          preserveExistingSnapshot: true,
         });
         if (!upsert) {
           report.errors++;
           continue;
         }
 
-        report.relationsWouldCreate++;
+        if (options.mode === 'dry-run') {
+          report.relationsWouldCreate++;
+        } else {
+          pendingUpserts.push(upsert);
+        }
         simulatedForArticle++;
         if (report.samples.length < 10) {
           report.samples.push(upsert.create as Record<string, unknown>);
@@ -218,19 +240,37 @@ export async function runArticleSourceBackfillDryRun(
       }
     }
 
-    log(`[DRY-RUN] Batch complete: articles=${articles.length}, cursor=${cursor}`);
+    if (options.mode === 'write' && pendingUpserts.length > 0) {
+      try {
+        await writeArticleSourceChunks(
+          client as BackfillWriteClient,
+          pendingUpserts,
+          (written) => { report.relationsCreated += written; },
+        );
+      } catch (error) {
+        report.errors++;
+        log(`[ERROR] ArticleSource write failed for batch ending at ${batchCursor}: ${errorMessage(error)}`);
+        break;
+      }
+    }
+
+    cursor = batchCursor;
+    report.lastCursor = cursor;
+    log(`[${options.mode === 'write' ? 'WRITE' : 'DRY-RUN'}] Batch complete: articles=${articles.length}, cursor=${cursor}`);
     if (articles.length < remaining) break;
   }
 
   return report;
 }
 
-export function formatBackfillDryRunReport(report: BackfillDryRunReport): string {
+export function formatBackfillReport(report: BackfillReport, mode: BackfillOptions['mode']): string {
   return [
-    'ArticleSource backfill dry-run report',
+    `ArticleSource backfill ${mode} report`,
     `articles scanned: ${report.articlesScanned}`,
     `sources read: ${report.sourcesRead}`,
     `relations that would be created: ${report.relationsWouldCreate}`,
+    `relations created: ${report.relationsCreated}`,
+    `relations updated/skipped: ${report.relationsUpdatedOrSkipped}`,
     `duplicates detected: ${report.duplicatesDetected}`,
     `invalid URLs: ${report.invalidUrls}`,
     `domains without Source: ${report.domainsWithoutSource}`,
@@ -238,6 +278,25 @@ export function formatBackfillDryRunReport(report: BackfillDryRunReport): string
     `errors: ${report.errors}`,
     `last cursor: ${report.lastCursor ?? 'none'}`,
   ].join('\n');
+}
+
+async function writeArticleSourceChunks(
+  client: BackfillWriteClient,
+  upserts: Prisma.ArticleSourceUpsertArgs[],
+  onChunkCommitted: (count: number) => void,
+): Promise<void> {
+  const transactionSize = 25;
+  for (let index = 0; index < upserts.length; index += transactionSize) {
+    const chunk = upserts.slice(index, index + transactionSize);
+    await client.$transaction(async (tx) => {
+      for (const upsert of chunk) await tx.articleSource.upsert(upsert);
+    });
+    onChunkCommitted(chunk.length);
+  }
+}
+
+function isWriteClient(client: BackfillReadClient | BackfillWriteClient): client is BackfillWriteClient {
+  return '$transaction' in client && typeof client.$transaction === 'function';
 }
 
 interface PreparedLegacySource {
@@ -306,11 +365,13 @@ function errorMessage(error: unknown): string {
 }
 
 async function main(): Promise<void> {
-  const options = parseBackfillDryRunOptions(process.argv.slice(2));
-  console.log('[DRY-RUN] No database writes will be performed.');
+  const options = parseBackfillOptions(process.argv.slice(2));
+  console.log(options.mode === 'dry-run'
+    ? '[DRY-RUN] No database writes will be performed.'
+    : '[WRITE] ArticleSource upserts are enabled. Article.factCheckData will not be modified.');
   try {
-    const report = await runArticleSourceBackfillDryRun(prisma, options);
-    console.log(formatBackfillDryRunReport(report));
+    const report = await runArticleSourceBackfill(prisma, options);
+    console.log(formatBackfillReport(report, options.mode));
   } finally {
     await prisma.$disconnect();
   }
