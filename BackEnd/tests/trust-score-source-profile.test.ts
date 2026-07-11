@@ -96,7 +96,9 @@ describe('trust-score source profile persistence', () => {
   });
 
   it('preserves score fields while adding durable source profile fields', async () => {
-    await getRichTrustScore('example.com');
+    const result = await getRichTrustScore('example.com');
+
+    expect(result.durableSourceId).toBe('source-1');
 
     const call = mocks.sourceUpsert.mock.calls[0][0];
     expect(call.update).toMatchObject({

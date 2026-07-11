@@ -6,6 +6,8 @@ import { classifyAndRoute } from './smart-router.js';
 import { FactCheckContext, FactCheckSource, RoutingDecision } from './types.js';
 import { extractRelevantPassages } from '../chunking.js';
 import { getRootDomain } from '../utils/domain.js';
+import { deriveArticleSourceRoleFromLane, normalizeArticleSourceUrl } from '../article-source-service.js';
+import type { SourceSearchLane } from './types.js';
 
 const MAX_SOURCES = 50;
 const EXTRACTION_CONCURRENCY = 6;
@@ -121,8 +123,46 @@ function mapSearchResult(result: SerperSearchResult): FactCheckSource | null {
     };
 }
 
+const SOURCE_LANE_PRIORITY: Record<SourceSearchLane, number> = {
+    FACTUAL: 3,
+    CRITICAL: 2,
+    CONTEXTUAL: 1,
+};
+
+function sourceLanePriority(source: FactCheckSource): number {
+    if (source.officialStatement === true) return 4;
+    return source.searchLane ? SOURCE_LANE_PRIORITY[source.searchLane] : 0;
+}
+
+export function mergeSourcesByUrlWithLanePriority(sources: FactCheckSource[]): FactCheckSource[] {
+    const byUrl = new Map<string, FactCheckSource>();
+
+    for (const source of sources) {
+        const key = normalizeArticleSourceUrl(source.url) ?? source.url.trim();
+        const existing = byUrl.get(key);
+        if (!existing) {
+            byUrl.set(key, source);
+            continue;
+        }
+
+        if (sourceLanePriority(source) > sourceLanePriority(existing)) {
+            byUrl.set(key, {
+                ...existing,
+                searchLane: source.searchLane,
+                role: source.role,
+                provenance: source.provenance ?? existing.provenance,
+                provider: source.provider ?? existing.provider,
+                officialStatement: source.officialStatement,
+            });
+        }
+    }
+
+    return [...byUrl.values()];
+}
+
 function buildMetadataFallbackSource(
-    result: SerperSearchResult,
+    result: SerperSearchResult & Partial<Pick<FactCheckSource,
+        'provider' | 'searchLane' | 'role' | 'provenance' | 'officialStatement'>>,
     reason: string,
 ): FactCheckSource | null {
     const url = result.url?.trim();
@@ -150,14 +190,18 @@ function buildMetadataFallbackSource(
         publishedDate: result.publishedDate || undefined,
         domain,
         score: Math.max(0.01, (result.score || 0) * 0.45 + getCredibilityBoost(url)),
-        provider: 'web',
+        provider: result.provider ?? 'web',
+        searchLane: result.searchLane,
+        role: result.role,
+        provenance: result.provenance,
+        officialStatement: result.officialStatement,
         extractionStatus: 'metadata_only',
         sourceQuality: 'metadata_only',
         extractionFailureReason: reason,
     };
 }
 
-async function extractSearchResult(result: SerperSearchResult): Promise<FactCheckSource | null> {
+async function extractSearchResult(result: FactCheckSource): Promise<FactCheckSource | null> {
     const url = result.url?.trim();
     if (!url) {
         return null;
@@ -175,7 +219,11 @@ async function extractSearchResult(result: SerperSearchResult): Promise<FactChec
             publishedDate: result.publishedDate || undefined,
             domain: getDomainKeyFromUrl(url),
             score: result.score || 0,
-            provider: 'web',
+            provider: result.provider,
+            searchLane: result.searchLane,
+            role: result.role,
+            provenance: result.provenance,
+            officialStatement: result.officialStatement,
             extractionStatus: 'full',
             sourceQuality: 'full',
         };
@@ -214,6 +262,8 @@ async function loadInternalFallbackSources(query: string, limit: number): Promis
         domain: source.domain,
         score: source.score,
         provider: source.provider,
+        role: 'UNKNOWN',
+        provenance: 'INTERNAL_RAG',
         articleSlug: source.articleSlug,
         extractionStatus: 'full',
         sourceQuality: 'full',
@@ -221,7 +271,7 @@ async function loadInternalFallbackSources(query: string, limit: number): Promis
 }
 
 async function runSearchLane(
-    label: 'FACTUAL' | 'CRITICAL' | 'CONTEXTUAL',
+    label: SourceSearchLane,
     routingDecision: RoutingDecision,
     maxResults: number,
     onProgress?: (msg: string) => void
@@ -247,6 +297,14 @@ async function runSearchLane(
     const candidatePool = rawResults
         .map(mapSearchResult)
         .filter((result): result is FactCheckSource => result !== null)
+        .map((source) => ({
+            ...source,
+            searchLane: label,
+            role: deriveArticleSourceRoleFromLane(label, {
+                explicitOfficialStatement: source.officialStatement === true,
+            }),
+            provenance: 'WEB_SEARCH' as const,
+        }))
         .slice(0, Math.max(maxResults * 2, maxResults + 3));
     const laneResults = selectSourcesByRootDomain(candidatePool, maxResults);
 
@@ -298,7 +356,7 @@ export async function investigateArticle(
             routingDecision.query_contextual,
         ].filter(Boolean);
         const extractionCandidates = selectSourcesByRootDomain(
-            searchResults.flat(),
+            mergeSourcesByUrlWithLanePriority(searchResults.flat()),
             MAX_SOURCES,
         );
 
@@ -329,7 +387,13 @@ export async function investigateArticle(
                     url: candidate.url,
                     content: candidate.content,
                     publishedDate: candidate.publishedDate,
+                    domain: candidate.domain,
                     score: candidate.score,
+                    provider: candidate.provider,
+                    searchLane: candidate.searchLane,
+                    role: candidate.role,
+                    provenance: candidate.provenance,
+                    officialStatement: candidate.officialStatement,
                 });
 
                 if (!extracted) {
@@ -348,6 +412,11 @@ export async function investigateArticle(
                         content: candidate.content,
                         publishedDate: candidate.publishedDate,
                         score: candidate.score,
+                        provider: candidate.provider,
+                        searchLane: candidate.searchLane,
+                        role: candidate.role,
+                        provenance: candidate.provenance,
+                        officialStatement: candidate.officialStatement,
                     }, 'Extracted content had no relevant passages');
                 }
 

@@ -1,4 +1,8 @@
 import type { StructuredArticleContent } from '../../types/structured-article.js';
+import type {
+    ArticleSourceProvenanceValue,
+    ArticleSourceRoleValue,
+} from '../article-source-service.js';
 
 /**
  * Live Analysis - Shared Types & Constants
@@ -32,6 +36,7 @@ export const DISARM_TECHNIQUES = {
 } as const;
 
 export type DisarmCode = keyof typeof DISARM_TECHNIQUES;
+export type SourceSearchLane = 'FACTUAL' | 'CRITICAL' | 'CONTEXTUAL';
 
 export interface FactCheckSource {
     sourceId?: string;
@@ -43,6 +48,10 @@ export interface FactCheckSource {
     domain: string;
     score: number;
     provider?: 'web' | 'rag';
+    searchLane?: SourceSearchLane;
+    role?: ArticleSourceRoleValue;
+    provenance?: ArticleSourceProvenanceValue;
+    officialStatement?: boolean;
     extractionStatus?: 'full' | 'metadata_only';
     sourceQuality?: 'full' | 'metadata_only';
     extractionFailureReason?: string;

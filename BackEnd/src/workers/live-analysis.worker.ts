@@ -55,9 +55,18 @@ async function withTimeout<T>(promise: Promise<T>, timeoutMs: number, label: str
         if (timeout) clearTimeout(timeout);
     }
 }
-function buildPendingSources(sources: Array<{ url?: string; domain?: string; extractionStatus?: string; extractionFailureReason?: string }>) {
+type SourcePipelineMetadata = {
+    extractionStatus?: string;
+    provider?: 'web' | 'rag';
+    searchLane?: 'FACTUAL' | 'CRITICAL' | 'CONTEXTUAL';
+    role?: 'PRIMARY_EVIDENCE' | 'CONTEXT' | 'COUNTERPOINT' | 'OFFICIAL_STATEMENT' | 'BACKGROUND' | 'UNKNOWN';
+    provenance?: 'WEB_SEARCH' | 'INTERNAL_RAG' | 'USER_PROVIDED' | 'EDITORIAL' | 'IMPORTED_LEGACY' | 'UNKNOWN';
+    officialStatement?: boolean;
+};
+
+function buildPendingSources(sources: Array<SourcePipelineMetadata & { url?: string; domain?: string; extractionFailureReason?: string }>) {
     return sources
-        .filter((source): source is { url: string; domain?: string; extractionStatus?: string; extractionFailureReason?: string } => typeof source.url === 'string' && source.url.trim().length > 0)
+        .filter((source): source is SourcePipelineMetadata & { url: string; domain?: string; extractionFailureReason?: string } => typeof source.url === 'string' && source.url.trim().length > 0)
         .map((source, index) => {
             let domain = source.domain || '';
             if (!domain) {
@@ -81,6 +90,11 @@ function buildPendingSources(sources: Array<{ url?: string; domain?: string; ext
                 description: 'Analyse en cours...',
                 metrics: null,
                 extractionStatus: source.extractionStatus === 'metadata_only' ? 'metadata_only' as const : undefined,
+                provider: source.provider,
+                searchLane: source.searchLane,
+                role: source.role,
+                provenance: source.provenance,
+                officialStatement: source.officialStatement,
             };
         });
 }
@@ -366,11 +380,18 @@ export function startLiveAnalysisWorker(): Worker<LiveAnalysisJobData> {
             scoreLiveBrut: result.globalScore,
         });
 
-        const sourceMetadata: Record<string, { extractionStatus?: string }> = {};
+        const sourceMetadata: Record<string, SourcePipelineMetadata> = {};
         if (Array.isArray(result.sources)) {
             for (const src of result.sources) {
-                if (src?.url && src.extractionStatus) {
-                    sourceMetadata[src.url] = { extractionStatus: src.extractionStatus };
+                if (src?.url) {
+                    sourceMetadata[src.url] = {
+                        extractionStatus: src.extractionStatus,
+                        provider: src.provider,
+                        searchLane: src.searchLane,
+                        role: src.role,
+                        provenance: src.provenance,
+                        officialStatement: src.officialStatement,
+                    };
                 }
             }
         }

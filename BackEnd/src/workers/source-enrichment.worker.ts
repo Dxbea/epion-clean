@@ -7,13 +7,17 @@ import { prisma } from '../lib/db.js';
 import { buildArticleScorePayload, hashAnalysisInput } from '../lib/score-helpers.js';
 import { stableSourceId } from '../lib/structured-article.js';
 import type { SourceScoreEntry, SourceAnalysisStatus } from '../lib/score-types.js';
+import {
+    buildEnrichedSourceScoreEntry,
+    type SourceEnrichmentMetadata,
+} from '../lib/source-enrichment-source.js';
 
 const SOURCE_ENRICHMENT_WORKER_CONCURRENCY = 3;
 
 interface SourceEnrichmentJobData {
     articleId: string;
     sources: string[];
-    sourceMetadata?: Record<string, { extractionStatus?: string }>;
+    sourceMetadata?: Record<string, SourceEnrichmentMetadata>;
     scoreLiveBrut?: number;
     liveAnalysis?: any;
     articleGeneration?: boolean;
@@ -95,42 +99,14 @@ export function startSourceEnrichmentWorker(): Worker<SourceEnrichmentJobData> {
 
                     const analysisStatus: SourceAnalysisStatus = isMetadataOnly ? 'METADATA_ONLY' : 'ANALYZED';
 
-                    return {
-                        id: 0,
-                        sourceId: stableSourceId(url, index),
-                        name: richScore.metadata.name,
+                    return buildEnrichedSourceScoreEntry({
                         url,
+                        index,
                         domain,
-                        trustScore: richScore.globalScore,
-                        type: richScore.metadata.type,
-                        logo: `https://logo.clearbit.com/${domain}`,
-                        description: richScore.metadata.description,
-                        justification: richScore.metadata.justification,
-                        metrics: richScore.details
-                            ? {
-                                transparency: richScore.details.transparency,
-                                editorial: richScore.details.editorial,
-                                semantic: richScore.details.semantic,
-                                logic: richScore.details.pluralism,
-                            }
-                            : null,
-                        flags: richScore.flags ?? null,
+                        richScore,
                         analysisStatus,
-                        extractionStatus: isMetadataOnly ? 'metadata_only' as const : 'full' as const,
-                        profileData: richScore.profileData,
-                        profileVersion: richScore.profileVersion,
-                        profileConfidence: richScore.profileConfidence,
-                        lastProfiledAt: richScore.lastProfiledAt,
-                        publicTrustLabel: richScore.publicTrustLabel,
-                        metadata: {
-                            reliability: richScore.metadata.reliability,
-                            dbScore: richScore.globalScore,
-                            politicalBias: richScore.metadata.politicalBias,
-                            biasScore: richScore.metadata.biasScore,
-                            country: richScore.metadata.country,
-                            explanation: richScore.metadata.explanation,
-                        },
-                    } satisfies SourceScoreEntry;
+                        metadata: meta,
+                    });
                 } catch (error: any) {
                     logger.error(`[Worker] Failed to enrich source ${url}`, {
                         articleId,
@@ -151,6 +127,11 @@ export function startSourceEnrichmentWorker(): Worker<SourceEnrichmentJobData> {
                         flags: null,
                         analysisStatus: 'UNAVAILABLE' as SourceAnalysisStatus,
                         extractionStatus: 'failed' as const,
+                        provider: meta?.provider,
+                        searchLane: meta?.searchLane,
+                        role: meta?.role,
+                        provenance: meta?.provenance,
+                        officialStatement: meta?.officialStatement,
                         metadata: {},
                     } satisfies SourceScoreEntry;
                 }

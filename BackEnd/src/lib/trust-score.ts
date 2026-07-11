@@ -19,6 +19,7 @@ import {
 } from "./source-profile.js";
 
 export interface RichTrustScore {
+    durableSourceId: string;
     globalScore: number;
     confidenceLevel: string;
     details: {
@@ -327,6 +328,7 @@ export async function getRichTrustScore(
 
 function formatResponse(source: Source, min: number, max: number, qualityRatio: number, penalties: string[]): RichTrustScore {
     return {
+        durableSourceId: source.id,
         globalScore: source.trustScore,
         confidenceLevel: 'HIGH',
         details: {

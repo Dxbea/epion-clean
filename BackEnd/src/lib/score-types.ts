@@ -14,6 +14,11 @@ import type {
   SourceProfileConfidence,
   SourceProfileDataV1,
 } from './source-profile.js';
+import type {
+  ArticleSourceProvenanceValue,
+  ArticleSourceRoleValue,
+} from './article-source-service.js';
+import type { SourceSearchLane } from './live-analysis/types.js';
 
 // ---------------------------------------------------------------------------
 //  Enums / Literals
@@ -110,6 +115,7 @@ export type SourceAnalysisStatus = 'ANALYZED' | 'METADATA_ONLY' | 'UNAVAILABLE' 
 export interface SourceScoreEntry {
   id: number;
   sourceId?: string;
+  durableSourceId?: string;
   domain: string;
   name: string;
   url: string;
@@ -122,6 +128,11 @@ export interface SourceScoreEntry {
   flags: SourceScoreFlags | null;
   analysisStatus?: SourceAnalysisStatus;
   extractionStatus?: 'full' | 'metadata_only' | 'failed';
+  provider?: 'web' | 'rag';
+  searchLane?: SourceSearchLane;
+  role?: ArticleSourceRoleValue;
+  provenance?: ArticleSourceProvenanceValue;
+  officialStatement?: boolean;
   profileData?: SourceProfileDataV1 | null;
   profileVersion?: number | null;
   profileConfidence?: SourceProfileConfidence | null;

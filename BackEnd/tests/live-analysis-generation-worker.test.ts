@@ -69,7 +69,15 @@ describe('live-analysis article generation worker', () => {
       contentIntent: 'INFORMATIVE',
       pillarScores: { transparency: { score: 80 }, editorial: { score: 75 }, semantic: { score: 79 }, logic: { score: 77 } },
       judges: { primary: {}, auditor: {} },
-      sources: [{ url: 'https://example.com/story', domain: 'example.com', extractionStatus: 'metadata_only' }],
+      sources: [{
+        url: 'https://example.com/story',
+        domain: 'example.com',
+        extractionStatus: 'metadata_only',
+        provider: 'web',
+        searchLane: 'FACTUAL',
+        role: 'PRIMARY_EVIDENCE',
+        provenance: 'WEB_SEARCH',
+      }],
       generatedContent: {
         title: 'Generated title',
         summary: 'Generated summary',
@@ -151,7 +159,13 @@ describe('live-analysis article generation worker', () => {
       'enrich',
       expect.objectContaining({
         sourceMetadata: {
-          'https://example.com/story': { extractionStatus: 'metadata_only' },
+          'https://example.com/story': {
+            extractionStatus: 'metadata_only',
+            provider: 'web',
+            searchLane: 'FACTUAL',
+            role: 'PRIMARY_EVIDENCE',
+            provenance: 'WEB_SEARCH',
+          },
         },
       }),
       expect.objectContaining({ jobId: 'source-enrichment-article-1' }),

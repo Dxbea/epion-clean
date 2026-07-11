@@ -13,7 +13,10 @@ vi.mock('../src/lib/extractor.js', () => ({ extractArticle }));
 vi.mock('../src/lib/rag-service.js', () => ({ searchInternalSources }));
 vi.mock('../src/lib/live-analysis/smart-router.js', () => ({ classifyAndRoute }));
 
-const { investigateArticle } = await import('../src/lib/live-analysis/fact-investigator.js');
+const {
+  investigateArticle,
+  mergeSourcesByUrlWithLanePriority,
+} = await import('../src/lib/live-analysis/fact-investigator.js');
 
 describe('live-analysis source metadata fallback', () => {
   beforeEach(() => {
@@ -55,8 +58,54 @@ describe('live-analysis source metadata fallback', () => {
       provider: 'web',
       sourceQuality: 'metadata_only',
       extractionFailureReason: 'Extraction returned empty HTML',
+      searchLane: 'FACTUAL',
+      role: 'PRIMARY_EVIDENCE',
+      provenance: 'WEB_SEARCH',
     });
     expect(result.sources[0].content).toContain('METADATA-ONLY SOURCE');
+  });
+
+  it('uses a deterministic priority when the same URL appears in multiple lanes', () => {
+    const base = {
+      url: 'https://example.com/report',
+      title: 'Report',
+      content: 'Content',
+      domain: 'example.com',
+      score: 0.8,
+      provider: 'web' as const,
+      provenance: 'WEB_SEARCH' as const,
+    };
+
+    const merged = mergeSourcesByUrlWithLanePriority([
+      { ...base, searchLane: 'CONTEXTUAL', role: 'CONTEXT' },
+      { ...base, searchLane: 'CRITICAL', role: 'COUNTERPOINT' },
+      { ...base, searchLane: 'FACTUAL', role: 'PRIMARY_EVIDENCE' },
+    ]);
+
+    expect(merged).toHaveLength(1);
+    expect(merged[0]).toMatchObject({
+      searchLane: 'FACTUAL',
+      role: 'PRIMARY_EVIDENCE',
+    });
+  });
+
+  it('only gives official statements priority when the signal is explicit', () => {
+    const base = {
+      url: 'https://example.com/statement',
+      title: 'Statement',
+      content: 'Content',
+      domain: 'example.com',
+      score: 0.8,
+      provider: 'web' as const,
+      provenance: 'WEB_SEARCH' as const,
+    };
+
+    const merged = mergeSourcesByUrlWithLanePriority([
+      { ...base, searchLane: 'FACTUAL', role: 'PRIMARY_EVIDENCE' },
+      { ...base, searchLane: 'CONTEXTUAL', role: 'OFFICIAL_STATEMENT', officialStatement: true },
+    ]);
+
+    expect(merged[0]).toMatchObject({ role: 'OFFICIAL_STATEMENT', officialStatement: true });
   });
 
   it('returns zero sources when extraction fails and Serper has no usable snippet metadata', async () => {
