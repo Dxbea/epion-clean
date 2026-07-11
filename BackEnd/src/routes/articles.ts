@@ -17,7 +17,7 @@ import { ingestArticle } from '../lib/rag-service.js';
 import { sanitizeArticleHtml } from '../lib/sanitizeHtml.js';
 import { logger } from '../lib/logger.js';
 import { embeddingQueue } from '../lib/queue.js';
-import { hashAnalysisInput, normalizeArticleScorePayload } from '../lib/score-helpers.js';
+import { hashAnalysisInput, normalizeArticleScorePayload, deriveSourceAnalysisStatus } from '../lib/score-helpers.js';
 import { recalculateBridgingScores } from '../services/bridgingService.js';
 import { moderationService } from '../services/moderationService.js';
 import { enforceContributionRateLimit } from '../lib/contribution-rate-limit.js';
@@ -84,9 +84,15 @@ function buildArticleDetailResponse(article: any) {
     article.factCheckScore ?? null,
     article.factCheckStatus ?? null,
   );
-  const normalizedSources = Array.isArray(normalizedFactCheckData?.sources)
+  const rawSources = Array.isArray(normalizedFactCheckData?.sources)
     ? normalizedFactCheckData.sources
     : [];
+
+  const articleStatus = article.factCheckStatus ?? normalizedFactCheckData?.status ?? null;
+  const normalizedSources = rawSources.map((source: any) => ({
+    ...source,
+    analysisStatus: deriveSourceAnalysisStatus(source, articleStatus),
+  }));
 
   return {
     id: article.id,
@@ -104,7 +110,7 @@ function buildArticleDetailResponse(article: any) {
     author: article.author,
     aiSummary: article.aiSummary ?? null,
     factCheckScore: article.factCheckScore ?? normalizedFactCheckData?.score ?? null,
-    factCheckStatus: article.factCheckStatus ?? normalizedFactCheckData?.status ?? null,
+    factCheckStatus: articleStatus,
     factCheckData: normalizedFactCheckData ?? article.factCheckData ?? null,
     sources: normalizedSources,
     generationPrompt: article.generationPrompt ?? null,

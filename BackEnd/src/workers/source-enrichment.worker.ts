@@ -6,13 +6,14 @@ import { logger } from '../lib/logger.js';
 import { prisma } from '../lib/db.js';
 import { buildArticleScorePayload, hashAnalysisInput } from '../lib/score-helpers.js';
 import { stableSourceId } from '../lib/structured-article.js';
-import type { SourceScoreEntry } from '../lib/score-types.js';
+import type { SourceScoreEntry, SourceAnalysisStatus } from '../lib/score-types.js';
 
 const SOURCE_ENRICHMENT_WORKER_CONCURRENCY = 3;
 
 interface SourceEnrichmentJobData {
     articleId: string;
     sources: string[];
+    sourceMetadata?: Record<string, { extractionStatus?: string }>;
     scoreLiveBrut?: number;
     liveAnalysis?: any;
     articleGeneration?: boolean;
@@ -69,17 +70,21 @@ export function startSourceEnrichmentWorker(): Worker<SourceEnrichmentJobData> {
             let totalScore = 0;
             let validScores = 0;
             const trustScoreByDomain = new Map<string, Promise<any>>();
+            const sourceMetadata = job.data.sourceMetadata ?? {};
 
             const results = await mapWithConcurrencyLimit(sources, SOURCE_ENRICHMENT_WORKER_CONCURRENCY, async (url, index) => {
+                let domain = '';
                 try {
-                    let domain = '';
-                    try {
-                        domain = new URL(url).hostname.replace('www.', '');
-                    } catch {
-                        logger.warn(`[Worker] Invalid URL: ${url}`, { articleId });
-                        return null;
-                    }
+                    domain = new URL(url).hostname.replace('www.', '');
+                } catch {
+                    logger.warn(`[Worker] Invalid URL: ${url}`, { articleId });
+                    return null;
+                }
 
+                const meta = sourceMetadata[url];
+                const isMetadataOnly = meta?.extractionStatus === 'metadata_only';
+
+                try {
                     logger.debug(`[Worker] Analyzing source: ${domain}`, { articleId });
                     let richScorePromise = trustScoreByDomain.get(domain);
                     if (!richScorePromise) {
@@ -87,6 +92,8 @@ export function startSourceEnrichmentWorker(): Worker<SourceEnrichmentJobData> {
                         trustScoreByDomain.set(domain, richScorePromise);
                     }
                     const richScore = await richScorePromise;
+
+                    const analysisStatus: SourceAnalysisStatus = isMetadataOnly ? 'METADATA_ONLY' : 'ANALYZED';
 
                     return {
                         id: 0,
@@ -108,6 +115,8 @@ export function startSourceEnrichmentWorker(): Worker<SourceEnrichmentJobData> {
                             }
                             : null,
                         flags: richScore.flags ?? null,
+                        analysisStatus,
+                        extractionStatus: isMetadataOnly ? 'metadata_only' as const : 'full' as const,
                         metadata: {
                             reliability: richScore.metadata.reliability,
                             dbScore: richScore.globalScore,
@@ -122,7 +131,23 @@ export function startSourceEnrichmentWorker(): Worker<SourceEnrichmentJobData> {
                         articleId,
                         error: error.message,
                     });
-                    return null;
+                    return {
+                        id: 0,
+                        sourceId: stableSourceId(url, index),
+                        name: domain || 'Source inconnue',
+                        url,
+                        domain,
+                        trustScore: 0,
+                        type: 'UNAVAILABLE',
+                        logo: domain ? `https://logo.clearbit.com/${domain}` : '',
+                        description: null,
+                        justification: null,
+                        metrics: null,
+                        flags: null,
+                        analysisStatus: 'UNAVAILABLE' as SourceAnalysisStatus,
+                        extractionStatus: 'failed' as const,
+                        metadata: {},
+                    } satisfies SourceScoreEntry;
                 }
             });
 
@@ -130,7 +155,7 @@ export function startSourceEnrichmentWorker(): Worker<SourceEnrichmentJobData> {
                 if (res) {
                     res.id = enrichedSources.length + 1;
                     enrichedSources.push(res);
-                    if (res.trustScore > 0) {
+                    if (res.analysisStatus === 'ANALYZED' && res.trustScore > 0) {
                         totalScore += res.trustScore;
                         validScores++;
                     }

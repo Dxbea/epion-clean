@@ -133,7 +133,7 @@ describe('article detail fact-check payloads', () => {
     expect(response.body.generationPrompt).toBe('prompt');
     expect(Array.isArray(response.body.sources)).toBe(true);
     expect(response.body.sources).toHaveLength(1);
-    expect(response.body.sources[0]).toMatchObject({ sourceId: 'src_1', domain: 'example.com' });
+    expect(response.body.sources[0]).toMatchObject({ sourceId: 'src_1', domain: 'example.com', analysisStatus: 'ANALYZED' });
   });
 
   it('returns normalized fact-check fields and array sources from GET /api/articles/slug/:slug', async () => {
@@ -156,5 +156,137 @@ describe('article detail fact-check payloads', () => {
 
     expect(response.status).toBe(404);
     expect(response.body).toEqual({ error: 'Not Found' });
+  });
+
+  it('returns analysisStatus PENDING when article factCheckStatus is PENDING', async () => {
+    articleFindUnique.mockResolvedValueOnce(publishedArticle({
+      factCheckStatus: 'PENDING',
+      factCheckData: {
+        version: 1,
+        status: 'PENDING',
+        score: 0,
+        supportLevel: 'unverified',
+        calculation: { formula: 'weighted-source-live-v1', sourceWeight: 0.75, contentWeight: 0.25, sourcesMean: null, contentScore: 0, finalScore: 0 },
+        analyzedAt: '2026-01-01T00:00:00.000Z',
+        contentHash: 'hash',
+        sources: [{ id: 1, sourceId: 'src_1', domain: 'example.com', url: 'https://example.com/story', trustScore: null, type: 'PENDING' }],
+        liveAnalysis: null,
+      },
+    }));
+
+    const response = await request(buildApp()).get('/api/articles/article-id');
+
+    expect(response.status).toBe(200);
+    expect(response.body.sources[0].analysisStatus).toBe('PENDING');
+  });
+
+  it('returns analysisStatus UNAVAILABLE for legacy ambiguous sources on COMPLETED articles', async () => {
+    articleFindUnique.mockResolvedValueOnce(publishedArticle({
+      factCheckStatus: 'COMPLETED',
+      factCheckData: {
+        version: 1,
+        status: 'COMPLETED',
+        score: 60,
+        supportLevel: 'nuanced',
+        calculation: { formula: 'weighted-source-live-v1', sourceWeight: 0.75, contentWeight: 0.25, sourcesMean: null, contentScore: 60, finalScore: 60 },
+        analyzedAt: '2026-01-01T00:00:00.000Z',
+        contentHash: 'hash',
+        sources: [{ id: 1, sourceId: 'src_1', domain: 'example.com', url: 'https://example.com/story', trustScore: null, type: 'PENDING' }],
+        liveAnalysis: null,
+      },
+    }));
+
+    const response = await request(buildApp()).get('/api/articles/article-id');
+
+    expect(response.status).toBe(200);
+    expect(response.body.sources[0].analysisStatus).toBe('UNAVAILABLE');
+  });
+
+  it('returns analysisStatus METADATA_ONLY for sources with extractionStatus metadata_only', async () => {
+    articleFindUnique.mockResolvedValueOnce(publishedArticle({
+      factCheckStatus: 'COMPLETED',
+      factCheckData: {
+        version: 1,
+        status: 'COMPLETED',
+        score: 75,
+        supportLevel: 'strong',
+        calculation: { formula: 'weighted-source-live-v1', sourceWeight: 0.75, contentWeight: 0.25, sourcesMean: 75, contentScore: 75, finalScore: 75 },
+        analyzedAt: '2026-01-01T00:00:00.000Z',
+        contentHash: 'hash',
+        sources: [{ id: 1, sourceId: 'src_1', domain: 'example.com', url: 'https://example.com/story', trustScore: 75, type: 'news', extractionStatus: 'metadata_only' }],
+        liveAnalysis: null,
+      },
+    }));
+
+    const response = await request(buildApp()).get('/api/articles/article-id');
+
+    expect(response.status).toBe(200);
+    expect(response.body.sources[0].analysisStatus).toBe('METADATA_ONLY');
+  });
+
+  it('returns analysisStatus UNAVAILABLE for sources with extractionStatus failed', async () => {
+    articleFindUnique.mockResolvedValueOnce(publishedArticle({
+      factCheckStatus: 'COMPLETED',
+      factCheckData: {
+        version: 1,
+        status: 'COMPLETED',
+        score: 50,
+        supportLevel: 'nuanced',
+        calculation: { formula: 'weighted-source-live-v1', sourceWeight: 0.75, contentWeight: 0.25, sourcesMean: null, contentScore: 50, finalScore: 50 },
+        analyzedAt: '2026-01-01T00:00:00.000Z',
+        contentHash: 'hash',
+        sources: [{ id: 1, sourceId: 'src_1', domain: 'example.com', url: 'https://example.com/story', trustScore: 0, type: 'UNAVAILABLE', extractionStatus: 'failed' }],
+        liveAnalysis: null,
+      },
+    }));
+
+    const response = await request(buildApp()).get('/api/articles/article-id');
+
+    expect(response.status).toBe(200);
+    expect(response.body.sources[0].analysisStatus).toBe('UNAVAILABLE');
+  });
+
+  it('returns analysisStatus UNAVAILABLE (not PENDING) for STALE article with legacy source', async () => {
+    articleFindUnique.mockResolvedValueOnce(publishedArticle({
+      factCheckStatus: 'STALE',
+      factCheckData: {
+        version: 1,
+        status: 'STALE',
+        score: 60,
+        supportLevel: 'nuanced',
+        calculation: { formula: 'weighted-source-live-v1', sourceWeight: 0.75, contentWeight: 0.25, sourcesMean: null, contentScore: 60, finalScore: 60 },
+        analyzedAt: '2026-01-01T00:00:00.000Z',
+        contentHash: 'hash',
+        sources: [{ id: 1, sourceId: 'src_1', domain: 'example.com', url: 'https://example.com/story', trustScore: null, type: 'PENDING' }],
+        liveAnalysis: null,
+      },
+    }));
+
+    const response = await request(buildApp()).get('/api/articles/article-id');
+
+    expect(response.status).toBe(200);
+    expect(response.body.sources[0].analysisStatus).toBe('UNAVAILABLE');
+  });
+
+  it('preserves pre-computed analysisStatus from enrichment worker', async () => {
+    articleFindUnique.mockResolvedValueOnce(publishedArticle({
+      factCheckStatus: 'COMPLETED',
+      factCheckData: {
+        version: 1,
+        status: 'COMPLETED',
+        score: 82,
+        supportLevel: 'strong',
+        calculation: { formula: 'weighted-source-live-v1', sourceWeight: 0.75, contentWeight: 0.25, sourcesMean: 88, contentScore: 64, finalScore: 82 },
+        analyzedAt: '2026-01-01T00:00:00.000Z',
+        contentHash: 'hash',
+        sources: [{ id: 1, sourceId: 'src_1', domain: 'example.com', url: 'https://example.com/story', trustScore: 88, type: 'news', analysisStatus: 'ANALYZED' }],
+        liveAnalysis: null,
+      },
+    }));
+
+    const response = await request(buildApp()).get('/api/articles/article-id');
+
+    expect(response.status).toBe(200);
+    expect(response.body.sources[0].analysisStatus).toBe('ANALYZED');
   });
 });

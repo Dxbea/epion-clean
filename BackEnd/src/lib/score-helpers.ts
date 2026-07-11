@@ -22,6 +22,7 @@ import type {
   AnswerScorePayload,
   AnswerScoreCalculation,
   SourceScoreEntry,
+  SourceAnalysisStatus,
 } from './score-types.js';
 
 // ---------------------------------------------------------------------------
@@ -316,4 +317,51 @@ export function normalizeAnswerScorePayload(
     },
     outputAnalysis: data.outputAnalysis ?? null,
   };
+}
+
+// ---------------------------------------------------------------------------
+//  Source analysisStatus derivation (read-time)
+// ---------------------------------------------------------------------------
+
+/**
+ * Derive the analysisStatus for a source entry based on its stored fields
+ * and the article-level factCheckStatus.
+ *
+ * Priority:
+ *   1. If article is still being analyzed → PENDING
+ *   2. If source explicitly stored an analysisStatus → use it
+ *   3. If extractionStatus is metadata_only → METADATA_ONLY
+ *   4. If extractionStatus is failed → UNAVAILABLE
+ *   5. If source has a real trustScore and type is not "PENDING" → ANALYZED
+ *   6. Legacy ambiguous sources (trustScore null or type "PENDING") on terminal articles → UNAVAILABLE
+ */
+export function deriveSourceAnalysisStatus(
+  source: SourceScoreEntry,
+  articleFactCheckStatus: string | null,
+): SourceAnalysisStatus {
+  if (articleFactCheckStatus === 'PENDING' || articleFactCheckStatus === 'RUNNING') {
+    return 'PENDING';
+  }
+
+  if (source.analysisStatus) {
+    return source.analysisStatus;
+  }
+
+  if (source.extractionStatus === 'metadata_only') {
+    return 'METADATA_ONLY';
+  }
+
+  if (source.extractionStatus === 'failed') {
+    return 'UNAVAILABLE';
+  }
+
+  if (
+    typeof source.trustScore === 'number' &&
+    source.trustScore > 0 &&
+    source.type !== 'PENDING'
+  ) {
+    return 'ANALYZED';
+  }
+
+  return 'UNAVAILABLE';
 }

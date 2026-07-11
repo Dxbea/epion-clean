@@ -55,9 +55,9 @@ async function withTimeout<T>(promise: Promise<T>, timeoutMs: number, label: str
         if (timeout) clearTimeout(timeout);
     }
 }
-function buildPendingSources(sources: Array<{ url?: string; domain?: string }>) {
+function buildPendingSources(sources: Array<{ url?: string; domain?: string; extractionStatus?: string; extractionFailureReason?: string }>) {
     return sources
-        .filter((source): source is { url: string; domain?: string } => typeof source.url === 'string' && source.url.trim().length > 0)
+        .filter((source): source is { url: string; domain?: string; extractionStatus?: string; extractionFailureReason?: string } => typeof source.url === 'string' && source.url.trim().length > 0)
         .map((source, index) => {
             let domain = source.domain || '';
             if (!domain) {
@@ -80,6 +80,7 @@ function buildPendingSources(sources: Array<{ url?: string; domain?: string }>) 
                 logo: domain && domain !== 'unknown' ? `https://logo.clearbit.com/${domain}` : null,
                 description: 'Analyse en cours...',
                 metrics: null,
+                extractionStatus: source.extractionStatus === 'metadata_only' ? 'metadata_only' as const : undefined,
             };
         });
 }
@@ -364,10 +365,20 @@ export function startLiveAnalysisWorker(): Worker<LiveAnalysisJobData> {
             scoreLiveBrut: result.globalScore,
         });
 
+        const sourceMetadata: Record<string, { extractionStatus?: string }> = {};
+        if (Array.isArray(result.sources)) {
+            for (const src of result.sources) {
+                if (src?.url && src.extractionStatus) {
+                    sourceMetadata[src.url] = { extractionStatus: src.extractionStatus };
+                }
+            }
+        }
+
         try {
             await sourceEnrichmentQueue.add('enrich', {
                 articleId: result.articleId,
                 sources: citationUrls,
+                sourceMetadata,
                 scoreLiveBrut: result.globalScore,
                 liveAnalysis: {
                     contentIntent: result.contentIntent,

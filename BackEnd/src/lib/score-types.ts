@@ -99,6 +99,8 @@ export interface SourceScoreFlags {
   isOwnerPublic?: boolean;
 }
 
+export type SourceAnalysisStatus = 'ANALYZED' | 'METADATA_ONLY' | 'UNAVAILABLE' | 'PENDING';
+
 export interface SourceScoreEntry {
   id: number;
   sourceId?: string;
@@ -112,6 +114,8 @@ export interface SourceScoreEntry {
   justification: string | null;
   metrics: SourceScoreMetrics | null;
   flags: SourceScoreFlags | null;
+  analysisStatus?: SourceAnalysisStatus;
+  extractionStatus?: 'full' | 'metadata_only' | 'failed';
   metadata: {
     reliability?: string;
     dbScore?: number;
