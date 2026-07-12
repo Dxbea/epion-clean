@@ -129,6 +129,8 @@ function evaluateSources(
     deepAnalysisReasons.push('LOW_LIGHT_CONFIDENCE');
   }
 
+  const deepAnalysisRecommended = deepAnalysisReasons.length > 0;
+
   return {
     version: 1,
     mode: 'light',
@@ -160,7 +162,9 @@ function evaluateSources(
     limitations: unique(limitations),
     uncertainties: unique(uncertainties),
     analysisConfidence,
-    requiresDeepAnalysis: deepAnalysisReasons.length > 0,
+    deepAnalysisAvailable: true,
+    deepAnalysisRecommended,
+    requiresDeepAnalysis: deepAnalysisRecommended,
     deepAnalysisReasons: unique(deepAnalysisReasons),
   };
 }
@@ -394,6 +398,8 @@ function buildErrorAnalysis(input: BuildArticleLightAnalysisInput): ArticleLight
     limitations: ['LIGHT_ANALYSIS_ERROR'],
     uncertainties: ['LIGHT_ANALYSIS_UNAVAILABLE'],
     analysisConfidence: 'LOW',
+    deepAnalysisAvailable: true,
+    deepAnalysisRecommended: true,
     requiresDeepAnalysis: true,
     deepAnalysisReasons: ['LIGHT_ANALYSIS_ERROR'],
   };

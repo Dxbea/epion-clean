@@ -79,6 +79,11 @@ export interface ArticleLightAnalysisV1 {
   limitations: string[];
   uncertainties: string[];
   analysisConfidence: ArticleLightAnalysisConfidence;
+  /** Deep analysis can be requested for every article, independently of this recommendation. */
+  deepAnalysisAvailable: true;
+  /** Advisory signal from the light evaluator; it does not make deep analysis mandatory. */
+  deepAnalysisRecommended: boolean;
+  /** @deprecated Use deepAnalysisRecommended. Kept temporarily for additive API compatibility. */
   requiresDeepAnalysis: boolean;
   deepAnalysisReasons: string[];
 }

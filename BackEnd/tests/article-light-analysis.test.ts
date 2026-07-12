@@ -71,6 +71,8 @@ describe('ArticleLightAnalysisV1', () => {
     const result = buildArticleLightAnalysis({ articleSources: [relation()], analyzedAt });
 
     expect(result.supportLevel).toBe('fragile');
+    expect(result.deepAnalysisAvailable).toBe(true);
+    expect(result.deepAnalysisRecommended).toBe(true);
     expect(result.requiresDeepAnalysis).toBe(true);
     expect(result.deepAnalysisReasons).toContain('INSUFFICIENT_SOURCES');
     expect(result.deepAnalysisReasons).toContain('LOW_DOMAIN_DIVERSITY');
@@ -81,7 +83,25 @@ describe('ArticleLightAnalysisV1', () => {
 
     expect(result.supportLevel).toBe('unverified');
     expect(result.analysisConfidence).toBe('LOW');
+    expect(result.deepAnalysisAvailable).toBe(true);
+    expect(result.deepAnalysisRecommended).toBe(true);
     expect(result.requiresDeepAnalysis).toBe(true);
+  });
+
+  it('keeps deep analysis available when the light evaluator does not recommend it', () => {
+    const result = buildArticleLightAnalysis({
+      articleSources: [
+        relation({ role: 'PRIMARY_EVIDENCE' }),
+        relation({ sourceId: 'source-2', sourceUrl: 'https://second.test/report', source: { domain: 'second.test', type: 'ACADEMIC' } }),
+        relation({ sourceId: 'source-3', sourceUrl: 'https://third.test/report', source: { domain: 'third.test', type: 'GOVERNMENT' } }),
+      ],
+      analyzedAt,
+    });
+
+    expect(result.deepAnalysisAvailable).toBe(true);
+    expect(result.deepAnalysisRecommended).toBe(false);
+    expect(result.requiresDeepAnalysis).toBe(result.deepAnalysisRecommended);
+    expect(result.deepAnalysisReasons).toEqual([]);
   });
 
   it('flags an unknown legacy source without inventing its role', () => {
@@ -142,6 +162,8 @@ describe('ArticleLightAnalysisV1', () => {
     expect(legacy.sourceQualitySummary.totalSources).toBe(2);
     expect(legacy.sourceUsageSummary.unknownRoleCount).toBe(2);
     expect(malformed.supportLevel).toBe('unverified');
+    expect(malformed.deepAnalysisAvailable).toBe(true);
+    expect(malformed.deepAnalysisRecommended).toBe(true);
     expect(malformed.requiresDeepAnalysis).toBe(true);
   });
 });
