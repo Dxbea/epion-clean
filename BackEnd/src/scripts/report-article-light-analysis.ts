@@ -302,7 +302,7 @@ function aggregateArticle(
   report.statusDistribution[article.status]++;
   const factCheckStatus = normalizeFactCheckStatus(article.factCheckStatus);
   report.factCheckStatusDistribution[factCheckStatus]++;
-  if (analysis.requiresDeepAnalysis) report.requiresDeepAnalysis.count++;
+  if (analysis.deepAnalysisRecommended) report.requiresDeepAnalysis.count++;
   for (const reason of analysis.deepAnalysisReasons) {
     reasonCounts.set(reason, (reasonCounts.get(reason) ?? 0) + 1);
   }
@@ -344,7 +344,7 @@ function aggregateArticle(
     report.inspectionCases.fragile++;
     addSample(report, 'fragile', sample, includeSamples);
   }
-  if (analysis.supportLevel === 'strong' && analysis.requiresDeepAnalysis) {
+  if (analysis.supportLevel === 'strong' && analysis.deepAnalysisRecommended) {
     report.inspectionCases.strongRequiringDeep++;
     addSample(report, 'strongRequiringDeep', sample, includeSamples);
   }
@@ -403,7 +403,7 @@ function toSample(article: ReportArticle, analysis: ArticleLightAnalysisV1): Art
     slug: article.slug,
     supportLevel: analysis.supportLevel,
     analysisConfidence: analysis.analysisConfidence,
-    requiresDeepAnalysis: analysis.requiresDeepAnalysis,
+    requiresDeepAnalysis: analysis.deepAnalysisRecommended,
     deepAnalysisReasons: analysis.deepAnalysisReasons,
   };
 }

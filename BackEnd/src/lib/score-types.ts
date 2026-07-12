@@ -86,7 +86,7 @@ export interface ArticleLightAnalysisV1 {
   deepAnalysisAvailable: true;
   /** Advisory signal from the light evaluator; it does not make deep analysis mandatory. */
   deepAnalysisRecommended: boolean;
-  /** @deprecated Use deepAnalysisRecommended. Kept temporarily for additive API compatibility. */
+  /** @deprecated Legacy alias of deepAnalysisRecommended. New consumers must not use it as the primary field. */
   requiresDeepAnalysis: boolean;
   deepAnalysisReasons: string[];
 }

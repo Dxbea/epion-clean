@@ -140,7 +140,7 @@ export default function Article() {
       ? storedFactData.calculation.sourcesMean
       : typeof storedFactData?.sourcesMean === 'number'
         ? storedFactData.sourcesMean
-        : 0;
+        : null;
 
     // Content score (liveScore / contentScore)
     const outputScore = typeof storedFactData?.calculation?.contentScore === 'number'
@@ -149,7 +149,7 @@ export default function Article() {
         ? storedFactData.calculation.liveScore
         : typeof storedFactData?.liveScore === 'number'
           ? storedFactData.liveScore
-          : 0;
+          : null;
 
     // Support level: read from payload or derive from score (fallback)
     const supportLevel = storedFactData?.supportLevel || deriveSupportLevelFromScore(factScore);
@@ -933,9 +933,9 @@ export default function Article() {
           onClose={() => setActiveModal(null)}
           data={{
             sources: normalizedSources,
-            globalScore: topLevelTransparencyData?.factScore || 0,
-            sourceScore: topLevelTransparencyData?.rawSourceScore || 0,
-            aiScore: topLevelTransparencyData?.outputScore || 0,
+            globalScore: topLevelTransparencyData?.factScore ?? null,
+            sourceScore: topLevelTransparencyData?.rawSourceScore ?? null,
+            aiScore: topLevelTransparencyData?.outputScore ?? null,
             liveAnalysis: topLevelTransparencyData?.liveAnalysis || null,
             lightAnalysis: article.lightAnalysis || null,
           }}

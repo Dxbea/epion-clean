@@ -1,5 +1,9 @@
 import type { ConfidenceLevel } from '@prisma/client';
 
+/** Current JSON structure version. Increment only when the profile shape changes. */
+export const SOURCE_PROFILE_VERSION = 1 as const;
+export const SOURCE_PROFILE_METHOD_VERSION = 'source-profile-v1' as const;
+
 export type SourceProfileConfidence = 'LOW' | 'MEDIUM' | 'HIGH';
 export type PublicTrustLabelKey =
   | 'very_strong'
@@ -46,7 +50,7 @@ export interface SourceProfileDataV1 {
   externalReferences?: SourceProfileReference[];
   claimReferences?: SourceProfileClaimReferences;
   provenance?: string[];
-  methodVersion: 'source-profile-v1';
+  methodVersion: typeof SOURCE_PROFILE_METHOD_VERSION;
 }
 
 export interface SourceProfileTrustScoreInput {
@@ -336,7 +340,7 @@ export function sanitizeSourceProfileData(input: unknown): SourceProfileDataV1 |
 
   const record = input as Record<string, unknown>;
   const output: SourceProfileDataV1 = {
-    methodVersion: 'source-profile-v1',
+    methodVersion: SOURCE_PROFILE_METHOD_VERSION,
   };
 
   const description = cleanText(record.description);
@@ -419,7 +423,7 @@ export function mergeSourceProfileData(
     externalReferences: candidate.externalReferences ?? existing.externalReferences,
     claimReferences: { ...existing.claimReferences, ...candidate.claimReferences },
     provenance: candidate.provenance ?? existing.provenance,
-    methodVersion: 'source-profile-v1',
+    methodVersion: SOURCE_PROFILE_METHOD_VERSION,
   };
 }
 

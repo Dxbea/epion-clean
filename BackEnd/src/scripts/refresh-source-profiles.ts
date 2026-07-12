@@ -6,10 +6,12 @@ import {
   buildSourceProfileDataFromTrustScore,
   normalizeSourceDomain,
   resolveSourceProfileConfidence,
+  SOURCE_PROFILE_METHOD_VERSION,
+  SOURCE_PROFILE_VERSION,
   type SourceProfileDataV1,
 } from '../lib/source-profile.js';
 
-const CURRENT_METHOD_VERSION = 'source-profile-v1';
+const CURRENT_METHOD_VERSION = SOURCE_PROFILE_METHOD_VERSION;
 const DEFAULT_BATCH_SIZE = 50;
 const SAMPLE_LIMIT = 5;
 
@@ -239,7 +241,7 @@ export async function runRefreshSourceProfiles(
         ) as ConfidenceLevel;
         const after = {
           profileData: rebuiltProfile,
-          profileVersion: Math.max(source.profileVersion ?? 0, 1),
+          profileVersion: Math.max(source.profileVersion ?? 0, SOURCE_PROFILE_VERSION),
           profileConfidence,
           lastProfiledAt: new Date(),
         };

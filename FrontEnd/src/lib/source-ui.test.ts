@@ -23,9 +23,10 @@ describe('source analysis display state', () => {
     expect(getSourceAnalysisLabel({ analysisStatus: 'METADATA_ONLY' }, 'en')).toBe('Metadata only');
   });
 
-  it('keeps the legacy fallback only when the backend status is absent', () => {
+  it('keeps only explicit legacy pending signals', () => {
     expect(isSourceAnalysisPending({ trustScore: null, type: 'PENDING' })).toBe(true);
     expect(isSourceAnalysisPending({ trustScore: 82, type: 'news' })).toBe(false);
+    expect(isSourceAnalysisPending({ trustScore: null })).toBe(false);
   });
 });
 
@@ -35,6 +36,16 @@ describe('normalizeSourceForUi', () => {
 
     expect(source.country).toBeUndefined();
     expect(source.politicalBias).toBeUndefined();
+  });
+
+  it('does not invent explanation, description, logo, flags, or a link', () => {
+    const source = normalizeSourceForUi({ name: 'example.com' }, 'Fallback inventé');
+
+    expect(source.explanation).toBeUndefined();
+    expect(source.description).toBeUndefined();
+    expect(source.logo).toBeUndefined();
+    expect(source.flags).toBeUndefined();
+    expect(source.url).toBeUndefined();
   });
 
   it('does not present a generic metadata country as a verified source country', () => {

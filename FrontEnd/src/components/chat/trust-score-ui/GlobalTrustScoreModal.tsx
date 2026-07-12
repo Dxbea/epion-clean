@@ -39,9 +39,9 @@ interface GlobalTrustScoreModalProps {
     onClose: () => void;
     data: {
         sources: Array<{ id?: number; dbScore?: number; reliability?: string; publishedAt?: string }>;
-        globalScore: number;
-        sourceScore: number;
-        aiScore: number;
+        globalScore: number | null;
+        sourceScore: number | null;
+        aiScore: number | null;
         lightAnalysis?: LightAnalysis | null;
         liveAnalysis?: {
             contentIntent: string;
@@ -62,6 +62,8 @@ const REASON_KEYS: Record<string, string> = {
     UNKNOWN_SOURCE: 'support_reason_unknown_source',
     PROFILE_COVERAGE_PARTIAL: 'support_reason_weak_profiles',
     WEAK_SOURCE_PROFILE: 'support_reason_weak_profiles',
+    SOURCE_PROFILE_INCOMPLETE: 'support_reason_weak_profiles',
+    LOW_SOURCE_REPUTATION: 'support_reason_unknown_source',
     INCOMPLETE_SOURCE_EXTRACTION: 'support_reason_incomplete_extraction',
     INCOMPLETE_EXTRACTION: 'support_reason_incomplete_extraction',
     ARTICLE_ANALYSIS_STALE: 'support_reason_stale',

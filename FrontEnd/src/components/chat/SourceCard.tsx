@@ -163,16 +163,11 @@ export default function SourceCard({ source, isFocused }: SourceCardProps) {
 
     const InternalContent = () => (
         <div className="flex items-center gap-3 overflow-hidden">
-            <div className="h-8 w-8 shrink-0 overflow-hidden rounded bg-white border border-gray-100 dark:bg-neutral-800 dark:border-neutral-700">
-                <img
-                    src={source.logo}
-                    alt={source.name}
-                    className="h-full w-full object-cover"
-                    onError={(e) => {
-                        (e.target as HTMLImageElement).src = `https://ui-avatars.com/api/?name=${source.name}&background=random&size=32`;
-                    }}
-                />
-            </div>
+            {source.logo && (
+                <div className="h-8 w-8 shrink-0 overflow-hidden rounded bg-white border border-gray-100 dark:bg-neutral-800 dark:border-neutral-700">
+                    <img src={source.logo} alt="" className="h-full w-full object-cover" />
+                </div>
+            )}
             <div className="flex flex-col min-w-0">
                 <div className="flex items-center gap-2 flex-wrap">
                     <h4 className="font-bold text-sm text-gray-900 dark:text-white truncate">
@@ -252,40 +247,40 @@ export default function SourceCard({ source, isFocused }: SourceCardProps) {
                             compact={true}
                         />
                         {platformContext.isPlatform && (
-                            <section className="rounded-xl border border-sky-200 bg-sky-50/70 p-4 dark:border-sky-900/40 dark:bg-sky-950/20">
-                                <div className="text-xs font-semibold uppercase tracking-wide text-sky-800 dark:text-sky-300">{t('source_platform_context_title')}</div>
+                            <section className="rounded-xl border border-gray-200 bg-white p-4 dark:border-white/10 dark:bg-neutral-900">
+                                <div className="text-xs font-semibold uppercase tracking-wide text-gray-500 dark:text-gray-400">{t('source_platform_context_title')}</div>
                                 <dl className="mt-3 space-y-3 text-sm">
                                     <div className="grid grid-cols-[100px_1fr] gap-3">
-                                        <dt className="font-medium text-sky-800/70 dark:text-sky-200/70">{t('source_platform_label')}</dt>
-                                        <dd className="font-semibold text-sky-950 dark:text-sky-100">{platformContext.platformLabel}</dd>
+                                        <dt className="font-medium text-gray-500">{t('source_platform_label')}</dt>
+                                        <dd className="font-semibold text-gray-900 dark:text-white">{platformContext.platformLabel}</dd>
                                     </div>
                                     {platformContext.actorName && (
                                         <div className="grid grid-cols-[100px_1fr] gap-3">
-                                            <dt className="font-medium text-sky-800/70 dark:text-sky-200/70">
+                                            <dt className="font-medium text-gray-500">
                                                 {t(`source_actor_${(platformContext.actorType ?? 'ACCOUNT').toLowerCase()}`)}
                                             </dt>
-                                            <dd className="text-sky-950 dark:text-sky-100">
+                                            <dd className="text-gray-900 dark:text-white">
                                                 {platformContext.actorUrl ? (
                                                     <a href={platformContext.actorUrl} target="_blank" rel="noopener noreferrer" className="font-semibold hover:underline">
                                                         {platformContext.actorName}
                                                     </a>
                                                 ) : <span className="font-semibold">{platformContext.actorName}</span>}
                                                 {platformContext.handle && platformContext.handle !== platformContext.actorName && (
-                                                    <span className="ml-2 text-sky-800/70 dark:text-sky-200/70">{platformContext.handle}</span>
+                                                    <span className="ml-2 text-gray-500">{platformContext.handle}</span>
                                                 )}
                                             </dd>
                                         </div>
                                     )}
                                     {platformContext.actorDescription && (
                                         <div className="grid grid-cols-[100px_1fr] gap-3">
-                                            <dt className="font-medium text-sky-800/70 dark:text-sky-200/70">{t('source_actor_info')}</dt>
-                                            <dd className="leading-6 text-sky-950/80 dark:text-sky-100/80">{platformContext.actorDescription}</dd>
+                                            <dt className="font-medium text-gray-500">{t('source_actor_info')}</dt>
+                                            <dd className="leading-6 text-gray-700 dark:text-gray-300">{platformContext.actorDescription}</dd>
                                         </div>
                                     )}
                                     {platformContext.contentTitle && (
                                         <div className="grid grid-cols-[100px_1fr] gap-3">
-                                            <dt className="font-medium text-sky-800/70 dark:text-sky-200/70">{t('source_platform_content')}</dt>
-                                            <dd className="text-sky-950 dark:text-sky-100">
+                                            <dt className="font-medium text-gray-500">{t('source_platform_content')}</dt>
+                                            <dd className="text-gray-900 dark:text-white">
                                                 {platformContext.contentUrl ? (
                                                     <a href={platformContext.contentUrl} target="_blank" rel="noopener noreferrer" className="hover:underline">
                                                         {platformContext.contentTitle}

@@ -16,6 +16,7 @@ import {
     mergeSourceProfileData,
     normalizeSourceProfileData,
     resolveSourceProfileConfidence,
+    SOURCE_PROFILE_VERSION,
 } from "./source-profile.js";
 
 export interface RichTrustScore {
@@ -299,7 +300,7 @@ export async function getRichTrustScore(
     const profileFields = shouldWriteProfile
         ? {
             profileData: mergedProfileData as object,
-            profileVersion: source?.profileVersion ?? 1,
+            profileVersion: source?.profileVersion ?? SOURCE_PROFILE_VERSION,
             profileConfidence,
             ...(profileWasBuiltOrUpdated ? { lastProfiledAt: now } : {}),
         }

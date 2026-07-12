@@ -436,19 +436,6 @@ export function extractStructuredSourceProfile(source: RawSourceLike): Structure
     };
 }
 
-const DEFAULT_FLAGS = {
-    isAdsTxtValid: true,
-    isClickbait: false,
-    isPlatform: false,
-};
-
-const DEFAULT_EXPLANATION = {
-    formula: '70% Base de donnees + 30% Analyse Live',
-    sources: ['Audit Epion (Legacy)'],
-    livePenalties: [],
-    pillarWeights: { transparency: '20%', editorial: '30%', semantic: '30%', pluralism: '20%' },
-};
-
 export function resolveSourceDomain(source: RawSourceLike): string {
     if (typeof source?.domain === 'string' && source.domain.trim()) return source.domain.trim();
     if (typeof source?.name === 'string' && source.name.trim()) return source.name.trim();
@@ -482,7 +469,7 @@ function resolveTrustScore(source: RawSourceLike): number | null {
  */
 export function normalizeSourceForUi(
     source: RawSourceLike,
-    fallbackDescription: string,
+    _fallbackDescription: string,
 ) {
     const domain = resolveSourceDomain(source);
     const trustScore = resolveTrustScore(source);
@@ -506,7 +493,7 @@ export function normalizeSourceForUi(
         ...source,
         domain,
         name: domain,
-        url: source.url || source.link || '#',
+        url: source.url || source.link || undefined,
         // Score = backend trustScore (no client-side recalculation)
         score: trustScore,
         trustScore,
@@ -515,12 +502,12 @@ export function normalizeSourceForUi(
         politicalBias: source.metadata?.politicalBias || source.politicalBias || undefined,
         reliability: source.metadata?.reliability || source.reliability || undefined,
         biasScore: source.metadata?.biasScore || source.biasScore || undefined,
-        explanation: source.explanation || source.metadata?.explanation || DEFAULT_EXPLANATION,
-        description: source.description || source.metadata?.description || fallbackDescription,
+        explanation: source.explanation || source.metadata?.explanation || undefined,
+        description: source.description || source.metadata?.description || undefined,
         type: source.type || source.category || undefined,
         category: source.category || source.type || undefined,
-        logo: source.logo || `https://www.google.com/s2/favicons?domain=${domain !== 'Source inconnue' ? domain : 'example.com'}`,
-        flags: source.flags || DEFAULT_FLAGS,
+        logo: source.logo || undefined,
+        flags: source.flags || undefined,
         metric: metrics,
         metrics,
     };
@@ -572,13 +559,7 @@ export function isSourceAnalysisPending(source: RawSourceLike): boolean {
     const status = readSourceAnalysisStatus(source);
     if (status) return status === 'PENDING';
 
-    const score = typeof source?.score === 'number'
-        ? source.score
-        : typeof source?.trustScore === 'number'
-            ? source.trustScore
-            : null;
-
-    return source?.isEnriching === true || score === null || source?.type === 'PENDING';
+    return source?.isEnriching === true || source?.type === 'PENDING';
 }
 
 export function getSourceAnalysisLabel(source: RawSourceLike, lang: 'fr' | 'en' = 'fr'): string | null {

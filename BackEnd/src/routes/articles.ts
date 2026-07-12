@@ -134,6 +134,7 @@ async function buildArticleDetailResponse(article: any) {
     ? mergeArticleSourcesForResponse(legacySources, articleSources, articleStatus)
     : legacySources;
 
+  // `sources` is the canonical public corpus. The nested copy remains an exact alias for legacy clients.
   const hydratedFactCheckData = normalizedFactCheckData
     ? { ...normalizedFactCheckData, sources: responseSources }
     : normalizedFactCheckData;
