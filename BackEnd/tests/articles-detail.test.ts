@@ -327,6 +327,14 @@ describe('article detail fact-check payloads', () => {
     expect(Array.isArray(response.body.sources)).toBe(true);
     expect(response.body.sources).toHaveLength(1);
     expect(response.body.sources[0]).toMatchObject({ sourceId: 'src_1', domain: 'example.com', analysisStatus: 'ANALYZED' });
+    expect(response.body.lightAnalysis).toMatchObject({
+      version: 1,
+      mode: 'light',
+      methodVersion: 'article-light-v1',
+    });
+    expect(response.body.factCheckScore).toBe(82);
+    expect(response.body.factCheckStatus).toBe('COMPLETED');
+    expect(response.body.factCheckData).not.toHaveProperty('lightAnalysis');
   });
 
   it('returns normalized fact-check fields and array sources from GET /api/articles/slug/:slug', async () => {
