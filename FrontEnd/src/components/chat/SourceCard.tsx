@@ -300,19 +300,24 @@ export default function SourceCard({ source, isFocused }: SourceCardProps) {
 
                         {/* 2. Ce que cette source apporte à l’article */}
                         {roleLabel && roleExplanationKey && (
-                            <section className="rounded-xl border border-indigo-200 bg-indigo-50/70 p-4 dark:border-indigo-900/40 dark:bg-indigo-950/20">
-                                <div className="text-xs font-semibold uppercase tracking-wide text-indigo-700 dark:text-indigo-300">{t('source_role_in_article')}</div>
-                                <div className="mt-2 text-sm font-semibold text-indigo-950 dark:text-indigo-100">{roleLabel}</div>
-                                <p className="mt-1 text-sm leading-6 text-indigo-950/75 dark:text-indigo-100/75">{t(roleExplanationKey)}</p>
+                            <section className="rounded-xl border border-gray-200 bg-white p-4 dark:border-white/10 dark:bg-neutral-900">
+                                <div className="text-xs font-semibold uppercase tracking-wide text-gray-500 dark:text-gray-400">{t('source_role_in_article')}</div>
+                                <div className="mt-2 text-sm font-semibold text-gray-900 dark:text-white">{roleLabel}</div>
+                                <p className="mt-1 text-sm leading-6 text-gray-600 dark:text-gray-300">{t(roleExplanationKey)}</p>
                             </section>
                         )}
 
                         {/* 3. Points de vigilance */}
                         {vigilanceItems.length > 0 && (
-                            <section className="rounded-xl border border-amber-200 bg-amber-50/70 p-4 dark:border-amber-900/40 dark:bg-amber-950/20">
-                                <div className="text-xs font-semibold uppercase tracking-wide text-amber-800 dark:text-amber-300">{t('source_section_vigilance')}</div>
-                                <ul className="mt-2 space-y-2 text-sm leading-5 text-amber-950/80 dark:text-amber-100/80">
-                                    {vigilanceItems.map((limit) => <li key={limit}>• {limit}</li>)}
+                            <section className="rounded-xl border border-gray-200 bg-white p-4 dark:border-white/10 dark:bg-neutral-900">
+                                <div className="text-xs font-semibold uppercase tracking-wide text-gray-500 dark:text-gray-400">{t('source_section_vigilance')}</div>
+                                <ul className="mt-3 space-y-2 text-sm leading-6 text-gray-600 dark:text-gray-300">
+                                    {vigilanceItems.map((limit) => (
+                                        <li key={limit} className="flex gap-2.5">
+                                            <span aria-hidden="true" className="mt-[0.65rem] h-1 w-1 shrink-0 rounded-full bg-gray-400 dark:bg-gray-500" />
+                                            <span>{limit}</span>
+                                        </li>
+                                    ))}
                                 </ul>
                             </section>
                         )}
