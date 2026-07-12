@@ -35,6 +35,10 @@ describe('cold-profiler global source profiles', () => {
         specialty: 'Hébergement et diffusion de vidéos.',
         strengths: ['Infrastructure de diffusion vidéo à grande échelle.'],
         vigilancePoints: ['La fiabilité dépend du compte, de l’auteur et du contenu cité.'],
+        claimReferences: {
+          'editorialReputation.reliabilitySignals': ['ref_1'],
+          vigilancePoints: ['ref_1'],
+        },
         reasoning: 'Profil fondé sur les références fournies.',
       }),
     });
@@ -44,9 +48,13 @@ describe('cold-profiler global source profiles', () => {
     expect(result.profileSummary).toContain('plateforme mondiale');
     expect(result.vigilancePoints).toEqual(['La fiabilité dépend du compte, de l’auteur et du contenu cité.']);
     expect(result.externalReferences).toEqual([
-      { label: 'About YouTube', url: 'https://about.youtube/', publisher: 'about.youtube', referenceType: 'Résultat de recherche externe' },
-      { label: 'YouTube business model', url: 'https://example.org/youtube-business', publisher: 'example.org', referenceType: 'Résultat de recherche externe' },
+      { id: 'ref_1', label: 'About YouTube', url: 'https://about.youtube/', publisher: 'about.youtube', referenceType: 'Résultat de recherche externe' },
+      { id: 'ref_2', label: 'YouTube business model', url: 'https://example.org/youtube-business', publisher: 'example.org', referenceType: 'Résultat de recherche externe' },
     ]);
+    expect(result.claimReferences).toEqual({
+      'editorialReputation.reliabilitySignals': ['ref_1'],
+      vigilancePoints: ['ref_1'],
+    });
     const prompt = mocks.callWebSearchLLM.mock.calls[0][0][0].content;
     expect(prompt).toContain("jamais l'article, la vidéo, le post");
     expect(prompt).toContain('décris uniquement la plateforme globale');
@@ -63,5 +71,40 @@ describe('cold-profiler global source profiles', () => {
     expect(result.vigilancePoints).toEqual([]);
     expect(result.externalReferences).toEqual([]);
     expect(mocks.callWebSearchLLM).not.toHaveBeenCalled();
+  });
+
+  it('drops sensitive claims when the model does not link them to a valid reference', async () => {
+    mocks.searchSerper.mockResolvedValue([
+      { title: 'General notice', url: 'https://example.org/notice', content: 'General source description.' },
+    ]);
+    mocks.callWebSearchLLM.mockResolvedValue({
+      answer: JSON.stringify({
+        reliability: 'MIXED',
+        sourceType: 'MEDIA',
+        politicalBias: 'UNKNOWN',
+        biasScore: 0,
+        profileSummary: 'Description neutre de la source.',
+        editorialPositioning: 'Positionnement partisan affirmé.',
+        misinformationSignals: ['Accusation de désinformation.'],
+        editorialPolicy: 'Politique de correction publiée.',
+        strengths: ['Signal de fiabilité fort.'],
+        vigilancePoints: ['Controverse alléguée.'],
+        claimReferences: {
+          'editorialReputation.editorialPolicy': ['ref_1'],
+          'editorialReputation.misinformationSignals': ['ref_999'],
+        },
+      }),
+    });
+
+    const result = await evaluateUnknownSource('example.org');
+
+    expect(result.editorialPositioning).toBeNull();
+    expect(result.misinformationSignals).toEqual([]);
+    expect(result.strengths).toEqual([]);
+    expect(result.vigilancePoints).toEqual([]);
+    expect(result.editorialPolicy).toBe('Politique de correction publiée.');
+    expect(result.claimReferences).toEqual({
+      'editorialReputation.editorialPolicy': ['ref_1'],
+    });
   });
 });

@@ -10,11 +10,14 @@ export type PublicTrustLabelKey =
   | 'unsourced';
 
 export interface SourceProfileReference {
+  id: string;
   label: string;
   url?: string;
   publisher?: string;
   referenceType?: string;
 }
+
+export type SourceProfileClaimReferences = Record<string, string[]>;
 
 export interface SourceFacts {
   ownership?: string;
@@ -41,6 +44,7 @@ export interface SourceProfileDataV1 {
   editorialReputation?: SourceEditorialReputation;
   vigilancePoints?: string[];
   externalReferences?: SourceProfileReference[];
+  claimReferences?: SourceProfileClaimReferences;
   provenance?: string[];
   methodVersion: 'source-profile-v1';
 }
@@ -66,6 +70,7 @@ export interface SourceProfileTrustScoreInput {
   misinformationSignals?: unknown;
   correctionHistory?: unknown;
   editorialPolicy?: unknown;
+  claimReferences?: unknown;
 }
 
 export interface DurableSourceProfile {
@@ -264,7 +269,7 @@ function sanitizeReferences(...values: unknown[]): SourceProfileReference[] | un
   const references = values.flatMap(listItems).flatMap((item): SourceProfileReference[] => {
     if (typeof item === 'string') {
       const label = cleanText(item);
-      return label ? [{ label }] : [];
+      return label ? [{ id: '', label }] : [];
     }
     if (!item || typeof item !== 'object') return [];
 
@@ -279,22 +284,51 @@ function sanitizeReferences(...values: unknown[]): SourceProfileReference[] | un
     const rawUrl = cleanText(record.url) ?? cleanText(record.href) ?? cleanText(record.link);
     const publisher = cleanText(record.publisher) ?? cleanText(record.editor);
     const referenceType = cleanText(record.referenceType) ?? cleanText(record.type);
-    if (!rawUrl) return [{ label, ...(publisher ? { publisher } : {}), ...(referenceType ? { referenceType } : {}) }];
+    const id = cleanText(record.id) ?? '';
+    if (!rawUrl) return [{ id, label, ...(publisher ? { publisher } : {}), ...(referenceType ? { referenceType } : {}) }];
 
     try {
       const url = new URL(rawUrl);
       return url.protocol === 'http:' || url.protocol === 'https:'
-        ? [{ label, url: url.toString(), ...(publisher ? { publisher } : {}), ...(referenceType ? { referenceType } : {}) }]
-        : [{ label, ...(publisher ? { publisher } : {}), ...(referenceType ? { referenceType } : {}) }];
+        ? [{ id, label, url: url.toString(), ...(publisher ? { publisher } : {}), ...(referenceType ? { referenceType } : {}) }]
+        : [{ id, label, ...(publisher ? { publisher } : {}), ...(referenceType ? { referenceType } : {}) }];
     } catch {
-      return [{ label, ...(publisher ? { publisher } : {}), ...(referenceType ? { referenceType } : {}) }];
+      return [{ id, label, ...(publisher ? { publisher } : {}), ...(referenceType ? { referenceType } : {}) }];
     }
   });
 
   const unique = references.filter((reference, index, all) => (
     all.findIndex((candidate) => candidate.label === reference.label && candidate.url === reference.url) === index
   ));
-  return unique.length > 0 ? unique : undefined;
+  return unique.length > 0
+    ? unique.map((reference, index) => ({ ...reference, id: reference.id || `ref_${index + 1}` }))
+    : undefined;
+}
+
+function sanitizeClaimReferences(
+  value: unknown,
+  references: SourceProfileReference[] | undefined,
+): SourceProfileClaimReferences | undefined {
+  if (!value || typeof value !== 'object' || Array.isArray(value) || !references?.length) return undefined;
+  const validIds = new Set(references.map((reference) => reference.id));
+  const output: SourceProfileClaimReferences = {};
+  for (const [path, rawIds] of Object.entries(value as Record<string, unknown>)) {
+    const cleanPath = cleanText(path);
+    if (!cleanPath || !Array.isArray(rawIds)) continue;
+    const ids = Array.from(new Set(rawIds
+      .map(cleanText)
+      .filter((id): id is string => Boolean(id && validIds.has(id)))));
+    if (ids.length > 0) output[cleanPath] = ids;
+  }
+  return Object.keys(output).length > 0 ? output : undefined;
+}
+
+function hasClaimEvidence(claimReferences: SourceProfileClaimReferences | undefined, path: string): boolean {
+  return Boolean(claimReferences?.[path]?.length);
+}
+
+function isSensitiveVigilancePoint(value: string): boolean {
+  return /(d[ée]sinformation|fake news|propagand|complot|controvers|politi|partisan|biais|orientation|accus|condamn|sanction|manquement|trompeu|mensong)/i.test(value);
 }
 
 export function sanitizeSourceProfileData(input: unknown): SourceProfileDataV1 | null {
@@ -321,6 +355,12 @@ export function sanitizeSourceProfileData(input: unknown): SourceProfileDataV1 |
   const rawReputation = record.editorialReputation && typeof record.editorialReputation === 'object' && !Array.isArray(record.editorialReputation)
     ? record.editorialReputation as Record<string, unknown>
     : {};
+  const externalReferences = sanitizeReferences(
+    record.externalReferences,
+    record.references,
+    record.reputationReferences,
+  );
+  const claimReferences = sanitizeClaimReferences(record.claimReferences, externalReferences);
   const editorialReputation: SourceEditorialReputation = {};
   const editorialPositioning = cleanText(rawReputation.editorialPositioning) ?? cleanText(record.editorialPositioning);
   const generalReputation = cleanText(rawReputation.generalReputation) ?? cleanText(record.generalReputation);
@@ -328,13 +368,13 @@ export function sanitizeSourceProfileData(input: unknown): SourceProfileDataV1 |
   const misinformationSignals = sanitizeList(rawReputation.misinformationSignals, record.misinformationSignals);
   const correctionHistory = cleanText(rawReputation.correctionHistory) ?? cleanText(record.correctionHistory);
   const editorialPolicy = cleanText(rawReputation.editorialPolicy) ?? cleanText(record.editorialPolicy);
-  if (editorialPositioning) editorialReputation.editorialPositioning = editorialPositioning;
-  if (generalReputation) editorialReputation.generalReputation = generalReputation;
-  if (reliabilitySignals) editorialReputation.reliabilitySignals = reliabilitySignals;
-  if (misinformationSignals) editorialReputation.misinformationSignals = misinformationSignals;
-  if (correctionHistory) editorialReputation.correctionHistory = correctionHistory;
-  if (editorialPolicy) editorialReputation.editorialPolicy = editorialPolicy;
-  const vigilancePoints = sanitizeList(
+  if (editorialPositioning && hasClaimEvidence(claimReferences, 'editorialReputation.editorialPositioning')) editorialReputation.editorialPositioning = editorialPositioning;
+  if (generalReputation && hasClaimEvidence(claimReferences, 'editorialReputation.generalReputation')) editorialReputation.generalReputation = generalReputation;
+  if (reliabilitySignals && hasClaimEvidence(claimReferences, 'editorialReputation.reliabilitySignals')) editorialReputation.reliabilitySignals = reliabilitySignals;
+  if (misinformationSignals && hasClaimEvidence(claimReferences, 'editorialReputation.misinformationSignals')) editorialReputation.misinformationSignals = misinformationSignals;
+  if (correctionHistory && hasClaimEvidence(claimReferences, 'editorialReputation.correctionHistory')) editorialReputation.correctionHistory = correctionHistory;
+  if (editorialPolicy && hasClaimEvidence(claimReferences, 'editorialReputation.editorialPolicy')) editorialReputation.editorialPolicy = editorialPolicy;
+  const rawVigilancePoints = sanitizeList(
     record.vigilancePoints,
     record.warnings,
     record.criticisms,
@@ -342,11 +382,9 @@ export function sanitizeSourceProfileData(input: unknown): SourceProfileDataV1 |
     record.risks,
     record.negativeSignals,
   );
-  const externalReferences = sanitizeReferences(
-    record.externalReferences,
-    record.references,
-    record.reputationReferences,
-  );
+  const vigilancePoints = rawVigilancePoints?.filter((point) => (
+    !isSensitiveVigilancePoint(point) || hasClaimEvidence(claimReferences, 'vigilancePoints')
+  ));
   const provenance = sanitizeList(record.provenance);
 
   if (description) output.description = description;
@@ -355,6 +393,7 @@ export function sanitizeSourceProfileData(input: unknown): SourceProfileDataV1 |
   if (Object.keys(editorialReputation).length > 0) output.editorialReputation = editorialReputation;
   if (vigilancePoints) output.vigilancePoints = vigilancePoints;
   if (externalReferences) output.externalReferences = externalReferences;
+  if (claimReferences) output.claimReferences = claimReferences;
   if (provenance) output.provenance = provenance;
 
   return Object.keys(output).length > 1 ? output : null;
@@ -378,6 +417,7 @@ export function mergeSourceProfileData(
     editorialReputation: { ...existing.editorialReputation, ...candidate.editorialReputation },
     vigilancePoints: candidate.vigilancePoints ?? existing.vigilancePoints,
     externalReferences: candidate.externalReferences ?? existing.externalReferences,
+    claimReferences: { ...existing.claimReferences, ...candidate.claimReferences },
     provenance: candidate.provenance ?? existing.provenance,
     methodVersion: 'source-profile-v1',
   };
@@ -388,6 +428,7 @@ export function buildSourceProfileDataFromTrustScore(
 ): SourceProfileDataV1 | null {
   const legacy = sanitizeSourceProfileData(input.profileData);
   const documentedReferences = sanitizeReferences(input.externalReferences);
+  const claimReferences = sanitizeClaimReferences(input.claimReferences, documentedReferences);
   const documentedVigilancePoints = documentedReferences
     ? sanitizeList(input.vigilancePoints)
     : undefined;
@@ -413,6 +454,7 @@ export function buildSourceProfileDataFromTrustScore(
     vigilancePoints: documentedVigilancePoints
       ?? sanitizeList(deriveTypeVigilancePoint(input.metadata?.type, input.domain)),
     externalReferences: documentedReferences,
+    claimReferences,
   });
 
   return mergeSourceProfileData(legacy, candidate);

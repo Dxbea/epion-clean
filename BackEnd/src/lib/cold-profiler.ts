@@ -26,7 +26,8 @@ export interface InvestigationResult {
     editorialPolicy?: string | null;
     strengths: string[];
     vigilancePoints: string[];
-    externalReferences: Array<{ label: string; url: string }>;
+    externalReferences: Array<{ id: string; label: string; url: string; publisher?: string; referenceType?: string }>;
+    claimReferences: Record<string, string[]>;
 }
 
 const VALID_RELIABILITIES = new Set<Reliability>([
@@ -78,7 +79,8 @@ function emptyProfileEvidence() {
         specialty: null,
         strengths: [] as string[],
         vigilancePoints: [] as string[],
-        externalReferences: [] as Array<{ label: string; url: string }>,
+        externalReferences: [] as Array<{ id: string; label: string; url: string; publisher?: string; referenceType?: string }>,
+        claimReferences: {} as Record<string, string[]>,
     };
 }
 
@@ -123,7 +125,7 @@ export async function evaluateUnknownSource(
 
     const serperContext = searchResults
         .map((result, index) => [
-            `[Result ${index + 1}]`,
+            `[ref_${index + 1}]`,
             `Title: ${result.title}`,
             `URL: ${result.url}`,
             `Snippet: ${result.content || '(no snippet)'}`,
@@ -157,6 +159,15 @@ Verdict attendu (JSON strict) :
   "correctionHistory": "Historique de corrections documenté, ou null",
   "editorialPolicy": "Politique éditoriale ou de correction publiée, ou null",
   "vigilancePoints": ["Points de vigilance explicitement documentés dans les résultats"],
+  "claimReferences": {
+    "editorialReputation.editorialPositioning": ["ref_1"],
+    "editorialReputation.generalReputation": ["ref_1"],
+    "editorialReputation.reliabilitySignals": ["ref_1"],
+    "editorialReputation.misinformationSignals": ["ref_2"],
+    "editorialReputation.correctionHistory": ["ref_1"],
+    "editorialReputation.editorialPolicy": ["ref_1"],
+    "vigilancePoints": ["ref_2"]
+  },
   "reasoning": "Court résumé des preuves trouvées (max 2 phrases)"
 }
 
@@ -185,6 +196,8 @@ Consignes supplémentaires :
 - Pour une institution, résume son mandat officiel et son autorité sur le sujet ; signale neutralement que sa communication exprime un point de vue institutionnel et n'est pas une évaluation indépendante.
 - Pour YouTube, Facebook, Dailymotion ou une autre plateforme, décris uniquement la plateforme globale. Indique que la fiabilité dépend du compte, de l'auteur et du contenu cité.
 - N'ajoute dans strengths et vigilancePoints que des éléments factuels, neutres, globaux et explicitement étayés par les résultats. Utilise [] si rien n'est documenté.
+- Toute affirmation sensible doit avoir une entrée claimReferences utilisant uniquement les IDs ref_N fournis. Sans référence précise, utilise null ou [].
+- Une preuve indirecte ou ambiguë doit être formulée prudemment et rattachée à sa référence ; une accusation ou controverse sans preuve claire doit être omise.
 - biasScore doit rester entre -100 et 100.
 - Réponds UNIQUEMENT le JSON.
 `;
@@ -221,21 +234,30 @@ Consignes supplémentaires :
         const profileSummary = normalizeProfileFact(parsed.profileSummary);
         const ownership = normalizeProfileFact(parsed.ownership);
         const businessModel = normalizeProfileFact(parsed.businessModel);
-        const editorialPositioning = normalizeProfileFact(parsed.editorialPositioning);
-        const specialty = normalizeProfileFact(parsed.specialty);
-        const coverageArea = normalizeProfileFact(parsed.coverageArea);
-        const generalReputation = normalizeProfileFact(parsed.generalReputation);
-        const misinformationSignals = normalizeDocumentedPoints(parsed.misinformationSignals);
-        const correctionHistory = normalizeProfileFact(parsed.correctionHistory);
-        const editorialPolicy = normalizeProfileFact(parsed.editorialPolicy);
-        const strengths = normalizeDocumentedPoints(parsed.strengths);
-        const vigilancePoints = normalizeDocumentedPoints(parsed.vigilancePoints);
-        const externalReferences = searchResults.map((result) => ({
+        const externalReferences = searchResults.map((result, index) => ({
+            id: `ref_${index + 1}`,
             label: result.title,
             url: result.url,
             publisher: safeHostname(result.url),
             referenceType: 'Résultat de recherche externe',
         }));
+        const claimReferences = normalizeClaimReferences(parsed.claimReferences, externalReferences.map((reference) => reference.id));
+        const editorialPositioning = hasClaimReference(claimReferences, 'editorialReputation.editorialPositioning')
+            ? normalizeProfileFact(parsed.editorialPositioning) : null;
+        const specialty = normalizeProfileFact(parsed.specialty);
+        const coverageArea = normalizeProfileFact(parsed.coverageArea);
+        const generalReputation = hasClaimReference(claimReferences, 'editorialReputation.generalReputation')
+            ? normalizeProfileFact(parsed.generalReputation) : null;
+        const misinformationSignals = hasClaimReference(claimReferences, 'editorialReputation.misinformationSignals')
+            ? normalizeDocumentedPoints(parsed.misinformationSignals) : [];
+        const correctionHistory = hasClaimReference(claimReferences, 'editorialReputation.correctionHistory')
+            ? normalizeProfileFact(parsed.correctionHistory) : null;
+        const editorialPolicy = hasClaimReference(claimReferences, 'editorialReputation.editorialPolicy')
+            ? normalizeProfileFact(parsed.editorialPolicy) : null;
+        const strengths = hasClaimReference(claimReferences, 'editorialReputation.reliabilitySignals')
+            ? normalizeDocumentedPoints(parsed.strengths) : [];
+        const vigilancePoints = hasClaimReference(claimReferences, 'vigilancePoints')
+            ? normalizeDocumentedPoints(parsed.vigilancePoints) : [];
 
         logger.info(`Investigation complete for ${domain}: ${reliability} (${sourceType})`, { module: 'ColdProfiler' });
 
@@ -259,6 +281,7 @@ Consignes supplémentaires :
             strengths,
             vigilancePoints,
             externalReferences,
+            claimReferences,
         };
     } catch (error: any) {
         logger.error(`Web investigation failed for ${domain}`, { module: 'ColdProfiler', error: error.message });
@@ -280,4 +303,20 @@ function safeHostname(value: string): string | undefined {
     } catch {
         return undefined;
     }
+}
+
+function normalizeClaimReferences(value: unknown, validReferenceIds: string[]): Record<string, string[]> {
+    if (!value || typeof value !== 'object' || Array.isArray(value)) return {};
+    const validIds = new Set(validReferenceIds);
+    const output: Record<string, string[]> = {};
+    for (const [path, rawIds] of Object.entries(value as Record<string, unknown>)) {
+        if (!Array.isArray(rawIds)) continue;
+        const ids = Array.from(new Set(rawIds.filter((id): id is string => typeof id === 'string' && validIds.has(id))));
+        if (ids.length > 0) output[path] = ids;
+    }
+    return output;
+}
+
+function hasClaimReference(claimReferences: Record<string, string[]>, path: string): boolean {
+    return Boolean(claimReferences[path]?.length);
 }

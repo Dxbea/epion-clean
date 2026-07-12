@@ -319,6 +319,7 @@ function buildRebuiltProfile(source: RefreshableSource, investigation: Investiga
     strengths: investigation.strengths,
     vigilancePoints: investigation.vigilancePoints,
     externalReferences: investigation.externalReferences,
+    claimReferences: investigation.claimReferences,
   });
 }
 

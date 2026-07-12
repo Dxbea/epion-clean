@@ -49,6 +49,10 @@ function investigation() {
     strengths: ['Politique de correction publiée.'],
     vigilancePoints: ['Ligne éditoriale documentée à contextualiser.'],
     externalReferences: [{ label: 'Notice', url: 'https://reference.example/notice' }],
+    claimReferences: {
+      'editorialReputation.reliabilitySignals': ['ref_1'],
+      vigilancePoints: ['ref_1'],
+    },
   };
 }
 

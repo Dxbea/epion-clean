@@ -99,7 +99,12 @@ describe('trust-score source profile persistence', () => {
       specialty: 'Enquêtes politiques et économiques.',
       strengths: ['Charte éditoriale documentée'],
       vigilancePoints: ['Historique à contextualiser'],
-      externalReferences: [{ label: 'Notice', url: 'https://example.org/notice' }],
+      externalReferences: [{ id: 'ref_1', label: 'Notice', url: 'https://example.org/notice' }],
+      claimReferences: {
+        'editorialReputation.editorialPositioning': ['ref_1'],
+        'editorialReputation.reliabilitySignals': ['ref_1'],
+        vigilancePoints: ['ref_1'],
+      },
     });
   });
 

@@ -46,6 +46,7 @@ describe('source-profile', () => {
       reliability: 'HIGH',
       strengths: ['Transparence documentée'],
       externalReferences: [{ name: 'Référence', href: 'https://example.com/reference' }],
+      claimReferences: { 'editorialReputation.reliabilitySignals': ['ref_1'] },
     });
 
     expect(profile).toMatchObject({
@@ -76,6 +77,7 @@ describe('source-profile', () => {
       editorialReputation: { reliabilitySignals: ['Historique éditorial documenté'] },
       vigilancePoints: ['Contexte à vérifier'],
       externalReferences: [{ label: 'Notice', url: 'https://example.com/notice' }],
+      claimReferences: { 'editorialReputation.reliabilitySignals': ['ref_1'] },
     });
     const candidate = normalizeSourceProfileData({ description: 'Description actualisée.', type: 'Média' });
     const merged = mergeSourceProfileData(existing, candidate);
@@ -139,6 +141,11 @@ describe('source-profile', () => {
       strengths: ['Charte éditoriale publiée'],
       vigilancePoints: ['Rectificatif relevé dans la référence'],
       externalReferences: [{ label: 'Notice indépendante', url: 'https://example.org/notice' }],
+      claimReferences: {
+        'editorialReputation.editorialPositioning': ['ref_1'],
+        'editorialReputation.reliabilitySignals': ['ref_1'],
+        vigilancePoints: ['ref_1'],
+      },
     });
     expect(profile?.editorialReputation?.reliabilitySignals).not.toContain('Abonnements et publicité');
     expect(profile).not.toHaveProperty('strengths');
@@ -191,6 +198,48 @@ describe('source-profile', () => {
     expect(profile?.sourceFacts).not.toHaveProperty('businessModel');
     expect(profile?.editorialReputation).toBeUndefined();
     expect(profile?.vigilancePoints).toEqual([expect.stringContaining('Limite liée au type :')]);
+  });
+
+  it('removes misinformation and editorial positioning without claim evidence', () => {
+    const profile = sanitizeSourceProfileData({
+      profileSummary: 'Ancien profil encore lisible.',
+      editorialReputation: {
+        editorialPositioning: 'Orientation politique affirmée.',
+        misinformationSignals: ['Accusation de désinformation non sourcée.'],
+      },
+      externalReferences: [{ id: 'ref_1', label: 'Notice générale', url: 'https://example.org/notice' }],
+    });
+
+    expect(profile?.profileSummary).toBe('Ancien profil encore lisible.');
+    expect(profile?.editorialReputation).toBeUndefined();
+  });
+
+  it('keeps correction policy and controversy when linked to valid references', () => {
+    const profile = sanitizeSourceProfileData({
+      editorialReputation: { editorialPolicy: 'Politique de correction publiée.' },
+      vigilancePoints: ['Controverse documentée par un observatoire indépendant.'],
+      externalReferences: [{
+        id: 'ref_policy',
+        label: 'Charte et notice',
+        url: 'https://example.org/charte',
+        publisher: 'Observatoire Exemple',
+        referenceType: 'Notice indépendante',
+      }],
+      claimReferences: {
+        'editorialReputation.editorialPolicy': ['ref_policy'],
+        vigilancePoints: ['ref_policy'],
+      },
+    });
+
+    expect(profile?.editorialReputation?.editorialPolicy).toBe('Politique de correction publiée.');
+    expect(profile?.vigilancePoints).toEqual(['Controverse documentée par un observatoire indépendant.']);
+    expect(profile?.externalReferences).toEqual([{
+      id: 'ref_policy',
+      label: 'Charte et notice',
+      url: 'https://example.org/charte',
+      publisher: 'Observatoire Exemple',
+      referenceType: 'Notice indépendante',
+    }]);
   });
 
   it('omits unreliable profile fields when neither snapshot nor DB profile is usable', async () => {

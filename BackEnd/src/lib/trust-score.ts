@@ -270,6 +270,7 @@ export async function getRichTrustScore(
         strengths: investigation?.strengths,
         vigilancePoints: investigation?.vigilancePoints,
         externalReferences: investigation?.externalReferences,
+        claimReferences: investigation?.claimReferences,
     });
     const mergedProfileData = mergeSourceProfileData(existingProfileData, generatedProfileData);
     const profileDataChanged = JSON.stringify(existingProfileData) !== JSON.stringify(mergedProfileData);
