@@ -176,7 +176,7 @@ describe('article detail fact-check payloads', () => {
     const response = await request(buildApp()).get('/api/articles/article-id');
 
     expect(response.body.sources[0]).toMatchObject({
-      profileData: { description: 'Profil durable', type: 'Média' },
+      profileData: { description: 'Profil durable', sourceFacts: { type: 'Média' } },
       profileVersion: 1,
       profileConfidence: 'MEDIUM',
       publicTrustLabel: 'strong',

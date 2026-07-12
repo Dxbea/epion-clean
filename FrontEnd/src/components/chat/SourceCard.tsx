@@ -95,6 +95,19 @@ function ScoreBadge({ score, supportLevel, isEnriching = false, analysisStatus }
     );
 }
 
+function ProfileSignalList({ title, items }: { title: string; items: string[] }) {
+    return (
+        <div>
+            <dt className="font-medium text-gray-500">{title}</dt>
+            <dd>
+                <ul className="mt-1 space-y-1.5 text-gray-800 dark:text-gray-200">
+                    {items.map((item) => <li key={item}>• {item}</li>)}
+                </ul>
+            </dd>
+        </div>
+    );
+}
+
 export default function SourceCard({ source, isFocused }: SourceCardProps) {
     const { t } = useI18n();
     const [isExpanded, setIsExpanded] = useState(false);
@@ -122,6 +135,15 @@ export default function SourceCard({ source, isFocused }: SourceCardProps) {
         analysisStatus === 'UNAVAILABLE' ? t('source_limit_unavailable') : null,
         !hasProfileData ? t('source_limit_no_profile') : null,
     ].filter((item): item is string => Boolean(item));
+    const vigilanceItems = Array.from(new Set([...profile.warnings, ...knownLimits]));
+    const hasEditorialReputation = Boolean(
+        profile.editorialPositioning
+        || profile.generalReputation
+        || profile.reliabilitySignals.length
+        || profile.misinformationSignals.length
+        || profile.correctionHistory
+        || profile.editorialPolicy
+    );
     const roleExplanationKey = roleKey ? SOURCE_ROLE_EXPLANATION_KEYS[roleKey] : undefined;
     const toggleExpanded = React.useCallback(() => {
         if (!isPending) setIsExpanded((current) => !current);
@@ -219,14 +241,16 @@ export default function SourceCard({ source, isFocused }: SourceCardProps) {
                 <div className="animate-in slide-in-from-top-2 fade-in duration-200 border-t border-gray-100 p-4 bg-gray-50/50 dark:bg-white/5 dark:border-white/5">
 
                     <div className="space-y-6">
-                        {roleLabel && roleExplanationKey && (
-                            <section className="rounded-xl border border-indigo-200 bg-indigo-50/70 p-4 dark:border-indigo-900/40 dark:bg-indigo-950/20">
-                                <div className="text-xs font-semibold uppercase tracking-wide text-indigo-700 dark:text-indigo-300">{t('source_role_in_article')}</div>
-                                <div className="mt-2 text-sm font-semibold text-indigo-950 dark:text-indigo-100">{roleLabel}</div>
-                                <p className="mt-1 text-sm leading-6 text-indigo-950/75 dark:text-indigo-100/75">{t(roleExplanationKey)}</p>
-                            </section>
-                        )}
-
+                        {/* 1. Informations sur la source */}
+                        <SourceIdentityCard
+                            name={source.name}
+                            description={source.description}
+                            country={source.country}
+                            sourceType={source.category}
+                            source={source}
+                            profile={{ ...profile, roleLabel: undefined }}
+                            compact={true}
+                        />
                         {platformContext.isPlatform && (
                             <section className="rounded-xl border border-sky-200 bg-sky-50/70 p-4 dark:border-sky-900/40 dark:bg-sky-950/20">
                                 <div className="text-xs font-semibold uppercase tracking-wide text-sky-800 dark:text-sky-300">{t('source_platform_context_title')}</div>
@@ -274,39 +298,51 @@ export default function SourceCard({ source, isFocused }: SourceCardProps) {
                             </section>
                         )}
 
-                        {/* 1. Identity & Description */}
-                        <SourceIdentityCard
-                            name={source.name}
-                            description={source.description}
-                            country={source.country}
-                            sourceType={source.category}
-                            source={source}
-                            profile={{ ...profile, roleLabel: undefined }}
-                            compact={true}
-                        />
+                        {/* 2. Ce que cette source apporte à l’article */}
+                        {roleLabel && roleExplanationKey && (
+                            <section className="rounded-xl border border-indigo-200 bg-indigo-50/70 p-4 dark:border-indigo-900/40 dark:bg-indigo-950/20">
+                                <div className="text-xs font-semibold uppercase tracking-wide text-indigo-700 dark:text-indigo-300">{t('source_role_in_article')}</div>
+                                <div className="mt-2 text-sm font-semibold text-indigo-950 dark:text-indigo-100">{roleLabel}</div>
+                                <p className="mt-1 text-sm leading-6 text-indigo-950/75 dark:text-indigo-100/75">{t(roleExplanationKey)}</p>
+                            </section>
+                        )}
 
-                        <section className="grid gap-3 sm:grid-cols-2">
-                            <div className="rounded-xl border border-gray-200 bg-white p-4 dark:border-white/10 dark:bg-neutral-900">
-                                <div className="text-xs font-semibold uppercase tracking-wide text-gray-500">{t('source_quality_title')}</div>
-                                <p className="mt-2 text-sm font-semibold text-gray-900 dark:text-white">
-                                    {getPublicSupportLabel({ backendScore: source.score, supportLevel: source.supportLevel })}
-                                </p>
-                                <p className="mt-1 text-xs leading-5 text-gray-500 dark:text-gray-400">{t('source_quality_explanation')}</p>
-                            </div>
-                            <div className="rounded-xl border border-gray-200 bg-white p-4 dark:border-white/10 dark:bg-neutral-900">
-                                <div className="text-xs font-semibold uppercase tracking-wide text-gray-500">{t('source_profile_confidence_title')}</div>
-                                <p className="mt-2 text-sm font-semibold text-gray-900 dark:text-white">
-                                    {profileConfidence ? t(`source_profile_confidence_${profileConfidence.toLowerCase()}`) : t('source_profile_confidence_unknown')}
-                                </p>
-                                <p className="mt-1 text-xs leading-5 text-gray-500 dark:text-gray-400">{t('source_profile_confidence_explanation')}</p>
-                            </div>
-                        </section>
-
-                        {knownLimits.length > 0 && (
+                        {/* 3. Points de vigilance */}
+                        {vigilanceItems.length > 0 && (
                             <section className="rounded-xl border border-amber-200 bg-amber-50/70 p-4 dark:border-amber-900/40 dark:bg-amber-950/20">
-                                <div className="text-xs font-semibold uppercase tracking-wide text-amber-800 dark:text-amber-300">{t('source_known_limits')}</div>
+                                <div className="text-xs font-semibold uppercase tracking-wide text-amber-800 dark:text-amber-300">{t('source_section_vigilance')}</div>
                                 <ul className="mt-2 space-y-2 text-sm leading-5 text-amber-950/80 dark:text-amber-100/80">
-                                    {knownLimits.map((limit) => <li key={limit}>• {limit}</li>)}
+                                    {vigilanceItems.map((limit) => <li key={limit}>• {limit}</li>)}
+                                </ul>
+                            </section>
+                        )}
+
+                        {/* 4. Positionnement éditorial / réputation */}
+                        {hasEditorialReputation && (
+                            <section className="rounded-xl border border-gray-200 bg-white p-4 dark:border-white/10 dark:bg-neutral-900">
+                                <h3 className="text-sm font-semibold text-gray-900 dark:text-white">{t('source_section_editorial_reputation')}</h3>
+                                <dl className="mt-3 space-y-3 text-sm">
+                                    {profile.editorialPositioning && <div><dt className="font-medium text-gray-500">{t('source_editorial_positioning')}</dt><dd className="mt-1 text-gray-800 dark:text-gray-200">{profile.editorialPositioning}</dd></div>}
+                                    {profile.generalReputation && <div><dt className="font-medium text-gray-500">{t('source_documented_reputation')}</dt><dd className="mt-1 text-gray-800 dark:text-gray-200">{profile.generalReputation}</dd></div>}
+                                    {profile.editorialPolicy && <div><dt className="font-medium text-gray-500">{t('source_editorial_policy')}</dt><dd className="mt-1 text-gray-800 dark:text-gray-200">{profile.editorialPolicy}</dd></div>}
+                                    {profile.correctionHistory && <div><dt className="font-medium text-gray-500">{t('source_documented_corrections')}</dt><dd className="mt-1 text-gray-800 dark:text-gray-200">{profile.correctionHistory}</dd></div>}
+                                    {profile.reliabilitySignals.length > 0 && <ProfileSignalList title={t('source_reliability_signals')} items={profile.reliabilitySignals} />}
+                                    {profile.misinformationSignals.length > 0 && <ProfileSignalList title={t('source_contextualize_signals')} items={profile.misinformationSignals} />}
+                                </dl>
+                            </section>
+                        )}
+
+                        {/* 5. Références utilisées */}
+                        {profile.references.length > 0 && (
+                            <section className="rounded-xl border border-gray-200 bg-white p-4 dark:border-white/10 dark:bg-neutral-900">
+                                <h3 className="text-sm font-semibold text-gray-900 dark:text-white">{t('source_section_references')}</h3>
+                                <ul className="mt-3 space-y-2">
+                                    {profile.references.map((reference, index) => (
+                                        <li key={`${reference.label}-${index}`} className="rounded-lg bg-gray-50 px-3 py-2 text-sm dark:bg-white/5">
+                                            {reference.url ? <a href={reference.url} target="_blank" rel="noopener noreferrer" className="font-medium text-gray-900 hover:underline dark:text-white">{reference.label}</a> : <span className="font-medium text-gray-900 dark:text-white">{reference.label}</span>}
+                                            {(reference.publisher || reference.referenceType) && <p className="mt-1 text-xs text-gray-500">{[reference.publisher, reference.referenceType].filter(Boolean).join(' · ')}</p>}
+                                        </li>
+                                    ))}
                                 </ul>
                             </section>
                         )}
@@ -315,6 +351,9 @@ export default function SourceCard({ source, isFocused }: SourceCardProps) {
                             <details className="rounded-xl border border-gray-200 bg-white p-4 dark:border-white/10 dark:bg-neutral-900">
                                 <summary className="cursor-pointer text-xs font-bold uppercase tracking-wide text-gray-600 dark:text-gray-300">Détails techniques</summary>
                                 <div className="mt-3">
+                                <p className="mb-3 text-xs text-gray-500 dark:text-gray-400">
+                                    {t('source_profile_confidence_title')} : {profileConfidence ? t(`source_profile_confidence_${profileConfidence.toLowerCase()}`) : t('source_profile_confidence_unknown')}
+                                </p>
                                 <div className="flex items-center justify-between gap-3">
                                     <span className="text-[11px] font-medium text-gray-600 dark:text-gray-300">
                                         Score backend de la source

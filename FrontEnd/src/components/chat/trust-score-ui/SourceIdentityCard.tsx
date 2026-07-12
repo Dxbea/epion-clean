@@ -1,5 +1,6 @@
 import React from 'react';
 import { extractStructuredSourceProfile, type StructuredSourceProfile } from '@/lib/source-ui';
+import { useI18n } from '@/i18n/I18nContext';
 
 interface SourceIdentityCardProps {
     name: string;
@@ -14,29 +15,8 @@ interface SourceIdentityCardProps {
     compact?: boolean;
 }
 
-function ProfileList({ title, items, cautious = false }: { title: string; items: string[]; cautious?: boolean }) {
-    if (items.length === 0) return null;
-
-    return (
-        <div className="space-y-1.5">
-            <dt className="text-xs font-semibold uppercase tracking-wide text-gray-500 dark:text-gray-400">{title}</dt>
-            {cautious && (
-                <dd className="text-xs leading-5 text-gray-500 dark:text-gray-400">Éléments signalés par l’analyse.</dd>
-            )}
-            <dd>
-                <ul className="space-y-1.5">
-                    {items.map((item, index) => (
-                        <li key={`${title}-${index}`} className="rounded-lg border border-gray-200 bg-gray-50 px-3 py-2 text-sm leading-5 text-gray-700 dark:border-white/10 dark:bg-white/5 dark:text-gray-300">
-                            {item}
-                        </li>
-                    ))}
-                </ul>
-            </dd>
-        </div>
-    );
-}
-
 export function SourceIdentityCard({ name, description, country, sourceType, articleRole, source, profile, compact = false }: SourceIdentityCardProps) {
+    const { t } = useI18n();
     const extractedProfile = profile ?? extractStructuredSourceProfile({
         ...(source ?? {}),
         description: description ?? source?.description,
@@ -49,19 +29,41 @@ export function SourceIdentityCard({ name, description, country, sourceType, art
         extractedProfile.countryLabel
         || extractedProfile.typeLabel
         || extractedProfile.description
-        || extractedProfile.roleLabel
         || extractedProfile.analyzedAtLabel
+        || Object.values(extractedProfile.sourceFacts).some(Boolean)
     );
-    const hasListFields = extractedProfile.strengths.length > 0
-        || extractedProfile.warnings.length > 0
-        || extractedProfile.references.length > 0;
 
-    if (!hasSummaryFields && !hasListFields) return null;
+    if (!hasSummaryFields) return null;
 
     return (
         <div className="rounded-lg border border-gray-200 bg-white p-4 dark:border-white/10 dark:bg-neutral-900">
-            {!compact && <h3 className="mb-4 text-base font-semibold text-gray-900 dark:text-white">{name}</h3>}
+            <h3 className="mb-4 text-sm font-semibold text-gray-900 dark:text-white">{t('source_section_information')}</h3>
+            {!compact && <p className="mb-4 text-base font-semibold text-gray-900 dark:text-white">{name}</p>}
             <dl className="space-y-3 text-sm">
+                {extractedProfile.sourceFacts.ownership && (
+                    <div className="grid grid-cols-[130px_1fr] gap-3">
+                        <dt className="font-medium text-gray-500">{t('source_fact_ownership')}</dt>
+                        <dd className="text-gray-800 dark:text-gray-200">{extractedProfile.sourceFacts.ownership}</dd>
+                    </div>
+                )}
+                {extractedProfile.sourceFacts.businessModel && (
+                    <div className="grid grid-cols-[130px_1fr] gap-3">
+                        <dt className="font-medium text-gray-500">{t('source_fact_business_model')}</dt>
+                        <dd className="text-gray-800 dark:text-gray-200">{extractedProfile.sourceFacts.businessModel}</dd>
+                    </div>
+                )}
+                {extractedProfile.sourceFacts.specialty && (
+                    <div className="grid grid-cols-[130px_1fr] gap-3">
+                        <dt className="font-medium text-gray-500">{t('source_fact_specialty')}</dt>
+                        <dd className="text-gray-800 dark:text-gray-200">{extractedProfile.sourceFacts.specialty}</dd>
+                    </div>
+                )}
+                {extractedProfile.sourceFacts.coverageArea && (
+                    <div className="grid grid-cols-[130px_1fr] gap-3">
+                        <dt className="font-medium text-gray-500">{t('source_fact_coverage')}</dt>
+                        <dd className="text-gray-800 dark:text-gray-200">{extractedProfile.sourceFacts.coverageArea}</dd>
+                    </div>
+                )}
                 {extractedProfile.countryLabel && (
                     <div className="grid grid-cols-[90px_1fr] gap-3">
                         <dt className="font-medium text-gray-500">Pays</dt>
@@ -80,36 +82,10 @@ export function SourceIdentityCard({ name, description, country, sourceType, art
                         <dd className="leading-relaxed text-gray-700 dark:text-gray-300">{extractedProfile.description}</dd>
                     </div>
                 )}
-                {extractedProfile.roleLabel && (
-                    <div className="grid grid-cols-[90px_1fr] gap-3">
-                        <dt className="font-medium text-gray-500">Rôle dans l’article</dt>
-                        <dd className="text-gray-800 dark:text-gray-200">{extractedProfile.roleLabel}</dd>
-                    </div>
-                )}
                 {extractedProfile.analyzedAtLabel && (
                     <div className="grid grid-cols-[90px_1fr] gap-3">
                         <dt className="font-medium text-gray-500">Dernière analyse</dt>
                         <dd className="text-gray-800 dark:text-gray-200">{extractedProfile.analyzedAtLabel}</dd>
-                    </div>
-                )}
-                <ProfileList title="Éléments favorables" items={extractedProfile.strengths} />
-                <ProfileList title="Points de vigilance" items={extractedProfile.warnings} cautious />
-                {extractedProfile.references.length > 0 && (
-                    <div className="space-y-1.5">
-                        <dt className="text-xs font-semibold uppercase tracking-wide text-gray-500 dark:text-gray-400">Références du profil</dt>
-                        <dd>
-                            <ul className="space-y-1.5">
-                                {extractedProfile.references.map((reference, index) => (
-                                    <li key={`${reference.label}-${index}`} className="rounded-lg border border-gray-200 bg-gray-50 px-3 py-2 text-sm leading-5 text-gray-700 dark:border-white/10 dark:bg-white/5 dark:text-gray-300">
-                                        {reference.url ? (
-                                            <a href={reference.url} target="_blank" rel="noopener noreferrer" className="hover:text-gray-950 hover:underline dark:hover:text-white">
-                                                {reference.label}
-                                            </a>
-                                        ) : reference.label}
-                                    </li>
-                                ))}
-                            </ul>
-                        </dd>
                     </div>
                 )}
             </dl>

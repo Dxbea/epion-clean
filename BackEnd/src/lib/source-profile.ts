@@ -12,18 +12,33 @@ export type PublicTrustLabelKey =
 export interface SourceProfileReference {
   label: string;
   url?: string;
+  publisher?: string;
+  referenceType?: string;
+}
+
+export interface SourceFacts {
+  ownership?: string;
+  businessModel?: string;
+  specialty?: string;
+  country?: string;
+  type?: string;
+  coverageArea?: string;
+}
+
+export interface SourceEditorialReputation {
+  editorialPositioning?: string;
+  generalReputation?: string;
+  reliabilitySignals?: string[];
+  misinformationSignals?: string[];
+  correctionHistory?: string;
+  editorialPolicy?: string;
 }
 
 export interface SourceProfileDataV1 {
   description?: string;
   profileSummary?: string;
-  ownership?: string;
-  businessModel?: string;
-  editorialPositioning?: string;
-  specialty?: string;
-  country?: string;
-  type?: string;
-  strengths?: string[];
+  sourceFacts?: SourceFacts;
+  editorialReputation?: SourceEditorialReputation;
   vigilancePoints?: string[];
   externalReferences?: SourceProfileReference[];
   provenance?: string[];
@@ -46,6 +61,11 @@ export interface SourceProfileTrustScoreInput {
   businessModel?: unknown;
   editorialPositioning?: unknown;
   specialty?: unknown;
+  coverageArea?: unknown;
+  generalReputation?: unknown;
+  misinformationSignals?: unknown;
+  correctionHistory?: unknown;
+  editorialPolicy?: unknown;
 }
 
 export interface DurableSourceProfile {
@@ -257,15 +277,17 @@ function sanitizeReferences(...values: unknown[]): SourceProfileReference[] | un
     if (!label) return [];
 
     const rawUrl = cleanText(record.url) ?? cleanText(record.href) ?? cleanText(record.link);
-    if (!rawUrl) return [{ label }];
+    const publisher = cleanText(record.publisher) ?? cleanText(record.editor);
+    const referenceType = cleanText(record.referenceType) ?? cleanText(record.type);
+    if (!rawUrl) return [{ label, ...(publisher ? { publisher } : {}), ...(referenceType ? { referenceType } : {}) }];
 
     try {
       const url = new URL(rawUrl);
       return url.protocol === 'http:' || url.protocol === 'https:'
-        ? [{ label, url: url.toString() }]
-        : [{ label }];
+        ? [{ label, url: url.toString(), ...(publisher ? { publisher } : {}), ...(referenceType ? { referenceType } : {}) }]
+        : [{ label, ...(publisher ? { publisher } : {}), ...(referenceType ? { referenceType } : {}) }];
     } catch {
-      return [{ label }];
+      return [{ label, ...(publisher ? { publisher } : {}), ...(referenceType ? { referenceType } : {}) }];
     }
   });
 
@@ -285,13 +307,33 @@ export function sanitizeSourceProfileData(input: unknown): SourceProfileDataV1 |
 
   const description = cleanText(record.description);
   const profileSummary = cleanText(record.profileSummary) ?? description;
-  const ownership = cleanText(record.ownership);
-  const businessModel = cleanText(record.businessModel);
-  const editorialPositioning = cleanText(record.editorialPositioning);
-  const specialty = cleanText(record.specialty);
-  const country = sanitizeCountry(record.country);
-  const type = sanitizeType(record.type);
-  const strengths = sanitizeList(record.strengths, record.positiveSignals, record.favorableElements);
+  const rawFacts = record.sourceFacts && typeof record.sourceFacts === 'object' && !Array.isArray(record.sourceFacts)
+    ? record.sourceFacts as Record<string, unknown>
+    : {};
+  const sourceFacts: SourceFacts = {
+    ...(cleanText(rawFacts.ownership) ?? cleanText(record.ownership) ? { ownership: cleanText(rawFacts.ownership) ?? cleanText(record.ownership) } : {}),
+    ...(cleanText(rawFacts.businessModel) ?? cleanText(record.businessModel) ? { businessModel: cleanText(rawFacts.businessModel) ?? cleanText(record.businessModel) } : {}),
+    ...(cleanText(rawFacts.specialty) ?? cleanText(record.specialty) ? { specialty: cleanText(rawFacts.specialty) ?? cleanText(record.specialty) } : {}),
+    ...(sanitizeCountry(rawFacts.country ?? record.country) ? { country: sanitizeCountry(rawFacts.country ?? record.country) } : {}),
+    ...(sanitizeType(rawFacts.type ?? record.type) ? { type: sanitizeType(rawFacts.type ?? record.type) } : {}),
+    ...(cleanText(rawFacts.coverageArea) ?? cleanText(record.coverageArea) ? { coverageArea: cleanText(rawFacts.coverageArea) ?? cleanText(record.coverageArea) } : {}),
+  };
+  const rawReputation = record.editorialReputation && typeof record.editorialReputation === 'object' && !Array.isArray(record.editorialReputation)
+    ? record.editorialReputation as Record<string, unknown>
+    : {};
+  const editorialReputation: SourceEditorialReputation = {};
+  const editorialPositioning = cleanText(rawReputation.editorialPositioning) ?? cleanText(record.editorialPositioning);
+  const generalReputation = cleanText(rawReputation.generalReputation) ?? cleanText(record.generalReputation);
+  const reliabilitySignals = sanitizeList(rawReputation.reliabilitySignals, record.strengths, record.positiveSignals);
+  const misinformationSignals = sanitizeList(rawReputation.misinformationSignals, record.misinformationSignals);
+  const correctionHistory = cleanText(rawReputation.correctionHistory) ?? cleanText(record.correctionHistory);
+  const editorialPolicy = cleanText(rawReputation.editorialPolicy) ?? cleanText(record.editorialPolicy);
+  if (editorialPositioning) editorialReputation.editorialPositioning = editorialPositioning;
+  if (generalReputation) editorialReputation.generalReputation = generalReputation;
+  if (reliabilitySignals) editorialReputation.reliabilitySignals = reliabilitySignals;
+  if (misinformationSignals) editorialReputation.misinformationSignals = misinformationSignals;
+  if (correctionHistory) editorialReputation.correctionHistory = correctionHistory;
+  if (editorialPolicy) editorialReputation.editorialPolicy = editorialPolicy;
   const vigilancePoints = sanitizeList(
     record.vigilancePoints,
     record.warnings,
@@ -309,13 +351,8 @@ export function sanitizeSourceProfileData(input: unknown): SourceProfileDataV1 |
 
   if (description) output.description = description;
   if (profileSummary) output.profileSummary = profileSummary;
-  if (ownership) output.ownership = ownership;
-  if (businessModel) output.businessModel = businessModel;
-  if (editorialPositioning) output.editorialPositioning = editorialPositioning;
-  if (specialty) output.specialty = specialty;
-  if (country) output.country = country;
-  if (type) output.type = type;
-  if (strengths) output.strengths = strengths;
+  if (Object.keys(sourceFacts).length > 0) output.sourceFacts = sourceFacts;
+  if (Object.keys(editorialReputation).length > 0) output.editorialReputation = editorialReputation;
   if (vigilancePoints) output.vigilancePoints = vigilancePoints;
   if (externalReferences) output.externalReferences = externalReferences;
   if (provenance) output.provenance = provenance;
@@ -337,7 +374,8 @@ export function mergeSourceProfileData(
   return {
     ...existing,
     ...candidate,
-    strengths: candidate.strengths ?? existing.strengths,
+    sourceFacts: { ...existing.sourceFacts, ...candidate.sourceFacts },
+    editorialReputation: { ...existing.editorialReputation, ...candidate.editorialReputation },
     vigilancePoints: candidate.vigilancePoints ?? existing.vigilancePoints,
     externalReferences: candidate.externalReferences ?? existing.externalReferences,
     provenance: candidate.provenance ?? existing.provenance,
@@ -356,13 +394,22 @@ export function buildSourceProfileDataFromTrustScore(
   const candidate = sanitizeSourceProfileData({
     description: input.metadata?.description,
     profileSummary: documentedReferences ? input.profileSummary : input.metadata?.description,
-    ownership: documentedReferences ? input.ownership : undefined,
-    businessModel: documentedReferences ? input.businessModel : undefined,
-    editorialPositioning: documentedReferences ? input.editorialPositioning : undefined,
-    specialty: documentedReferences ? input.specialty : undefined,
-    country: input.metadata?.country,
-    type: input.metadata?.type,
-    strengths: documentedReferences ? input.strengths : undefined,
+    sourceFacts: {
+      ownership: documentedReferences ? input.ownership : undefined,
+      businessModel: documentedReferences ? input.businessModel : undefined,
+      specialty: documentedReferences ? input.specialty : undefined,
+      coverageArea: documentedReferences ? input.coverageArea : undefined,
+      country: input.metadata?.country,
+      type: input.metadata?.type,
+    },
+    editorialReputation: {
+      editorialPositioning: documentedReferences ? input.editorialPositioning : undefined,
+      generalReputation: documentedReferences ? input.generalReputation : undefined,
+      reliabilitySignals: documentedReferences ? input.strengths : undefined,
+      misinformationSignals: documentedReferences ? input.misinformationSignals : undefined,
+      correctionHistory: documentedReferences ? input.correctionHistory : undefined,
+      editorialPolicy: documentedReferences ? input.editorialPolicy : undefined,
+    },
     vigilancePoints: documentedVigilancePoints
       ?? sanitizeList(deriveTypeVigilancePoint(input.metadata?.type, input.domain)),
     externalReferences: documentedReferences,

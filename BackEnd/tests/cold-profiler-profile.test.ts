@@ -44,8 +44,8 @@ describe('cold-profiler global source profiles', () => {
     expect(result.profileSummary).toContain('plateforme mondiale');
     expect(result.vigilancePoints).toEqual(['La fiabilité dépend du compte, de l’auteur et du contenu cité.']);
     expect(result.externalReferences).toEqual([
-      { label: 'About YouTube', url: 'https://about.youtube/' },
-      { label: 'YouTube business model', url: 'https://example.org/youtube-business' },
+      { label: 'About YouTube', url: 'https://about.youtube/', publisher: 'about.youtube', referenceType: 'Résultat de recherche externe' },
+      { label: 'YouTube business model', url: 'https://example.org/youtube-business', publisher: 'example.org', referenceType: 'Résultat de recherche externe' },
     ]);
     const prompt = mocks.callWebSearchLLM.mock.calls[0][0][0].content;
     expect(prompt).toContain("jamais l'article, la vidéo, le post");

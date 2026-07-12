@@ -99,11 +99,12 @@ export function parseRefreshSourceProfilesOptions(argv: string[]): RefreshSource
 
 export function detectProfileRefreshReasons(source: RefreshableSource): string[] {
   const profile = asRecord(source.profileData);
+  const editorialReputation = asRecord(profile.editorialReputation);
   const reasons: string[] = [];
 
   if (!source.profileData || Object.keys(profile).length === 0) reasons.push('profile_data_missing');
   if (!cleanText(profile.profileSummary)) reasons.push('profile_summary_missing');
-  if (!hasNonEmptyArray(profile.strengths)) reasons.push('strengths_missing');
+  if (!hasNonEmptyArray(editorialReputation.reliabilitySignals) && !hasNonEmptyArray(profile.strengths)) reasons.push('strengths_missing');
   if (!hasNonEmptyArray(profile.vigilancePoints)) reasons.push('vigilance_points_missing');
   if (!hasNonEmptyArray(profile.externalReferences)) reasons.push('external_references_missing');
   if (source.profileConfidence === 'LOW') reasons.push('low_confidence');
@@ -279,6 +280,11 @@ function buildRebuiltProfile(source: RefreshableSource, investigation: Investiga
     businessModel: investigation.businessModel,
     editorialPositioning: investigation.editorialPositioning,
     specialty: investigation.specialty,
+    coverageArea: investigation.coverageArea,
+    generalReputation: investigation.generalReputation,
+    misinformationSignals: investigation.misinformationSignals,
+    correctionHistory: investigation.correctionHistory,
+    editorialPolicy: investigation.editorialPolicy,
     strengths: investigation.strengths,
     vigilancePoints: investigation.vigilancePoints,
     externalReferences: investigation.externalReferences,

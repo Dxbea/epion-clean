@@ -21,8 +21,7 @@ describe('source-profile', () => {
     expect(profile).toMatchObject({
       description: 'Description publique.',
       profileSummary: 'Description publique.',
-      country: 'FR',
-      type: 'Média',
+      sourceFacts: { country: 'FR', type: 'Média' },
       methodVersion: 'source-profile-v1',
     });
     expect(profile).not.toHaveProperty('trustScore');
@@ -51,8 +50,8 @@ describe('source-profile', () => {
 
     expect(profile).toMatchObject({
       description: 'Profil utile.',
-      type: 'Commercial',
-      strengths: ['Transparence documentée'],
+      sourceFacts: { type: 'Commercial' },
+      editorialReputation: { reliabilitySignals: ['Transparence documentée'] },
       externalReferences: [{ label: 'Référence', url: 'https://example.com/reference' }],
     });
     expect(profile).not.toHaveProperty('trustScore');
@@ -66,15 +65,15 @@ describe('source-profile', () => {
       metadata: { description: 'Sans pays.', type: 'MEDIA' },
     });
 
-    expect(profile).toMatchObject({ description: 'Sans pays.', type: 'Média' });
-    expect(profile).not.toHaveProperty('country');
+    expect(profile).toMatchObject({ description: 'Sans pays.', sourceFacts: { type: 'Média' } });
+    expect(profile?.sourceFacts).not.toHaveProperty('country');
   });
 
   it('preserves richer existing profile data when the new profile is poorer', () => {
     const existing = normalizeSourceProfileData({
       description: 'Description existante.',
       type: 'Média',
-      strengths: ['Historique éditorial documenté'],
+      editorialReputation: { reliabilitySignals: ['Historique éditorial documenté'] },
       vigilancePoints: ['Contexte à vérifier'],
       externalReferences: [{ label: 'Notice', url: 'https://example.com/notice' }],
     });
@@ -83,7 +82,7 @@ describe('source-profile', () => {
 
     expect(merged).toMatchObject({
       description: 'Description actualisée.',
-      strengths: ['Historique éditorial documenté'],
+      editorialReputation: { reliabilitySignals: ['Historique éditorial documenté'] },
       vigilancePoints: ['Contexte à vérifier'],
       externalReferences: [{ label: 'Notice', url: 'https://example.com/notice' }],
     });
@@ -125,7 +124,7 @@ describe('source-profile', () => {
     expect(profile?.vigilancePoints).toEqual([
       expect.stringContaining('Limite liée au type :'),
     ]);
-    expect(profile?.strengths).toBeUndefined();
+    expect(profile?.editorialReputation).toBeUndefined();
   });
 
   it('keeps documented strengths, vigilance points and profile references', () => {
@@ -135,20 +134,26 @@ describe('source-profile', () => {
       profileSummary: 'Média national documenté par les références.',
       ownership: 'Groupe Exemple',
       businessModel: 'Abonnements et publicité',
-      editorialPositioning: 'Ligne éditoriale généraliste',
       specialty: 'Actualité nationale',
+      editorialPositioning: 'Ligne éditoriale généraliste',
       strengths: ['Charte éditoriale publiée'],
       vigilancePoints: ['Rectificatif relevé dans la référence'],
       externalReferences: [{ label: 'Notice indépendante', url: 'https://example.org/notice' }],
     });
+    expect(profile?.editorialReputation?.reliabilitySignals).not.toContain('Abonnements et publicité');
+    expect(profile).not.toHaveProperty('strengths');
 
     expect(profile).toMatchObject({
       profileSummary: 'Média national documenté par les références.',
-      ownership: 'Groupe Exemple',
-      businessModel: 'Abonnements et publicité',
-      editorialPositioning: 'Ligne éditoriale généraliste',
-      specialty: 'Actualité nationale',
-      strengths: ['Charte éditoriale publiée'],
+      sourceFacts: {
+        ownership: 'Groupe Exemple',
+        businessModel: 'Abonnements et publicité',
+        specialty: 'Actualité nationale',
+      },
+      editorialReputation: {
+        editorialPositioning: 'Ligne éditoriale généraliste',
+        reliabilitySignals: ['Charte éditoriale publiée'],
+      },
       vigilancePoints: ['Rectificatif relevé dans la référence'],
       externalReferences: [{ label: 'Notice indépendante', url: 'https://example.org/notice' }],
     });
@@ -166,7 +171,7 @@ describe('source-profile', () => {
 
     expect(profile).toMatchObject({
       profileSummary: 'Institution chargée par la loi de publier les statistiques nationales.',
-      specialty: 'Statistiques publiques',
+      sourceFacts: { specialty: 'Statistiques publiques' },
       vigilancePoints: ['Sa communication présente le point de vue de l’institution et ne constitue pas une évaluation indépendante.'],
     });
   });
@@ -182,9 +187,9 @@ describe('source-profile', () => {
       externalReferences: [],
     });
 
-    expect(profile).not.toHaveProperty('ownership');
-    expect(profile).not.toHaveProperty('businessModel');
-    expect(profile).not.toHaveProperty('strengths');
+    expect(profile?.sourceFacts).not.toHaveProperty('ownership');
+    expect(profile?.sourceFacts).not.toHaveProperty('businessModel');
+    expect(profile?.editorialReputation).toBeUndefined();
     expect(profile?.vigilancePoints).toEqual([expect.stringContaining('Limite liée au type :')]);
   });
 

@@ -19,6 +19,11 @@ export interface InvestigationResult {
     businessModel: string | null;
     editorialPositioning: string | null;
     specialty: string | null;
+    coverageArea?: string | null;
+    generalReputation?: string | null;
+    misinformationSignals?: string[];
+    correctionHistory?: string | null;
+    editorialPolicy?: string | null;
     strengths: string[];
     vigilancePoints: string[];
     externalReferences: Array<{ label: string; url: string }>;
@@ -145,7 +150,12 @@ Verdict attendu (JSON strict) :
   "businessModel": "Modèle économique documenté, ou null",
   "editorialPositioning": "Positionnement éditorial documenté, formulé sans jugement, ou null",
   "specialty": "Domaine de spécialité documenté, ou null",
-  "strengths": ["Éléments favorables explicitement documentés dans les résultats"],
+  "coverageArea": "Pays, région ou zone principalement couverte, ou null",
+  "generalReputation": "Réputation générale documentée, formulée prudemment, ou null",
+  "strengths": ["Signaux de fiabilité documentés : politique de correction, méthode éditoriale ou reconnaissance indépendante"],
+  "misinformationSignals": ["Signaux de désinformation ou manquements uniquement s'ils sont solidement documentés"],
+  "correctionHistory": "Historique de corrections documenté, ou null",
+  "editorialPolicy": "Politique éditoriale ou de correction publiée, ou null",
   "vigilancePoints": ["Points de vigilance explicitement documentés dans les résultats"],
   "reasoning": "Court résumé des preuves trouvées (max 2 phrases)"
 }
@@ -170,6 +180,8 @@ Consignes supplémentaires :
 - Génère une courte biographie globale de la source (max 15 mots), sans reprendre le titre ni la description d'un contenu individuel.
 - Chaque fait spécifique doit être directement étayé par au moins un résultat fourni. Utilise null ou [] si l'information n'est pas documentée.
 - Pour un média, recherche propriété, modèle économique, spécialité et positionnement éditorial documenté.
+- Ne place jamais dans strengths le modèle économique, le nombre de salariés, la taille, l'ancienneté, un slogan ou une fonctionnalité du site. Ces éléments ne sont pas des preuves de fiabilité.
+- strengths est réservé aux signaux de fiabilité documentés. misinformationSignals est réservé aux signaux négatifs étayés par une référence solide.
 - Pour une institution, résume son mandat officiel et son autorité sur le sujet ; signale neutralement que sa communication exprime un point de vue institutionnel et n'est pas une évaluation indépendante.
 - Pour YouTube, Facebook, Dailymotion ou une autre plateforme, décris uniquement la plateforme globale. Indique que la fiabilité dépend du compte, de l'auteur et du contenu cité.
 - N'ajoute dans strengths et vigilancePoints que des éléments factuels, neutres, globaux et explicitement étayés par les résultats. Utilise [] si rien n'est documenté.
@@ -211,9 +223,19 @@ Consignes supplémentaires :
         const businessModel = normalizeProfileFact(parsed.businessModel);
         const editorialPositioning = normalizeProfileFact(parsed.editorialPositioning);
         const specialty = normalizeProfileFact(parsed.specialty);
+        const coverageArea = normalizeProfileFact(parsed.coverageArea);
+        const generalReputation = normalizeProfileFact(parsed.generalReputation);
+        const misinformationSignals = normalizeDocumentedPoints(parsed.misinformationSignals);
+        const correctionHistory = normalizeProfileFact(parsed.correctionHistory);
+        const editorialPolicy = normalizeProfileFact(parsed.editorialPolicy);
         const strengths = normalizeDocumentedPoints(parsed.strengths);
         const vigilancePoints = normalizeDocumentedPoints(parsed.vigilancePoints);
-        const externalReferences = searchResults.map((result) => ({ label: result.title, url: result.url }));
+        const externalReferences = searchResults.map((result) => ({
+            label: result.title,
+            url: result.url,
+            publisher: safeHostname(result.url),
+            referenceType: 'Résultat de recherche externe',
+        }));
 
         logger.info(`Investigation complete for ${domain}: ${reliability} (${sourceType})`, { module: 'ColdProfiler' });
 
@@ -229,6 +251,11 @@ Consignes supplémentaires :
             businessModel,
             editorialPositioning,
             specialty,
+            coverageArea,
+            generalReputation,
+            misinformationSignals,
+            correctionHistory,
+            editorialPolicy,
             strengths,
             vigilancePoints,
             externalReferences,
@@ -244,5 +271,13 @@ Consignes supplémentaires :
             shortBio: null,
             ...emptyProfileEvidence(),
         };
+    }
+}
+
+function safeHostname(value: string): string | undefined {
+    try {
+        return new URL(value).hostname.replace(/^www\./, '');
+    } catch {
+        return undefined;
     }
 }

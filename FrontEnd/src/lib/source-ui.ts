@@ -48,6 +48,8 @@ const PUBLIC_CONTENT_INTENT_LABELS: Record<string, string> = {
 export type StructuredSourceReference = {
     label: string;
     url?: string;
+    publisher?: string;
+    referenceType?: string;
 };
 
 export type StructuredSourceProfile = {
@@ -55,6 +57,18 @@ export type StructuredSourceProfile = {
     typeLabel?: string;
     description?: string;
     roleLabel?: string;
+    sourceFacts: {
+        ownership?: string;
+        businessModel?: string;
+        specialty?: string;
+        coverageArea?: string;
+    };
+    editorialPositioning?: string;
+    generalReputation?: string;
+    reliabilitySignals: string[];
+    misinformationSignals: string[];
+    correctionHistory?: string;
+    editorialPolicy?: string;
     strengths: string[];
     warnings: string[];
     references: StructuredSourceReference[];
@@ -237,7 +251,14 @@ function collectReferences(...values: unknown[]): StructuredSourceReference[] {
             if (!label) return null;
 
             const url = readFirstString(record.url, record.href, record.link);
-            return url ? { label, url } : { label };
+            const publisher = readFirstString(record.publisher, record.editor);
+            const referenceType = readFirstString(record.referenceType, record.type);
+            return {
+                label,
+                ...(url ? { url } : {}),
+                ...(publisher ? { publisher } : {}),
+                ...(referenceType ? { referenceType } : {}),
+            };
         })
         .filter((item): item is StructuredSourceReference => Boolean(item));
 
@@ -292,10 +313,25 @@ export function extractStructuredSourceProfile(source: RawSourceLike): Structure
     const reputation = readRecord(source?.reputation ?? metadata.reputation ?? profileData.reputation);
     const externalReputation = readRecord(source?.externalReputation ?? metadata.externalReputation ?? profileData.externalReputation);
     const audit = readRecord(source?.audit ?? metadata.audit ?? profileData.audit);
+    const sourceFacts = readRecord(profileData.sourceFacts);
+    const editorialReputation = readRecord(profileData.editorialReputation);
+    const reliabilitySignals = collectListValues(
+        editorialReputation.reliabilitySignals,
+        source.strengths,
+        source.positiveSignals,
+        metadata.strengths,
+        metadata.positiveSignals,
+        profile.strengths,
+        profileData.strengths,
+        profileData.positiveSignals,
+        profileData.favorableElements,
+        sourceProfile.strengths,
+        reputation.strengths
+    );
 
     return {
-        countryLabel: countryToPublicLabel(source.country ?? profile.country ?? profileData.country ?? sourceProfile.country),
-        typeLabel: formatPublicSourceType(source.category ?? source.type ?? metadata.type ?? metadata.category ?? profile.type ?? profileData.type ?? sourceProfile.type) ?? undefined,
+        countryLabel: countryToPublicLabel(source.country ?? profile.country ?? sourceFacts.country ?? profileData.country ?? sourceProfile.country),
+        typeLabel: formatPublicSourceType(source.category ?? source.type ?? metadata.type ?? metadata.category ?? profile.type ?? sourceFacts.type ?? profileData.type ?? sourceProfile.type) ?? undefined,
         description: cleanDisplayText(source.description)
             ?? cleanDisplayText(metadata.description)
             ?? cleanDisplayText(profile.description)
@@ -317,19 +353,19 @@ export function extractStructuredSourceProfile(source: RawSourceLike): Structure
             ?? profileData.supportRole
             ?? sourceProfile.role
         ) ?? undefined,
-        strengths: collectListValues(
-            source.strengths,
-            source.positiveSignals,
-            source.favorableElements,
-            metadata.strengths,
-            metadata.positiveSignals,
-            profile.strengths,
-            profileData.strengths,
-            profileData.positiveSignals,
-            profileData.favorableElements,
-            sourceProfile.strengths,
-            reputation.strengths
-        ),
+        sourceFacts: {
+            ownership: cleanDisplayText(sourceFacts.ownership ?? profileData.ownership),
+            businessModel: cleanDisplayText(sourceFacts.businessModel ?? profileData.businessModel),
+            specialty: cleanDisplayText(sourceFacts.specialty ?? profileData.specialty),
+            coverageArea: cleanDisplayText(sourceFacts.coverageArea ?? profileData.coverageArea),
+        },
+        editorialPositioning: cleanDisplayText(editorialReputation.editorialPositioning ?? profileData.editorialPositioning),
+        generalReputation: cleanDisplayText(editorialReputation.generalReputation ?? profileData.generalReputation),
+        reliabilitySignals,
+        misinformationSignals: collectListValues(editorialReputation.misinformationSignals, profileData.misinformationSignals),
+        correctionHistory: cleanDisplayText(editorialReputation.correctionHistory ?? profileData.correctionHistory),
+        editorialPolicy: cleanDisplayText(editorialReputation.editorialPolicy ?? profileData.editorialPolicy),
+        strengths: reliabilitySignals,
         warnings: collectListValues(
             source.vigilancePoints,
             source.warnings,

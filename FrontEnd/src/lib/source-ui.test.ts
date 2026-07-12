@@ -243,6 +243,51 @@ describe('extractStructuredSourceProfile', () => {
     expect(profile.references).toEqual([{ label: 'Notice', url: 'https://example.org/notice' }]);
   });
 
+  it('separates neutral source facts from editorial reputation and article role', () => {
+    const profile = extractStructuredSourceProfile({
+      role: 'COUNTERPOINT',
+      profileData: {
+        profileSummary: 'Média national généraliste.',
+        sourceFacts: {
+          ownership: 'Groupe Exemple',
+          businessModel: 'Abonnements et publicité',
+          specialty: 'Actualité nationale',
+          country: 'FR',
+          type: 'MEDIA',
+        },
+        editorialReputation: {
+          editorialPositioning: 'Positionnement éditorial documenté.',
+          generalReputation: 'Réputation décrite par des observateurs externes.',
+          reliabilitySignals: ['Politique de correction publiée.'],
+          misinformationSignals: ['Signal documenté à contextualiser.'],
+          editorialPolicy: 'Charte éditoriale accessible.',
+        },
+        externalReferences: [{
+          label: 'Notice externe',
+          url: 'https://example.org/notice',
+          publisher: 'Observatoire Exemple',
+          referenceType: 'Notice de référence',
+        }],
+      },
+    });
+
+    expect(profile.sourceFacts).toEqual({
+      ownership: 'Groupe Exemple',
+      businessModel: 'Abonnements et publicité',
+      specialty: 'Actualité nationale',
+      coverageArea: undefined,
+    });
+    expect(profile.roleLabel).toBe('Source contradictoire');
+    expect(profile.reliabilitySignals).toEqual(['Politique de correction publiée.']);
+    expect(profile.reliabilitySignals).not.toContain('Abonnements et publicité');
+    expect(profile.references).toEqual([{
+      label: 'Notice externe',
+      url: 'https://example.org/notice',
+      publisher: 'Observatoire Exemple',
+      referenceType: 'Notice de référence',
+    }]);
+  });
+
   it('does not expose raw technical values in the public profile', () => {
     const profile = extractStructuredSourceProfile({
       country: '',

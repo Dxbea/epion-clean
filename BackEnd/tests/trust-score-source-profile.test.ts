@@ -121,12 +121,16 @@ describe('trust-score source profile persistence', () => {
     expect(call.update.profileData).toMatchObject({
       description: 'Média indépendant financé principalement par abonnement.',
       profileSummary: 'Média indépendant financé principalement par abonnement.',
-      type: 'Média',
-      ownership: 'Détenu par ses fondateurs et ses salariés.',
-      businessModel: 'Abonnements numériques.',
-      editorialPositioning: 'Journalisme d’investigation.',
-      specialty: 'Enquêtes politiques et économiques.',
-      strengths: ['Charte éditoriale documentée'],
+      sourceFacts: {
+        type: 'Média',
+        ownership: 'Détenu par ses fondateurs et ses salariés.',
+        businessModel: 'Abonnements numériques.',
+        specialty: 'Enquêtes politiques et économiques.',
+      },
+      editorialReputation: {
+        editorialPositioning: 'Journalisme d’investigation.',
+        reliabilitySignals: ['Charte éditoriale documentée'],
+      },
       vigilancePoints: ['Historique à contextualiser'],
       externalReferences: [{ label: 'Notice', url: 'https://example.org/notice' }],
       methodVersion: 'source-profile-v1',
