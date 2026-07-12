@@ -24,6 +24,7 @@ const PUBLIC_SOURCE_TYPE_LABELS: Record<string, string> = {
 };
 
 const PUBLIC_SOURCE_ROLE_LABELS: Record<string, string> = {
+    PRIMARY_EVIDENCE: 'Appui principal',
     EVIDENCE: 'Source d’appui',
     PROOF: 'Source d’appui',
     SUPPORTING: 'Source d’appui',
@@ -31,6 +32,7 @@ const PUBLIC_SOURCE_ROLE_LABELS: Record<string, string> = {
     CONTEXT: 'Source de contexte',
     BACKGROUND: 'Source de contexte',
     COUNTERPOINT: 'Source contradictoire',
+    OFFICIAL_STATEMENT: 'Déclaration officielle',
     OPPOSITION: 'Source contradictoire',
     CONTRADICTION: 'Source contradictoire',
     QUOTE: 'Citation ou déclaration',
@@ -196,6 +198,18 @@ export function formatSourceRoleLabel(role: unknown): string | null {
     return PUBLIC_SOURCE_ROLE_LABELS[roleKey] ?? null;
 }
 
+export function getSourceRoleKey(source: RawSourceLike): string | null {
+    const metadata = readRecord(source?.metadata);
+    return normalizePublicKey(
+        source.role
+        ?? source.articleRole
+        ?? source.sourceRole
+        ?? source.supportRole
+        ?? metadata.role
+        ?? metadata.sourceRole
+    );
+}
+
 export function formatAnalysisIntentLabel(intent: unknown): string | null {
     const intentKey = normalizePublicKey(intent);
     if (!intentKey) return null;
@@ -216,11 +230,12 @@ export function extractStructuredSourceProfile(source: RawSourceLike): Structure
     const audit = readRecord(source?.audit ?? metadata.audit ?? profileData.audit);
 
     return {
-        countryLabel: countryToPublicLabel(source.country ?? metadata.country ?? profile.country ?? profileData.country ?? sourceProfile.country),
+        countryLabel: countryToPublicLabel(source.country ?? profile.country ?? profileData.country ?? sourceProfile.country),
         typeLabel: formatPublicSourceType(source.category ?? source.type ?? metadata.type ?? metadata.category ?? profile.type ?? profileData.type ?? sourceProfile.type) ?? undefined,
         description: cleanDisplayText(source.description)
             ?? cleanDisplayText(metadata.description)
             ?? cleanDisplayText(profile.description)
+            ?? cleanDisplayText(profileData.profileSummary)
             ?? cleanDisplayText(profileData.description)
             ?? cleanDisplayText(sourceProfile.description),
         roleLabel: formatSourceRoleLabel(
@@ -252,6 +267,7 @@ export function extractStructuredSourceProfile(source: RawSourceLike): Structure
             reputation.strengths
         ),
         warnings: collectListValues(
+            source.vigilancePoints,
             source.warnings,
             source.criticisms,
             source.limitations,
@@ -264,6 +280,8 @@ export function extractStructuredSourceProfile(source: RawSourceLike): Structure
             profile.warnings,
             profile.criticisms,
             profile.limitations,
+            profile.vigilancePoints,
+            profileData.vigilancePoints,
             profileData.warnings,
             profileData.criticisms,
             profileData.limitations,
@@ -379,7 +397,11 @@ export function normalizeSourceForUi(
         score: trustScore,
         trustScore,
         dbScore: trustScore ?? undefined,
-        country: source.metadata?.country || source.country || undefined,
+        country: source.profileData?.country
+            ?? source.profileSnapshot?.profileData?.country
+            ?? source.currentProfile?.profileData?.country
+            ?? source.country
+            ?? undefined,
         politicalBias: source.metadata?.politicalBias || source.politicalBias || undefined,
         reliability: source.metadata?.reliability || source.reliability || undefined,
         biasScore: source.metadata?.biasScore || source.biasScore || undefined,
@@ -431,7 +453,7 @@ const SOURCE_ANALYSIS_LABELS: Record<SourceAnalysisStatus, { fr: string; en: str
     PENDING: { fr: 'Analyse en cours...', en: 'Analysis in progress...' },
 };
 
-function readSourceAnalysisStatus(source: RawSourceLike): SourceAnalysisStatus | null {
+export function readSourceAnalysisStatus(source: RawSourceLike): SourceAnalysisStatus | null {
     const status = typeof source?.analysisStatus === 'string' ? source.analysisStatus.toUpperCase() : '';
     return status in SOURCE_ANALYSIS_LABELS ? status as SourceAnalysisStatus : null;
 }

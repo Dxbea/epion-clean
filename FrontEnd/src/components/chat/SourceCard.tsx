@@ -2,8 +2,9 @@ import React, { useState } from 'react';
 import { ChevronDown, ShieldAlert } from 'lucide-react';
 import { SourceIdentityCard } from './trust-score-ui/SourceIdentityCard';
 import { deriveSupportLevelFromScore, getPublicSupportBadgeClass, getPublicSupportLabel } from '@/lib/score-labels';
+import { useI18n } from '@/i18n/I18nContext';
 
-import { getPublicSourceTypeLabel, getSourceAnalysisLabel, isSourceAnalysisPending, type SourceAnalysisStatus } from '@/lib/source-ui';
+import { extractStructuredSourceProfile, formatSourceRoleLabel, getPublicSourceTypeLabel, getSourceAnalysisLabel, getSourceRoleKey, isSourceAnalysisPending, readSourceAnalysisStatus, type SourceAnalysisStatus } from '@/lib/source-ui';
 export interface SourceCriteria {
     label: string;
     value: string;
@@ -74,6 +75,7 @@ function getCategoryStyle(category: string) {
 }
 
 function ScoreBadge({ score, supportLevel, isEnriching = false, analysisStatus }: { score: number | null; supportLevel?: import('@/lib/score-labels').SupportLevel | null; isEnriching?: boolean; analysisStatus?: SourceAnalysisStatus }) {
+    const { t } = useI18n();
     const analysisLabel = getSourceAnalysisLabel({ analysisStatus });
     if (analysisStatus === 'PENDING' || isEnriching) {
         return (
@@ -88,16 +90,38 @@ function ScoreBadge({ score, supportLevel, isEnriching = false, analysisStatus }
     const resolvedLevel = supportLevel ?? deriveSupportLevelFromScore(score);
     return (
         <div className={`rounded-full border px-2.5 py-1 text-[11px] font-semibold ${getPublicSupportBadgeClass(resolvedLevel)}`}>
-            {getPublicSupportLabel({ backendScore: score, supportLevel })}
+            {t('source_quality_short')} · {getPublicSupportLabel({ backendScore: score, supportLevel })}
         </div>
     );
 }
 
 export default function SourceCard({ source, isFocused }: SourceCardProps) {
+    const { t } = useI18n();
     const [isExpanded, setIsExpanded] = useState(false);
     const cardRef = React.useRef<HTMLDivElement>(null);
     const isPending = isSourceAnalysisPending(source);
     const publicType = getPublicSourceTypeLabel(source.category);
+    const roleKey = getSourceRoleKey(source);
+    const roleLabel = formatSourceRoleLabel(roleKey);
+    const profile = extractStructuredSourceProfile(source);
+    const analysisStatus = readSourceAnalysisStatus(source);
+    const profileConfidence = String(
+        source.profileConfidence
+        ?? source.profileSnapshot?.profileConfidence
+        ?? source.currentProfile?.profileConfidence
+        ?? ''
+    ).toUpperCase();
+    const hasProfileData = Boolean(
+        source.profileData
+        ?? source.profileSnapshot?.profileData
+        ?? source.currentProfile?.profileData
+    );
+    const knownLimits = [
+        analysisStatus === 'METADATA_ONLY' ? t('source_limit_metadata_only') : null,
+        analysisStatus === 'UNAVAILABLE' ? t('source_limit_unavailable') : null,
+        !hasProfileData ? t('source_limit_no_profile') : null,
+    ].filter((item): item is string => Boolean(item));
+    const roleExplanationKey = roleKey ? SOURCE_ROLE_EXPLANATION_KEYS[roleKey] : undefined;
     const toggleExpanded = React.useCallback(() => {
         if (!isPending) setIsExpanded((current) => !current);
     }, [isPending]);
@@ -134,6 +158,11 @@ export default function SourceCard({ source, isFocused }: SourceCardProps) {
                     {publicType && (
                         <span className="shrink-0 rounded bg-gray-100 px-1.5 py-0.5 text-[10px] font-medium text-gray-600 dark:bg-white/5 dark:text-gray-300">
                             {publicType}
+                        </span>
+                    )}
+                    {roleLabel && (
+                        <span className="shrink-0 rounded-full border border-indigo-200 bg-indigo-50 px-2 py-0.5 text-[10px] font-semibold text-indigo-800 dark:border-indigo-800/60 dark:bg-indigo-950/40 dark:text-indigo-200">
+                            {roleLabel}
                         </span>
                     )}
                     {source.flags?.hasFactCheckFailures && (
@@ -189,6 +218,14 @@ export default function SourceCard({ source, isFocused }: SourceCardProps) {
                 <div className="animate-in slide-in-from-top-2 fade-in duration-200 border-t border-gray-100 p-4 bg-gray-50/50 dark:bg-white/5 dark:border-white/5">
 
                     <div className="space-y-6">
+                        {roleLabel && roleExplanationKey && (
+                            <section className="rounded-xl border border-indigo-200 bg-indigo-50/70 p-4 dark:border-indigo-900/40 dark:bg-indigo-950/20">
+                                <div className="text-xs font-semibold uppercase tracking-wide text-indigo-700 dark:text-indigo-300">{t('source_role_in_article')}</div>
+                                <div className="mt-2 text-sm font-semibold text-indigo-950 dark:text-indigo-100">{roleLabel}</div>
+                                <p className="mt-1 text-sm leading-6 text-indigo-950/75 dark:text-indigo-100/75">{t(roleExplanationKey)}</p>
+                            </section>
+                        )}
+
                         {/* 1. Identity & Description */}
                         <SourceIdentityCard
                             name={source.name}
@@ -196,8 +233,35 @@ export default function SourceCard({ source, isFocused }: SourceCardProps) {
                             country={source.country}
                             sourceType={source.category}
                             source={source}
+                            profile={{ ...profile, roleLabel: undefined }}
                             compact={true}
                         />
+
+                        <section className="grid gap-3 sm:grid-cols-2">
+                            <div className="rounded-xl border border-gray-200 bg-white p-4 dark:border-white/10 dark:bg-neutral-900">
+                                <div className="text-xs font-semibold uppercase tracking-wide text-gray-500">{t('source_quality_title')}</div>
+                                <p className="mt-2 text-sm font-semibold text-gray-900 dark:text-white">
+                                    {getPublicSupportLabel({ backendScore: source.score, supportLevel: source.supportLevel })}
+                                </p>
+                                <p className="mt-1 text-xs leading-5 text-gray-500 dark:text-gray-400">{t('source_quality_explanation')}</p>
+                            </div>
+                            <div className="rounded-xl border border-gray-200 bg-white p-4 dark:border-white/10 dark:bg-neutral-900">
+                                <div className="text-xs font-semibold uppercase tracking-wide text-gray-500">{t('source_profile_confidence_title')}</div>
+                                <p className="mt-2 text-sm font-semibold text-gray-900 dark:text-white">
+                                    {profileConfidence ? t(`source_profile_confidence_${profileConfidence.toLowerCase()}`) : t('source_profile_confidence_unknown')}
+                                </p>
+                                <p className="mt-1 text-xs leading-5 text-gray-500 dark:text-gray-400">{t('source_profile_confidence_explanation')}</p>
+                            </div>
+                        </section>
+
+                        {knownLimits.length > 0 && (
+                            <section className="rounded-xl border border-amber-200 bg-amber-50/70 p-4 dark:border-amber-900/40 dark:bg-amber-950/20">
+                                <div className="text-xs font-semibold uppercase tracking-wide text-amber-800 dark:text-amber-300">{t('source_known_limits')}</div>
+                                <ul className="mt-2 space-y-2 text-sm leading-5 text-amber-950/80 dark:text-amber-100/80">
+                                    {knownLimits.map((limit) => <li key={limit}>• {limit}</li>)}
+                                </ul>
+                            </section>
+                        )}
 
                         {typeof source.score === 'number' && (
                             <details className="rounded-xl border border-gray-200 bg-white p-4 dark:border-white/10 dark:bg-neutral-900">
@@ -234,4 +298,20 @@ export default function SourceCard({ source, isFocused }: SourceCardProps) {
         </div>
     );
 }
+
+const SOURCE_ROLE_EXPLANATION_KEYS: Record<string, string> = {
+    PRIMARY_EVIDENCE: 'source_role_primary_explanation',
+    EVIDENCE: 'source_role_primary_explanation',
+    PROOF: 'source_role_primary_explanation',
+    SUPPORTING: 'source_role_primary_explanation',
+    SUPPORT: 'source_role_primary_explanation',
+    CONTEXT: 'source_role_context_explanation',
+    BACKGROUND: 'source_role_background_explanation',
+    COUNTERPOINT: 'source_role_counterpoint_explanation',
+    OPPOSITION: 'source_role_counterpoint_explanation',
+    CONTRADICTION: 'source_role_counterpoint_explanation',
+    OFFICIAL_STATEMENT: 'source_role_official_explanation',
+    QUOTE: 'source_role_quote_explanation',
+    DATA: 'source_role_data_explanation',
+};
 

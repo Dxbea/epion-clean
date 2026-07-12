@@ -36,6 +36,17 @@ describe('normalizeSourceForUi', () => {
     expect(source.politicalBias).toBeUndefined();
   });
 
+  it('does not present a generic metadata country as a verified source country', () => {
+    const source = normalizeSourceForUi({
+      domain: 'facebook.com',
+      metadata: { country: 'FR' },
+    }, '');
+    const profile = extractStructuredSourceProfile(source);
+
+    expect(source.country).toBeUndefined();
+    expect(profile.countryLabel).toBeUndefined();
+  });
+
   it('does not invent a source type', () => {
     const source = normalizeSourceForUi({ name: 'example.com' }, 'Description');
 
@@ -68,12 +79,14 @@ describe('public source wording', () => {
   });
 
   it.each([
+    ['PRIMARY_EVIDENCE', 'Appui principal'],
     ['evidence', 'Source d\u2019appui'],
     ['proof', 'Source d\u2019appui'],
     ['supporting', 'Source d\u2019appui'],
     ['context', 'Source de contexte'],
     ['background', 'Source de contexte'],
     ['counterpoint', 'Source contradictoire'],
+    ['OFFICIAL_STATEMENT', 'Déclaration officielle'],
     ['opposition', 'Source contradictoire'],
     ['quote', 'Citation ou d\u00e9claration'],
     ['data', 'Donn\u00e9es ou chiffres'],
@@ -156,6 +169,22 @@ describe('extractStructuredSourceProfile', () => {
     expect(profile.warnings).toEqual(['Contexte commercial a garder en tete']);
     expect(profile.references).toEqual([{ label: 'Reference reputationale', url: 'https://example.com/ref' }]);
     expect(profile.analyzedAtLabel).toBeTruthy();
+  });
+
+  it('extracts the V1 profile summary and vigilance points', () => {
+    const profile = extractStructuredSourceProfile({
+      profileData: {
+        profileSummary: 'Résumé public du profil.',
+        strengths: ['Charte éditoriale publiée'],
+        vigilancePoints: ['Limite liée au type : contenu à recouper.'],
+        externalReferences: [{ label: 'Notice', url: 'https://example.org/notice' }],
+      },
+    });
+
+    expect(profile.description).toBe('Résumé public du profil.');
+    expect(profile.strengths).toEqual(['Charte éditoriale publiée']);
+    expect(profile.warnings).toEqual(['Limite liée au type : contenu à recouper.']);
+    expect(profile.references).toEqual([{ label: 'Notice', url: 'https://example.org/notice' }]);
   });
 
   it('does not expose raw technical values in the public profile', () => {

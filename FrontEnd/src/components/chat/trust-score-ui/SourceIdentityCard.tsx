@@ -96,7 +96,7 @@ export function SourceIdentityCard({ name, description, country, sourceType, art
                 <ProfileList title="Points de vigilance" items={extractedProfile.warnings} cautious />
                 {extractedProfile.references.length > 0 && (
                     <div className="space-y-1.5">
-                        <dt className="text-xs font-semibold uppercase tracking-wide text-gray-500 dark:text-gray-400">Références externes</dt>
+                        <dt className="text-xs font-semibold uppercase tracking-wide text-gray-500 dark:text-gray-400">Références du profil</dt>
                         <dd>
                             <ul className="space-y-1.5">
                                 {extractedProfile.references.map((reference, index) => (
