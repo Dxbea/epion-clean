@@ -20,6 +20,7 @@ describe('source-profile', () => {
 
     expect(profile).toMatchObject({
       description: 'Description publique.',
+      profileSummary: 'Description publique.',
       country: 'FR',
       type: 'Média',
       methodVersion: 'source-profile-v1',
@@ -74,7 +75,7 @@ describe('source-profile', () => {
       description: 'Description existante.',
       type: 'Média',
       strengths: ['Historique éditorial documenté'],
-      warnings: ['Contexte à vérifier'],
+      vigilancePoints: ['Contexte à vérifier'],
       externalReferences: [{ label: 'Notice', url: 'https://example.com/notice' }],
     });
     const candidate = normalizeSourceProfileData({ description: 'Description actualisée.', type: 'Média' });
@@ -83,7 +84,7 @@ describe('source-profile', () => {
     expect(merged).toMatchObject({
       description: 'Description actualisée.',
       strengths: ['Historique éditorial documenté'],
-      warnings: ['Contexte à vérifier'],
+      vigilancePoints: ['Contexte à vérifier'],
       externalReferences: [{ label: 'Notice', url: 'https://example.com/notice' }],
     });
   });
@@ -107,12 +108,84 @@ describe('source-profile', () => {
     expect(lookup).toHaveBeenCalledWith(['example.com']);
     expect(result[0]).toMatchObject({
       description: 'Champ legacy conservé',
-      profileData: { description: 'Profil durable', warnings: ['Contexte requis'] },
+      profileData: { description: 'Profil durable', profileSummary: 'Profil durable', vigilancePoints: ['Contexte requis'] },
       profileConfidence: 'MEDIUM',
       publicTrustLabel: 'strong',
     });
     expect(result[0].profileData).not.toHaveProperty('type');
     expect(JSON.stringify(result)).not.toContain('REPORT');
+  });
+
+  it('adds only a clearly labelled type limitation when no documented vigilance point exists', () => {
+    const profile = buildSourceProfileDataFromTrustScore({
+      domain: 'example.com',
+      metadata: { description: 'Média généraliste.', type: 'MEDIA' },
+    });
+
+    expect(profile?.vigilancePoints).toEqual([
+      expect.stringContaining('Limite liée au type :'),
+    ]);
+    expect(profile?.strengths).toBeUndefined();
+  });
+
+  it('keeps documented strengths, vigilance points and profile references', () => {
+    const profile = buildSourceProfileDataFromTrustScore({
+      domain: 'example.com',
+      metadata: { description: 'Profil documenté.', type: 'MEDIA' },
+      profileSummary: 'Média national documenté par les références.',
+      ownership: 'Groupe Exemple',
+      businessModel: 'Abonnements et publicité',
+      editorialPositioning: 'Ligne éditoriale généraliste',
+      specialty: 'Actualité nationale',
+      strengths: ['Charte éditoriale publiée'],
+      vigilancePoints: ['Rectificatif relevé dans la référence'],
+      externalReferences: [{ label: 'Notice indépendante', url: 'https://example.org/notice' }],
+    });
+
+    expect(profile).toMatchObject({
+      profileSummary: 'Média national documenté par les références.',
+      ownership: 'Groupe Exemple',
+      businessModel: 'Abonnements et publicité',
+      editorialPositioning: 'Ligne éditoriale généraliste',
+      specialty: 'Actualité nationale',
+      strengths: ['Charte éditoriale publiée'],
+      vigilancePoints: ['Rectificatif relevé dans la référence'],
+      externalReferences: [{ label: 'Notice indépendante', url: 'https://example.org/notice' }],
+    });
+  });
+
+  it('keeps a documented institutional mandate and institutional limitation', () => {
+    const profile = buildSourceProfileDataFromTrustScore({
+      domain: 'institution.example',
+      metadata: { description: 'Institution publique.', type: 'GOVERNMENT' },
+      profileSummary: 'Institution chargée par la loi de publier les statistiques nationales.',
+      specialty: 'Statistiques publiques',
+      vigilancePoints: ['Sa communication présente le point de vue de l’institution et ne constitue pas une évaluation indépendante.'],
+      externalReferences: [{ label: 'Mandat légal', url: 'https://institution.example/mandat' }],
+    });
+
+    expect(profile).toMatchObject({
+      profileSummary: 'Institution chargée par la loi de publier les statistiques nationales.',
+      specialty: 'Statistiques publiques',
+      vigilancePoints: ['Sa communication présente le point de vue de l’institution et ne constitue pas une évaluation indépendante.'],
+    });
+  });
+
+  it('does not keep strong specific claims without an external reference', () => {
+    const profile = buildSourceProfileDataFromTrustScore({
+      domain: 'media.example',
+      metadata: { description: 'Média généraliste.', type: 'MEDIA' },
+      ownership: 'Propriétaire non vérifié',
+      businessModel: 'Modèle supposé',
+      strengths: ['Qualité non sourcée'],
+      vigilancePoints: ['Critique non sourcée'],
+      externalReferences: [],
+    });
+
+    expect(profile).not.toHaveProperty('ownership');
+    expect(profile).not.toHaveProperty('businessModel');
+    expect(profile).not.toHaveProperty('strengths');
+    expect(profile?.vigilancePoints).toEqual([expect.stringContaining('Limite liée au type :')]);
   });
 
   it('omits unreliable profile fields when neither snapshot nor DB profile is usable', async () => {

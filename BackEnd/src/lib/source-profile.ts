@@ -16,10 +16,15 @@ export interface SourceProfileReference {
 
 export interface SourceProfileDataV1 {
   description?: string;
+  profileSummary?: string;
+  ownership?: string;
+  businessModel?: string;
+  editorialPositioning?: string;
+  specialty?: string;
   country?: string;
   type?: string;
   strengths?: string[];
-  warnings?: string[];
+  vigilancePoints?: string[];
   externalReferences?: SourceProfileReference[];
   provenance?: string[];
   methodVersion: 'source-profile-v1';
@@ -32,6 +37,15 @@ export interface SourceProfileTrustScoreInput {
     type?: unknown;
   } | null;
   profileData?: unknown;
+  domain?: string;
+  strengths?: unknown;
+  vigilancePoints?: unknown;
+  externalReferences?: unknown;
+  profileSummary?: unknown;
+  ownership?: unknown;
+  businessModel?: unknown;
+  editorialPositioning?: unknown;
+  specialty?: unknown;
 }
 
 export interface DurableSourceProfile {
@@ -66,6 +80,26 @@ const PUBLIC_TYPE_LABELS: Record<string, string | null> = {
   UNKNOWN: null,
   REPORT: null,
 };
+
+const TYPE_VIGILANCE_POINTS: Partial<Record<string, string>> = {
+  SOCIAL: 'Limite liée au type : les contenus publiés sur un réseau social peuvent provenir d’auteurs très différents et nécessitent une vérification au cas par cas.',
+  MEDIA: 'Limite liée au type : un média sélectionne et hiérarchise l’information selon sa ligne éditoriale ; les affirmations importantes doivent être recoupées.',
+  AGENCY: 'Limite liée au type : une dépêche d’agence fournit souvent un premier état de l’information, susceptible d’être complété à mesure que les faits sont établis.',
+  GOVERNMENT: 'Limite liée au type : une institution communique depuis son propre périmètre et son propre mandat ; ses affirmations doivent être distinguées d’une évaluation indépendante.',
+  COMMERCIAL: 'Limite liée au type : une source commerciale peut avoir un intérêt direct dans la présentation de ses produits, services ou résultats.',
+};
+
+function deriveTypeVigilancePoint(type: unknown, domain: unknown): string | undefined {
+  const normalizedType = typeof type === 'string' ? normalizeKey(type) : '';
+  const normalizedDomain = normalizeSourceDomain(domain);
+  if (normalizedDomain === 'wikipedia.org' || normalizedDomain?.endsWith('.wikipedia.org')) {
+    return 'Limite liée au type : une encyclopédie collaborative peut être modifiée au fil du temps ; les références citées dans l’article doivent être consultées pour les affirmations sensibles.';
+  }
+  if (['youtube.com', 'youtu.be', 'vimeo.com', 'dailymotion.com', 'tiktok.com'].includes(normalizedDomain ?? '')) {
+    return 'Limite liée au type : une plateforme vidéo héberge des contenus produits par des auteurs très différents ; la fiabilité dépend de la vidéo et de son auteur.';
+  }
+  return TYPE_VIGILANCE_POINTS[normalizedType];
+}
 
 function cleanText(value: unknown): string | undefined {
   if (typeof value !== 'string') return undefined;
@@ -250,10 +284,16 @@ export function sanitizeSourceProfileData(input: unknown): SourceProfileDataV1 |
   };
 
   const description = cleanText(record.description);
+  const profileSummary = cleanText(record.profileSummary) ?? description;
+  const ownership = cleanText(record.ownership);
+  const businessModel = cleanText(record.businessModel);
+  const editorialPositioning = cleanText(record.editorialPositioning);
+  const specialty = cleanText(record.specialty);
   const country = sanitizeCountry(record.country);
   const type = sanitizeType(record.type);
   const strengths = sanitizeList(record.strengths, record.positiveSignals, record.favorableElements);
-  const warnings = sanitizeList(
+  const vigilancePoints = sanitizeList(
+    record.vigilancePoints,
     record.warnings,
     record.criticisms,
     record.limitations,
@@ -268,10 +308,15 @@ export function sanitizeSourceProfileData(input: unknown): SourceProfileDataV1 |
   const provenance = sanitizeList(record.provenance);
 
   if (description) output.description = description;
+  if (profileSummary) output.profileSummary = profileSummary;
+  if (ownership) output.ownership = ownership;
+  if (businessModel) output.businessModel = businessModel;
+  if (editorialPositioning) output.editorialPositioning = editorialPositioning;
+  if (specialty) output.specialty = specialty;
   if (country) output.country = country;
   if (type) output.type = type;
   if (strengths) output.strengths = strengths;
-  if (warnings) output.warnings = warnings;
+  if (vigilancePoints) output.vigilancePoints = vigilancePoints;
   if (externalReferences) output.externalReferences = externalReferences;
   if (provenance) output.provenance = provenance;
 
@@ -293,7 +338,7 @@ export function mergeSourceProfileData(
     ...existing,
     ...candidate,
     strengths: candidate.strengths ?? existing.strengths,
-    warnings: candidate.warnings ?? existing.warnings,
+    vigilancePoints: candidate.vigilancePoints ?? existing.vigilancePoints,
     externalReferences: candidate.externalReferences ?? existing.externalReferences,
     provenance: candidate.provenance ?? existing.provenance,
     methodVersion: 'source-profile-v1',
@@ -304,10 +349,23 @@ export function buildSourceProfileDataFromTrustScore(
   input: SourceProfileTrustScoreInput,
 ): SourceProfileDataV1 | null {
   const legacy = sanitizeSourceProfileData(input.profileData);
+  const documentedReferences = sanitizeReferences(input.externalReferences);
+  const documentedVigilancePoints = documentedReferences
+    ? sanitizeList(input.vigilancePoints)
+    : undefined;
   const candidate = sanitizeSourceProfileData({
     description: input.metadata?.description,
+    profileSummary: documentedReferences ? input.profileSummary : input.metadata?.description,
+    ownership: documentedReferences ? input.ownership : undefined,
+    businessModel: documentedReferences ? input.businessModel : undefined,
+    editorialPositioning: documentedReferences ? input.editorialPositioning : undefined,
+    specialty: documentedReferences ? input.specialty : undefined,
     country: input.metadata?.country,
     type: input.metadata?.type,
+    strengths: documentedReferences ? input.strengths : undefined,
+    vigilancePoints: documentedVigilancePoints
+      ?? sanitizeList(deriveTypeVigilancePoint(input.metadata?.type, input.domain)),
+    externalReferences: documentedReferences,
   });
 
   return mergeSourceProfileData(legacy, candidate);
@@ -326,7 +384,9 @@ export function derivePublicTrustLabelFromTrustScore(score: number | null | unde
 export function resolveSourceProfileConfidence(
   current: ConfidenceLevel | null | undefined,
   isConsensusVerified: boolean,
+  hasDocumentedProfile = false,
 ): SourceProfileConfidence {
   if (isConsensusVerified) return 'HIGH';
+  if (hasDocumentedProfile && (!current || current === 'LOW')) return 'MEDIUM';
   return current ?? 'LOW';
 }

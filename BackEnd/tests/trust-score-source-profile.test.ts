@@ -92,6 +92,14 @@ describe('trust-score source profile persistence', () => {
       politicalBias: 'CENTER',
       biasScore: 0,
       shortBio: 'Média généraliste.',
+      profileSummary: 'Média indépendant financé principalement par abonnement.',
+      ownership: 'Détenu par ses fondateurs et ses salariés.',
+      businessModel: 'Abonnements numériques.',
+      editorialPositioning: 'Journalisme d’investigation.',
+      specialty: 'Enquêtes politiques et économiques.',
+      strengths: ['Charte éditoriale documentée'],
+      vigilancePoints: ['Historique à contextualiser'],
+      externalReferences: [{ label: 'Notice', url: 'https://example.org/notice' }],
     });
   });
 
@@ -106,15 +114,51 @@ describe('trust-score source profile persistence', () => {
       reliability: 'HIGH',
       lastAuditDate: expect.any(Date),
       profileVersion: 1,
-      profileConfidence: 'LOW',
+      profileConfidence: 'MEDIUM',
       lastProfiledAt: expect.any(Date),
       publicTrustLabel: expect.any(String),
     });
     expect(call.update.profileData).toMatchObject({
-      description: 'Média généraliste.',
+      description: 'Média indépendant financé principalement par abonnement.',
+      profileSummary: 'Média indépendant financé principalement par abonnement.',
       type: 'Média',
+      ownership: 'Détenu par ses fondateurs et ses salariés.',
+      businessModel: 'Abonnements numériques.',
+      editorialPositioning: 'Journalisme d’investigation.',
+      specialty: 'Enquêtes politiques et économiques.',
+      strengths: ['Charte éditoriale documentée'],
+      vigilancePoints: ['Historique à contextualiser'],
+      externalReferences: [{ label: 'Notice', url: 'https://example.org/notice' }],
       methodVersion: 'source-profile-v1',
     });
     expect(call.update.profileData).not.toHaveProperty('trustScore');
+  });
+
+  it('uses the global platform profile instead of a video description', async () => {
+    mocks.evaluateUnknownSource.mockResolvedValueOnce({
+      reliability: 'MIXED',
+      sourceType: 'SOCIAL',
+      reasoning: 'Profil global documenté.',
+      politicalBias: 'UNKNOWN',
+      biasScore: 0,
+      shortBio: 'Plateforme mondiale de partage de vidéos.',
+      profileSummary: 'YouTube est une plateforme de partage de vidéos exploitée par Google.',
+      ownership: 'Google',
+      businessModel: 'Publicité et abonnements.',
+      editorialPositioning: null,
+      specialty: 'Hébergement et diffusion de vidéos.',
+      strengths: [],
+      vigilancePoints: ['La fiabilité dépend du compte, de l’auteur et de la vidéo citée.'],
+      externalReferences: [{ label: 'Présentation de YouTube', url: 'https://about.youtube/' }],
+    });
+
+    await getRichTrustScore('youtube.com', undefined, {
+      metaDescription: 'Investissez avec DEGIRO — présentation de cette vidéo particulière.',
+    });
+
+    const profileData = mocks.sourceUpsert.mock.calls[0][0].update.profileData;
+    expect(profileData.profileSummary).toContain('plateforme de partage de vidéos');
+    expect(profileData.description).toBe('YouTube est une plateforme de partage de vidéos exploitée par Google.');
+    expect(JSON.stringify(profileData)).not.toContain('DEGIRO');
   });
 });

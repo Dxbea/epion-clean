@@ -238,10 +238,13 @@ export async function getRichTrustScore(
     }
 
     const resolvedDescription = resolveImmediateSourceDescription(
-        auditInput.metaDescription,
         investigation?.shortBio,
         source?.description,
+        auditInput.metaDescription,
     );
+    const globalProfileDescription = investigation?.profileSummary
+        ?? investigation?.shortBio
+        ?? resolvedDescription;
 
     const sourceMetadata = source?.metadata;
     const legacyProfileData = sourceMetadata && typeof sourceMetadata === 'object' && !Array.isArray(sourceMetadata)
@@ -249,11 +252,20 @@ export async function getRichTrustScore(
         : null;
     const existingProfileData = normalizeSourceProfileData(source?.profileData ?? legacyProfileData);
     const generatedProfileData = buildSourceProfileDataFromTrustScore({
+        domain,
         metadata: {
-            description: resolvedDescription,
+            description: globalProfileDescription,
             country: source?.detectedCountry,
             type: detectedSourceType,
         },
+        profileSummary: investigation?.profileSummary,
+        ownership: investigation?.ownership,
+        businessModel: investigation?.businessModel,
+        editorialPositioning: investigation?.editorialPositioning,
+        specialty: investigation?.specialty,
+        strengths: investigation?.strengths,
+        vigilancePoints: investigation?.vigilancePoints,
+        externalReferences: investigation?.externalReferences,
     });
     const mergedProfileData = mergeSourceProfileData(existingProfileData, generatedProfileData);
     const profileDataChanged = JSON.stringify(existingProfileData) !== JSON.stringify(mergedProfileData);
@@ -266,6 +278,18 @@ export async function getRichTrustScore(
     const profileConfidence = resolveSourceProfileConfidence(
         source?.profileConfidence,
         source?.isConsensusVerified ?? false,
+        Boolean(
+            investigation?.externalReferences.length
+            && (
+                investigation.profileSummary
+                || investigation.ownership
+                || investigation.businessModel
+                || investigation.editorialPositioning
+                || investigation.specialty
+                || investigation.strengths.length
+                || investigation.vigilancePoints.length
+            )
+        ),
     ) as ConfidenceLevel;
     const profileFields = shouldWriteProfile
         ? {
