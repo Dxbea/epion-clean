@@ -61,6 +61,31 @@ export type StructuredSourceProfile = {
     analyzedAtLabel?: string;
 };
 
+export type PlatformSourceContext = {
+    isPlatform: boolean;
+    platformLabel?: string;
+    actorName?: string;
+    handle?: string;
+    actorUrl?: string;
+    actorType?: 'CHANNEL' | 'ACCOUNT' | 'COMMUNITY';
+    actorDescription?: string;
+    contentTitle?: string;
+    contentUrl?: string;
+};
+
+const PLATFORM_LABELS: Record<string, string> = {
+    'youtube.com': 'YouTube',
+    'youtu.be': 'YouTube',
+    'reddit.com': 'Reddit',
+    'x.com': 'X',
+    'twitter.com': 'X',
+    'instagram.com': 'Instagram',
+    'facebook.com': 'Facebook',
+    'fb.watch': 'Facebook',
+    'tiktok.com': 'TikTok',
+    'dailymotion.com': 'Dailymotion',
+};
+
 function normalizePublicKey(value: unknown): string | null {
     if (typeof value !== 'string' || !value.trim()) return null;
     return value.trim().toUpperCase().normalize('NFD').replace(/[\u0300-\u036f]/g, '');
@@ -81,6 +106,45 @@ function cleanDisplayText(value: unknown): string | undefined {
     if (typeof value !== 'string') return undefined;
     const cleaned = value.replace(/\[\d+\]/g, '').trim();
     return cleaned || undefined;
+}
+
+function cleanHttpUrl(value: unknown): string | undefined {
+    if (typeof value !== 'string' || !value.trim()) return undefined;
+    try {
+        const url = new URL(value.trim());
+        return url.protocol === 'http:' || url.protocol === 'https:' ? url.toString() : undefined;
+    } catch {
+        return undefined;
+    }
+}
+
+export function extractPlatformSourceContext(source: RawSourceLike): PlatformSourceContext {
+    const domain = resolveSourceDomain(source).toLowerCase().replace(/^www\./, '');
+    const platformLabel = PLATFORM_LABELS[domain];
+    if (!platformLabel) return { isPlatform: false };
+
+    const snapshot = readRecord(source.profileSnapshot);
+    const context = readRecord(
+        source.platformContext
+        ?? snapshot.platformContext
+        ?? source.articleContext
+    );
+    const actorType = typeof context.actorType === 'string'
+        && ['CHANNEL', 'ACCOUNT', 'COMMUNITY'].includes(context.actorType.toUpperCase())
+        ? context.actorType.toUpperCase() as 'CHANNEL' | 'ACCOUNT' | 'COMMUNITY'
+        : undefined;
+
+    return {
+        isPlatform: true,
+        platformLabel,
+        actorName: cleanDisplayText(context.actorName),
+        handle: cleanDisplayText(context.handle),
+        actorUrl: cleanHttpUrl(context.actorUrl),
+        actorType,
+        actorDescription: cleanDisplayText(context.actorDescription),
+        contentTitle: cleanDisplayText(context.contentTitle),
+        contentUrl: cleanHttpUrl(context.contentUrl) ?? cleanHttpUrl(source.url),
+    };
 }
 
 function countryToPublicLabel(country: unknown): string | undefined {

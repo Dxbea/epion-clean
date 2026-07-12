@@ -4,7 +4,7 @@ import { SourceIdentityCard } from './trust-score-ui/SourceIdentityCard';
 import { deriveSupportLevelFromScore, getPublicSupportBadgeClass, getPublicSupportLabel } from '@/lib/score-labels';
 import { useI18n } from '@/i18n/I18nContext';
 
-import { extractStructuredSourceProfile, formatSourceRoleLabel, getPublicSourceTypeLabel, getSourceAnalysisLabel, getSourceRoleKey, isSourceAnalysisPending, readSourceAnalysisStatus, type SourceAnalysisStatus } from '@/lib/source-ui';
+import { extractPlatformSourceContext, extractStructuredSourceProfile, formatSourceRoleLabel, getPublicSourceTypeLabel, getSourceAnalysisLabel, getSourceRoleKey, isSourceAnalysisPending, readSourceAnalysisStatus, type SourceAnalysisStatus } from '@/lib/source-ui';
 export interface SourceCriteria {
     label: string;
     value: string;
@@ -104,6 +104,7 @@ export default function SourceCard({ source, isFocused }: SourceCardProps) {
     const roleKey = getSourceRoleKey(source);
     const roleLabel = formatSourceRoleLabel(roleKey);
     const profile = extractStructuredSourceProfile(source);
+    const platformContext = extractPlatformSourceContext(source);
     const analysisStatus = readSourceAnalysisStatus(source);
     const profileConfidence = String(
         source.profileConfidence
@@ -223,6 +224,53 @@ export default function SourceCard({ source, isFocused }: SourceCardProps) {
                                 <div className="text-xs font-semibold uppercase tracking-wide text-indigo-700 dark:text-indigo-300">{t('source_role_in_article')}</div>
                                 <div className="mt-2 text-sm font-semibold text-indigo-950 dark:text-indigo-100">{roleLabel}</div>
                                 <p className="mt-1 text-sm leading-6 text-indigo-950/75 dark:text-indigo-100/75">{t(roleExplanationKey)}</p>
+                            </section>
+                        )}
+
+                        {platformContext.isPlatform && (
+                            <section className="rounded-xl border border-sky-200 bg-sky-50/70 p-4 dark:border-sky-900/40 dark:bg-sky-950/20">
+                                <div className="text-xs font-semibold uppercase tracking-wide text-sky-800 dark:text-sky-300">{t('source_platform_context_title')}</div>
+                                <dl className="mt-3 space-y-3 text-sm">
+                                    <div className="grid grid-cols-[100px_1fr] gap-3">
+                                        <dt className="font-medium text-sky-800/70 dark:text-sky-200/70">{t('source_platform_label')}</dt>
+                                        <dd className="font-semibold text-sky-950 dark:text-sky-100">{platformContext.platformLabel}</dd>
+                                    </div>
+                                    {platformContext.actorName && (
+                                        <div className="grid grid-cols-[100px_1fr] gap-3">
+                                            <dt className="font-medium text-sky-800/70 dark:text-sky-200/70">
+                                                {t(`source_actor_${(platformContext.actorType ?? 'ACCOUNT').toLowerCase()}`)}
+                                            </dt>
+                                            <dd className="text-sky-950 dark:text-sky-100">
+                                                {platformContext.actorUrl ? (
+                                                    <a href={platformContext.actorUrl} target="_blank" rel="noopener noreferrer" className="font-semibold hover:underline">
+                                                        {platformContext.actorName}
+                                                    </a>
+                                                ) : <span className="font-semibold">{platformContext.actorName}</span>}
+                                                {platformContext.handle && platformContext.handle !== platformContext.actorName && (
+                                                    <span className="ml-2 text-sky-800/70 dark:text-sky-200/70">{platformContext.handle}</span>
+                                                )}
+                                            </dd>
+                                        </div>
+                                    )}
+                                    {platformContext.actorDescription && (
+                                        <div className="grid grid-cols-[100px_1fr] gap-3">
+                                            <dt className="font-medium text-sky-800/70 dark:text-sky-200/70">{t('source_actor_info')}</dt>
+                                            <dd className="leading-6 text-sky-950/80 dark:text-sky-100/80">{platformContext.actorDescription}</dd>
+                                        </div>
+                                    )}
+                                    {platformContext.contentTitle && (
+                                        <div className="grid grid-cols-[100px_1fr] gap-3">
+                                            <dt className="font-medium text-sky-800/70 dark:text-sky-200/70">{t('source_platform_content')}</dt>
+                                            <dd className="text-sky-950 dark:text-sky-100">
+                                                {platformContext.contentUrl ? (
+                                                    <a href={platformContext.contentUrl} target="_blank" rel="noopener noreferrer" className="hover:underline">
+                                                        {platformContext.contentTitle}
+                                                    </a>
+                                                ) : platformContext.contentTitle}
+                                            </dd>
+                                        </div>
+                                    )}
+                                </dl>
                             </section>
                         )}
 

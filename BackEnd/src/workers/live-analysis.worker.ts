@@ -62,6 +62,9 @@ type SourcePipelineMetadata = {
     role?: 'PRIMARY_EVIDENCE' | 'CONTEXT' | 'COUNTERPOINT' | 'OFFICIAL_STATEMENT' | 'BACKGROUND' | 'UNKNOWN';
     provenance?: 'WEB_SEARCH' | 'INTERNAL_RAG' | 'USER_PROVIDED' | 'EDITORIAL' | 'IMPORTED_LEGACY' | 'UNKNOWN';
     officialStatement?: boolean;
+    actorName?: string;
+    actorDescription?: string;
+    contentTitle?: string;
 };
 
 function buildPendingSources(sources: Array<SourcePipelineMetadata & { url?: string; domain?: string; extractionFailureReason?: string }>) {
@@ -391,6 +394,8 @@ export function startLiveAnalysisWorker(): Worker<LiveAnalysisJobData> {
                         role: src.role,
                         provenance: src.provenance,
                         officialStatement: src.officialStatement,
+                        actorName: src.author,
+                        contentTitle: src.title,
                     };
                 }
             }

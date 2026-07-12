@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import {
   extractStructuredSourceProfile,
+  extractPlatformSourceContext,
   formatPublicSourceType,
   formatSourceRoleLabel,
   getPublicContentIntentLabel,
@@ -52,6 +53,61 @@ describe('normalizeSourceForUi', () => {
 
     expect(source.type).toBeUndefined();
     expect(source.category).toBeUndefined();
+  });
+});
+
+describe('platform source context', () => {
+  it('keeps the platform profile separate from the cited channel and content', () => {
+    const context = extractPlatformSourceContext({
+      domain: 'youtube.com',
+      url: 'https://youtube.com/watch?v=abc123',
+      profileData: { profileSummary: 'Profil global de YouTube.' },
+      profileSnapshot: {
+        platformContext: {
+          platform: 'YouTube',
+          actorName: 'Chaîne Exemple',
+          handle: '@exemple',
+          actorUrl: 'https://youtube.com/@exemple',
+          actorType: 'CHANNEL',
+          contentTitle: 'Vidéo citée',
+          contentUrl: 'https://youtube.com/watch?v=abc123',
+        },
+      },
+    });
+
+    expect(context).toEqual({
+      isPlatform: true,
+      platformLabel: 'YouTube',
+      actorName: 'Chaîne Exemple',
+      handle: '@exemple',
+      actorUrl: 'https://youtube.com/@exemple',
+      actorType: 'CHANNEL',
+      actorDescription: undefined,
+      contentTitle: 'Vidéo citée',
+      contentUrl: 'https://youtube.com/watch?v=abc123',
+    });
+  });
+
+  it('shows only the platform context when the actor is unknown', () => {
+    const context = extractPlatformSourceContext({
+      domain: 'facebook.com',
+      url: 'https://facebook.com/watch/?v=123',
+      profileSnapshot: {
+        platformContext: {
+          platform: 'Facebook',
+          contentUrl: 'https://facebook.com/watch/?v=123',
+        },
+      },
+    });
+
+    expect(context.isPlatform).toBe(true);
+    expect(context.platformLabel).toBe('Facebook');
+    expect(context.actorName).toBeUndefined();
+    expect(context.handle).toBeUndefined();
+  });
+
+  it('does not classify ordinary websites as platforms', () => {
+    expect(extractPlatformSourceContext({ domain: 'example.com' })).toEqual({ isPlatform: false });
   });
 });
 
