@@ -25,7 +25,8 @@ interface LightSource {
   role: SourceRole;
   durable: boolean;
   profiled: boolean;
-  weakProfile: boolean;
+  profileIncomplete: boolean;
+  lowReputation: boolean;
   unknown: boolean;
   usable: boolean;
   metadataOnly: boolean;
@@ -38,9 +39,7 @@ export function buildArticleLightAnalysis(
   try {
     const relationSources = asObjectArray(input.articleSources);
     const legacySources = readLegacySources(input.factCheckData);
-    const sources = relationSources.length > 0
-      ? normalizeRelationSources(relationSources, legacySources)
-      : legacySources.map(normalizeLegacySource);
+    const sources = mergeAndNormalizeSources(relationSources, legacySources);
 
     return evaluateSources(sources, input);
   } catch {
@@ -62,7 +61,8 @@ function evaluateSources(
   const metadataOnlyCount = sources.filter((source) => source.metadataOnly).length;
   const unavailableCount = sources.filter((source) => source.unavailable).length;
   const unknownSourceCount = sources.filter((source) => source.unknown).length;
-  const weakProfileCount = sources.filter((source) => source.weakProfile).length;
+  const incompleteProfileCount = sources.filter((source) => source.profileIncomplete).length;
+  const lowReputationCount = sources.filter((source) => source.lowReputation).length;
   const profileCoverage = totalSources > 0
     ? roundRatio(profiledSourceCount / totalSources)
     : 0;
@@ -113,9 +113,13 @@ function evaluateSources(
     uncertainties.push('UNKNOWN_SOURCE_PROFILE');
     deepAnalysisReasons.push('UNKNOWN_SOURCE');
   }
-  if (weakProfileCount > 0 || profileCoverage < 0.67) {
+  if (incompleteProfileCount > 0 || profileCoverage < 0.67) {
     uncertainties.push('PROFILE_COVERAGE_PARTIAL');
-    deepAnalysisReasons.push('WEAK_SOURCE_PROFILE');
+    deepAnalysisReasons.push('SOURCE_PROFILE_INCOMPLETE');
+  }
+  if (lowReputationCount > 0) {
+    uncertainties.push('LOW_SOURCE_REPUTATION');
+    deepAnalysisReasons.push('LOW_SOURCE_REPUTATION');
   }
   if (incompleteCount > 0) {
     limitations.push('INCOMPLETE_SOURCE_EXTRACTION');
@@ -213,18 +217,25 @@ function deriveAnalysisConfidence(input: {
   return 'LOW';
 }
 
-function normalizeRelationSources(
+function mergeAndNormalizeSources(
   relations: Record<string, any>[],
   legacySources: Record<string, any>[],
 ): LightSource[] {
   const legacyByUrl = new Map<string, Record<string, any>>();
+  const legacyWithoutIdentity: Record<string, any>[] = [];
   for (const legacy of legacySources) {
-    const key = normalizeUrl(legacy.url);
-    if (key && !legacyByUrl.has(key)) legacyByUrl.set(key, legacy);
+    const key = sourceIdentityKey(legacy.url, legacy.domain);
+    if (!key) legacyWithoutIdentity.push(legacy);
+    else if (!legacyByUrl.has(key)) legacyByUrl.set(key, legacy);
   }
 
-  return relations.map((relation) => {
-    const legacy = legacyByUrl.get(normalizeUrl(relation.sourceUrl) ?? '') ?? {};
+  const seenRelationKeys = new Set<string>();
+  const normalizedRelations = relations.flatMap((relation) => {
+    const key = sourceIdentityKey(relation.sourceUrl, relation.domain ?? asObject(relation.source)?.domain);
+    if (key && seenRelationKeys.has(key)) return [];
+    if (key) seenRelationKeys.add(key);
+    const legacy = key ? legacyByUrl.get(key) ?? {} : {};
+    if (key) legacyByUrl.delete(key);
     const snapshot = asObject(relation.profileSnapshot);
     const currentProfile = asObject(relation.currentProfile);
     const source = asObject(relation.source);
@@ -241,7 +252,7 @@ function normalizeRelationSources(
       ?? source?.publicTrustLabel
       ?? legacy.publicTrustLabel;
 
-    return normalizeSource({
+    return [normalizeSource({
       ...legacy,
       ...relation,
       domain: relation.domain ?? source?.domain ?? legacy.domain,
@@ -250,8 +261,14 @@ function normalizeRelationSources(
       profileData,
       profileConfidence: confidence,
       publicTrustLabel,
-    });
+    })];
   });
+
+  return [
+    ...normalizedRelations,
+    ...[...legacyByUrl.values()].map(normalizeLegacySource),
+    ...legacyWithoutIdentity.map(normalizeLegacySource),
+  ];
 }
 
 function normalizeLegacySource(source: Record<string, any>): LightSource {
@@ -265,25 +282,24 @@ function normalizeSource(source: Record<string, any>): LightSource {
   const analysisStatus = normalizeText(source.analysisStatus)?.toUpperCase();
   const unavailable = extractionStatus === 'failed' || analysisStatus === 'UNAVAILABLE';
   const metadataOnly = extractionStatus === 'metadata_only' || analysisStatus === 'METADATA_ONLY';
-  const profiled = hasUsableProfile(source.profileData)
-    || normalizeText(source.profileConfidence) !== null
-    || normalizeText(source.publicTrustLabel) !== null;
+  const hasProfileData = hasUsableProfile(source.profileData);
+  const profileConfidence = normalizeText(source.profileConfidence)?.toUpperCase();
+  const publicTrustLabel = normalizeText(source.publicTrustLabel)?.toLowerCase();
+  const profiled = hasProfileData || profileConfidence !== undefined;
   const recognizedType = !['', 'UNKNOWN', 'GENERAL', 'PENDING', 'UNAVAILABLE']
     .includes((normalizeText(source.type) ?? '').toUpperCase());
   const durable = Boolean(normalizeText(source.durableSourceId));
   const unknown = !durable && !profiled && !recognizedType;
-  const weakProfile = !profiled
-    || normalizeText(source.profileConfidence)?.toUpperCase() === 'LOW'
-    || ['fragile', 'unverified', 'unsourced'].includes(
-      normalizeText(source.publicTrustLabel)?.toLowerCase() ?? '',
-    );
+  const profileIncomplete = !hasProfileData || profileConfidence === 'LOW';
+  const lowReputation = ['fragile', 'unverified', 'unsourced'].includes(publicTrustLabel ?? '');
 
   return {
     domain,
     role,
     durable,
     profiled,
-    weakProfile,
+    profileIncomplete,
+    lowReputation,
     unknown,
     usable: Boolean(domain) && !unavailable,
     metadataOnly,
@@ -338,11 +354,27 @@ function normalizeUrl(value: unknown): string | null {
   try {
     const url = new URL(text);
     if (!['http:', 'https:'].includes(url.protocol)) return null;
+    url.protocol = url.protocol.toLowerCase();
+    url.hostname = url.hostname.toLowerCase();
     url.hash = '';
+    const sortedParams = [...url.searchParams.entries()]
+      .sort(([leftKey, leftValue], [rightKey, rightValue]) =>
+        leftKey.localeCompare(rightKey) || leftValue.localeCompare(rightValue));
+    url.search = '';
+    for (const [key, value] of sortedParams) url.searchParams.append(key, value);
     return url.toString();
   } catch {
     return null;
   }
+}
+
+function sourceIdentityKey(urlValue: unknown, domainValue: unknown): string | null {
+  const normalizedUrl = normalizeUrl(urlValue);
+  if (normalizedUrl) return `url:${normalizedUrl}`;
+
+  const rawUrl = normalizeText(urlValue)?.toLowerCase();
+  const domain = normalizeDomain(domainValue ?? urlValue);
+  return rawUrl && domain ? `domain-url:${domain}|${rawUrl}` : null;
 }
 
 function normalizeText(value: unknown): string | null {

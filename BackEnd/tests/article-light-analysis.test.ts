@@ -104,6 +104,83 @@ describe('ArticleLightAnalysisV1', () => {
     expect(result.deepAnalysisReasons).toEqual([]);
   });
 
+  it('treats deepAnalysisAvailable as general product availability, not billing authorization', () => {
+    const result = buildArticleLightAnalysis({ articleSources: [], analyzedAt });
+
+    expect(result.deepAnalysisAvailable).toBe(true);
+    expect(result).not.toHaveProperty('creditsAvailable');
+    expect(result).not.toHaveProperty('planAuthorized');
+    expect(result).not.toHaveProperty('serviceHealthy');
+  });
+
+  it('merges ArticleSource relations with unmatched legacy sources', () => {
+    const result = buildArticleLightAnalysis({
+      articleSources: [relation({ role: 'PRIMARY_EVIDENCE' })],
+      factCheckData: {
+        sources: [
+          { url: 'https://example.com/report', domain: 'example.com', type: 'MEDIA' },
+          { url: 'https://legacy.test/context', domain: 'legacy.test', type: 'ACADEMIC', profileData: { description: 'Legacy' } },
+        ],
+      },
+      analyzedAt,
+    });
+
+    expect(result.sourceQualitySummary).toMatchObject({ totalSources: 2, uniqueDomains: 2 });
+  });
+
+  it('keeps ArticleSource priority over a duplicate legacy source', () => {
+    const result = buildArticleLightAnalysis({
+      articleSources: [relation({ sourceUrl: 'https://example.com/report?a=1&b=2', role: 'PRIMARY_EVIDENCE' })],
+      factCheckData: {
+        sources: [{
+          url: 'https://example.com/report?b=2&a=1#section',
+          domain: 'example.com',
+          role: 'COUNTERPOINT',
+          profileData: null,
+          profileConfidence: 'LOW',
+        }],
+      },
+      analyzedAt,
+    });
+
+    expect(result.sourceQualitySummary.totalSources).toBe(1);
+    expect(result.sourceUsageSummary.primaryEvidenceCount).toBe(1);
+    expect(result.sourceUsageSummary.counterpointCount).toBe(0);
+    expect(result.deepAnalysisReasons).not.toContain('SOURCE_PROFILE_INCOMPLETE');
+  });
+
+  it('does not confuse a complete fragile profile with an incomplete profile', () => {
+    const result = buildArticleLightAnalysis({
+      articleSources: [relation({
+        profileSnapshot: {
+          profileData: { description: 'Profil documenté', methodVersion: 'source-profile-v1' },
+          profileConfidence: 'HIGH',
+          publicTrustLabel: 'fragile',
+        },
+      })],
+      analyzedAt,
+    });
+
+    expect(result.deepAnalysisReasons).not.toContain('SOURCE_PROFILE_INCOMPLETE');
+    expect(result.deepAnalysisReasons).toContain('LOW_SOURCE_REPUTATION');
+  });
+
+  it('flags an incomplete profile independently of a strong reputation', () => {
+    const result = buildArticleLightAnalysis({
+      articleSources: [relation({
+        profileSnapshot: {
+          profileData: null,
+          profileConfidence: 'LOW',
+          publicTrustLabel: 'strong',
+        },
+      })],
+      analyzedAt,
+    });
+
+    expect(result.deepAnalysisReasons).toContain('SOURCE_PROFILE_INCOMPLETE');
+    expect(result.deepAnalysisReasons).not.toContain('LOW_SOURCE_REPUTATION');
+  });
+
   it('flags an unknown legacy source without inventing its role', () => {
     const result = buildArticleLightAnalysis({
       factCheckData: { sources: [{ url: 'https://unknown.test/report', domain: 'unknown.test' }] },

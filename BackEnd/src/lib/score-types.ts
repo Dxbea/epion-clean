@@ -79,7 +79,10 @@ export interface ArticleLightAnalysisV1 {
   limitations: string[];
   uncertainties: string[];
   analysisConfidence: ArticleLightAnalysisConfidence;
-  /** Deep analysis can be requested for every article, independently of this recommendation. */
+  /**
+   * General product availability only. This is not an entitlement decision and does not
+   * authorize billing, consume credits, or confirm that a deep-analysis service is healthy.
+   */
   deepAnalysisAvailable: true;
   /** Advisory signal from the light evaluator; it does not make deep analysis mandatory. */
   deepAnalysisRecommended: boolean;
