@@ -224,6 +224,10 @@ export function startSourceEnrichmentWorker(): Worker<SourceEnrichmentJobData> {
                     publicTrustLabel: source.publicTrustLabel,
                     lastProfiledAt: source.lastProfiledAt,
                     snapshotAt,
+                    sourceUrl: source.url,
+                    actorName: source.metadata?.actorName,
+                    actorDescription: source.metadata?.actorDescription,
+                    contentTitle: source.metadata?.contentTitle,
                 });
                 const upsert = buildArticleSourceUpsertInput({
                     articleId,

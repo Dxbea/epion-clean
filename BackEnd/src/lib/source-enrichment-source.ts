@@ -11,6 +11,9 @@ export interface SourceEnrichmentMetadata {
   role?: ArticleSourceRoleValue;
   provenance?: ArticleSourceProvenanceValue;
   officialStatement?: boolean;
+  actorName?: string;
+  actorDescription?: string;
+  contentTitle?: string;
 }
 
 export function buildEnrichedSourceScoreEntry(input: {
@@ -61,8 +64,10 @@ export function buildEnrichedSourceScoreEntry(input: {
       dbScore: richScore.globalScore,
       politicalBias: richScore.metadata.politicalBias,
       biasScore: richScore.metadata.biasScore,
-      country: richScore.metadata.country ?? undefined,
       explanation: richScore.metadata.explanation,
+      actorName: metadata?.actorName,
+      actorDescription: metadata?.actorDescription,
+      contentTitle: metadata?.contentTitle,
     },
   };
 }

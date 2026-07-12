@@ -45,6 +45,52 @@ export type SupportLevel = 'very_strong' | 'strong' | 'nuanced' | 'fragile' | 'u
 /** Score context discriminator. */
 export type ScoreContext = 'source' | 'article' | 'answer';
 
+export type ArticleLightSupportLevel = 'strong' | 'nuanced' | 'fragile' | 'unverified';
+export type ArticleLightAnalysisConfidence = 'LOW' | 'MEDIUM' | 'HIGH';
+
+export interface ArticleLightAnalysisV1 {
+  version: 1;
+  mode: 'light';
+  methodVersion: 'article-light-v1';
+  analyzedAt: string;
+  contentHash: string | null;
+  supportLevel: ArticleLightSupportLevel;
+  sourceQualitySummary: {
+    totalSources: number;
+    usableSources: number;
+    uniqueDomains: number;
+    durableSourceCount: number;
+    profiledSourceCount: number;
+    metadataOnlyCount: number;
+    unavailableCount: number;
+    unknownSourceCount: number;
+    profileCoverage: number;
+  };
+  sourceUsageSummary: {
+    primaryEvidenceCount: number;
+    officialStatementCount: number;
+    contextCount: number;
+    counterpointCount: number;
+    backgroundCount: number;
+    unknownRoleCount: number;
+    hasPrimaryEvidence: boolean;
+    domainDiversity: 'LOW' | 'MEDIUM' | 'HIGH';
+  };
+  limitations: string[];
+  uncertainties: string[];
+  analysisConfidence: ArticleLightAnalysisConfidence;
+  /**
+   * General product availability only. This is not an entitlement decision and does not
+   * authorize billing, consume credits, or confirm that a deep-analysis service is healthy.
+   */
+  deepAnalysisAvailable: true;
+  /** Advisory signal from the light evaluator; it does not make deep analysis mandatory. */
+  deepAnalysisRecommended: boolean;
+  /** @deprecated Legacy alias of deepAnalysisRecommended. New consumers must not use it as the primary field. */
+  requiresDeepAnalysis: boolean;
+  deepAnalysisReasons: string[];
+}
+
 // ---------------------------------------------------------------------------
 //  Article FactScore Payload  (stored in Article.factCheckData)
 // ---------------------------------------------------------------------------

@@ -4,6 +4,7 @@ import {
   buildArticleSourceUpsertInput,
   deriveArticleSourceRoleFromLane,
   deriveArticleSourceSupportStrength,
+  extractPlatformArticleContext,
   hashArticleSourceUrl,
   normalizeArticleSourceUrl,
 } from '../src/lib/article-source-service.js';
@@ -15,6 +16,24 @@ describe('article-source-service', () => {
 
     expect(normalizeArticleSourceUrl(first)).toBe('https://example.com/article?a=1&b=2');
     expect(hashArticleSourceUrl(first)).toBe(hashArticleSourceUrl(second));
+  });
+
+  it('removes tracking parameters before hashing', () => {
+    const first = 'https://example.com/article?id=42&utm_source=newsletter&fbclid=first';
+    const second = 'https://example.com/article?fbclid=second&id=42&utm_campaign=launch';
+
+    expect(normalizeArticleSourceUrl(first)).toBe('https://example.com/article?id=42');
+    expect(hashArticleSourceUrl(first)).toBe(hashArticleSourceUrl(second));
+  });
+
+  it('ignores URL fragments before hashing', () => {
+    expect(hashArticleSourceUrl('https://example.com/article#introduction'))
+      .toBe(hashArticleSourceUrl('https://example.com/article#conclusion'));
+  });
+
+  it('keeps content-defining parameters in the hash', () => {
+    expect(hashArticleSourceUrl('https://example.com/watch?v=first'))
+      .not.toBe(hashArticleSourceUrl('https://example.com/watch?v=second'));
   });
 
   it('allows two different URLs from the same domain', () => {
@@ -67,6 +86,61 @@ describe('article-source-service', () => {
       snapshotAt: '2026-07-11T10:00:00.000Z',
     });
     expect(snapshot).not.toHaveProperty('trustScore');
+  });
+
+  it('keeps a YouTube video separate from its known channel', () => {
+    const snapshot = buildArticleSourceProfileSnapshot({
+      profileData: { profileSummary: 'Profil global de YouTube.' },
+      sourceUrl: 'https://www.youtube.com/watch?v=abc123',
+      actorName: 'Chaîne Exemple',
+      contentTitle: 'Titre de la vidéo citée',
+      snapshotAt: '2026-07-12T10:00:00.000Z',
+    });
+
+    expect(snapshot.profileData).toEqual({ profileSummary: 'Profil global de YouTube.' });
+    expect(snapshot.platformContext).toEqual({
+      platform: 'YouTube',
+      actorName: 'Chaîne Exemple',
+      actorType: 'CHANNEL',
+      contentTitle: 'Titre de la vidéo citée',
+      contentUrl: 'https://www.youtube.com/watch?v=abc123',
+    });
+    expect(JSON.stringify(snapshot.profileData)).not.toContain('Titre de la vidéo citée');
+  });
+
+  it('derives only explicit platform handles from URLs', () => {
+    expect(extractPlatformArticleContext({
+      sourceUrl: 'https://x.com/example/status/123',
+      contentTitle: 'Post cité',
+    })).toMatchObject({
+      platform: 'X',
+      actorName: '@example',
+      handle: '@example',
+      actorUrl: 'https://x.com/example',
+      actorType: 'ACCOUNT',
+    });
+
+    expect(extractPlatformArticleContext({
+      sourceUrl: 'https://reddit.com/r/science/comments/123/post',
+    })).toMatchObject({
+      platform: 'Reddit',
+      actorName: 'r/science',
+      handle: 'r/science',
+      actorUrl: 'https://reddit.com/r/science',
+      actorType: 'COMMUNITY',
+    });
+  });
+
+  it('does not invent an actor when a platform URL does not expose one', () => {
+    const context = extractPlatformArticleContext({
+      sourceUrl: 'https://youtu.be/abc123',
+      contentTitle: 'Vidéo citée',
+    });
+
+    expect(context).toMatchObject({ platform: 'YouTube', contentTitle: 'Vidéo citée' });
+    expect(context).not.toHaveProperty('actorName');
+    expect(context).not.toHaveProperty('handle');
+    expect(context).not.toHaveProperty('actorUrl');
   });
 
   it('refuses an absent durable Source id', () => {

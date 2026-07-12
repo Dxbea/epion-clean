@@ -22,7 +22,11 @@
     "start:worker": "node --import ./dist/instrument.js dist/workers/index.js",
     "worker:live-analysis": "node --import ./dist/instrument.js dist/workers/live-analysis.worker.js",
     "backfill:article-sources:dry-run": "node --import tsx src/scripts/backfill-article-sources.ts --dry-run",
-    "backfill:article-sources:write": "node --import tsx src/scripts/backfill-article-sources.ts --write"
+    "backfill:article-sources:write": "node --import tsx src/scripts/backfill-article-sources.ts --write",
+    "refresh:source-profiles:report-only": "node --import tsx src/scripts/refresh-source-profiles.ts --report-only",
+    "refresh:source-profiles:dry-run": "node --import tsx src/scripts/refresh-source-profiles.ts --dry-run",
+    "refresh:source-profiles:write": "node --import tsx src/scripts/refresh-source-profiles.ts --write",
+    "report:source-pipeline": "node --import tsx src/scripts/report-source-pipeline.ts"
   },
   "dependencies": {
     "@aws-sdk/client-sesv2": "^3.893.0",

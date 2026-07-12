@@ -35,10 +35,41 @@ type LoadedArticle = {
   aiSummary: string | null;
   factCheckScore: number | null;
   factCheckData: any | null;
+  lightAnalysis?: ArticleLightAnalysis | null;
   sources?: any; // Added for compatibility check
   generationPrompt: string | null;
   status: string | null;
   factCheckStatus: ArticleGenerationStatus | null;
+};
+
+type ArticleLightAnalysis = {
+  supportLevel: 'strong' | 'nuanced' | 'fragile' | 'unverified';
+  sourceQualitySummary: {
+    totalSources: number;
+    usableSources: number;
+    uniqueDomains: number;
+    profiledSourceCount: number;
+    metadataOnlyCount: number;
+    unavailableCount: number;
+    profileCoverage: number;
+  };
+  sourceUsageSummary: {
+    primaryEvidenceCount: number;
+    officialStatementCount: number;
+    contextCount: number;
+    counterpointCount: number;
+    backgroundCount: number;
+    unknownRoleCount: number;
+    hasPrimaryEvidence: boolean;
+    domainDiversity: 'LOW' | 'MEDIUM' | 'HIGH';
+  };
+  limitations: string[];
+  uncertainties: string[];
+  analysisConfidence: 'LOW' | 'MEDIUM' | 'HIGH';
+  deepAnalysisAvailable: boolean;
+  deepAnalysisRecommended: boolean;
+  requiresDeepAnalysis?: boolean;
+  deepAnalysisReasons: string[];
 };
 
 export default function Article() {
@@ -109,7 +140,7 @@ export default function Article() {
       ? storedFactData.calculation.sourcesMean
       : typeof storedFactData?.sourcesMean === 'number'
         ? storedFactData.sourcesMean
-        : 0;
+        : null;
 
     // Content score (liveScore / contentScore)
     const outputScore = typeof storedFactData?.calculation?.contentScore === 'number'
@@ -118,7 +149,7 @@ export default function Article() {
         ? storedFactData.calculation.liveScore
         : typeof storedFactData?.liveScore === 'number'
           ? storedFactData.liveScore
-          : 0;
+          : null;
 
     // Support level: read from payload or derive from score (fallback)
     const supportLevel = storedFactData?.supportLevel || deriveSupportLevelFromScore(factScore);
@@ -255,6 +286,7 @@ export default function Article() {
           aiSummary: data.aiSummary ?? null,
           factCheckScore: data.factCheckScore ?? null,
           factCheckData: data.factCheckData ?? null,
+          lightAnalysis: data.lightAnalysis ?? null,
           sources: data.sources ?? undefined,
           generationPrompt: data.generationPrompt ?? null,
           status: data.status ?? null,
@@ -901,10 +933,11 @@ export default function Article() {
           onClose={() => setActiveModal(null)}
           data={{
             sources: normalizedSources,
-            globalScore: topLevelTransparencyData?.factScore || 0,
-            sourceScore: topLevelTransparencyData?.rawSourceScore || 0,
-            aiScore: topLevelTransparencyData?.outputScore || 0,
-            liveAnalysis: topLevelTransparencyData?.liveAnalysis || null
+            globalScore: topLevelTransparencyData?.factScore ?? null,
+            sourceScore: topLevelTransparencyData?.rawSourceScore ?? null,
+            aiScore: topLevelTransparencyData?.outputScore ?? null,
+            liveAnalysis: topLevelTransparencyData?.liveAnalysis || null,
+            lightAnalysis: article.lightAnalysis || null,
           }}
         />
       )}

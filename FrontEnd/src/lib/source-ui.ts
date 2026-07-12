@@ -24,6 +24,7 @@ const PUBLIC_SOURCE_TYPE_LABELS: Record<string, string> = {
 };
 
 const PUBLIC_SOURCE_ROLE_LABELS: Record<string, string> = {
+    PRIMARY_EVIDENCE: 'Appui principal',
     EVIDENCE: 'Source d’appui',
     PROOF: 'Source d’appui',
     SUPPORTING: 'Source d’appui',
@@ -31,6 +32,7 @@ const PUBLIC_SOURCE_ROLE_LABELS: Record<string, string> = {
     CONTEXT: 'Source de contexte',
     BACKGROUND: 'Source de contexte',
     COUNTERPOINT: 'Source contradictoire',
+    OFFICIAL_STATEMENT: 'Déclaration officielle',
     OPPOSITION: 'Source contradictoire',
     CONTRADICTION: 'Source contradictoire',
     QUOTE: 'Citation ou déclaration',
@@ -46,6 +48,8 @@ const PUBLIC_CONTENT_INTENT_LABELS: Record<string, string> = {
 export type StructuredSourceReference = {
     label: string;
     url?: string;
+    publisher?: string;
+    referenceType?: string;
 };
 
 export type StructuredSourceProfile = {
@@ -53,10 +57,47 @@ export type StructuredSourceProfile = {
     typeLabel?: string;
     description?: string;
     roleLabel?: string;
+    sourceFacts: {
+        ownership?: string;
+        businessModel?: string;
+        specialty?: string;
+        coverageArea?: string;
+    };
+    editorialPositioning?: string;
+    generalReputation?: string;
+    reliabilitySignals: string[];
+    misinformationSignals: string[];
+    correctionHistory?: string;
+    editorialPolicy?: string;
     strengths: string[];
     warnings: string[];
     references: StructuredSourceReference[];
     analyzedAtLabel?: string;
+};
+
+export type PlatformSourceContext = {
+    isPlatform: boolean;
+    platformLabel?: string;
+    actorName?: string;
+    handle?: string;
+    actorUrl?: string;
+    actorType?: 'CHANNEL' | 'ACCOUNT' | 'COMMUNITY';
+    actorDescription?: string;
+    contentTitle?: string;
+    contentUrl?: string;
+};
+
+const PLATFORM_LABELS: Record<string, string> = {
+    'youtube.com': 'YouTube',
+    'youtu.be': 'YouTube',
+    'reddit.com': 'Reddit',
+    'x.com': 'X',
+    'twitter.com': 'X',
+    'instagram.com': 'Instagram',
+    'facebook.com': 'Facebook',
+    'fb.watch': 'Facebook',
+    'tiktok.com': 'TikTok',
+    'dailymotion.com': 'Dailymotion',
 };
 
 function normalizePublicKey(value: unknown): string | null {
@@ -79,6 +120,45 @@ function cleanDisplayText(value: unknown): string | undefined {
     if (typeof value !== 'string') return undefined;
     const cleaned = value.replace(/\[\d+\]/g, '').trim();
     return cleaned || undefined;
+}
+
+function cleanHttpUrl(value: unknown): string | undefined {
+    if (typeof value !== 'string' || !value.trim()) return undefined;
+    try {
+        const url = new URL(value.trim());
+        return url.protocol === 'http:' || url.protocol === 'https:' ? url.toString() : undefined;
+    } catch {
+        return undefined;
+    }
+}
+
+export function extractPlatformSourceContext(source: RawSourceLike): PlatformSourceContext {
+    const domain = resolveSourceDomain(source).toLowerCase().replace(/^www\./, '');
+    const platformLabel = PLATFORM_LABELS[domain];
+    if (!platformLabel) return { isPlatform: false };
+
+    const snapshot = readRecord(source.profileSnapshot);
+    const context = readRecord(
+        source.platformContext
+        ?? snapshot.platformContext
+        ?? source.articleContext
+    );
+    const actorType = typeof context.actorType === 'string'
+        && ['CHANNEL', 'ACCOUNT', 'COMMUNITY'].includes(context.actorType.toUpperCase())
+        ? context.actorType.toUpperCase() as 'CHANNEL' | 'ACCOUNT' | 'COMMUNITY'
+        : undefined;
+
+    return {
+        isPlatform: true,
+        platformLabel,
+        actorName: cleanDisplayText(context.actorName),
+        handle: cleanDisplayText(context.handle),
+        actorUrl: cleanHttpUrl(context.actorUrl),
+        actorType,
+        actorDescription: cleanDisplayText(context.actorDescription),
+        contentTitle: cleanDisplayText(context.contentTitle),
+        contentUrl: cleanHttpUrl(context.contentUrl) ?? cleanHttpUrl(source.url),
+    };
 }
 
 function countryToPublicLabel(country: unknown): string | undefined {
@@ -171,7 +251,14 @@ function collectReferences(...values: unknown[]): StructuredSourceReference[] {
             if (!label) return null;
 
             const url = readFirstString(record.url, record.href, record.link);
-            return url ? { label, url } : { label };
+            const publisher = readFirstString(record.publisher, record.editor);
+            const referenceType = readFirstString(record.referenceType, record.type);
+            return {
+                label,
+                ...(url ? { url } : {}),
+                ...(publisher ? { publisher } : {}),
+                ...(referenceType ? { referenceType } : {}),
+            };
         })
         .filter((item): item is StructuredSourceReference => Boolean(item));
 
@@ -196,6 +283,18 @@ export function formatSourceRoleLabel(role: unknown): string | null {
     return PUBLIC_SOURCE_ROLE_LABELS[roleKey] ?? null;
 }
 
+export function getSourceRoleKey(source: RawSourceLike): string | null {
+    const metadata = readRecord(source?.metadata);
+    return normalizePublicKey(
+        source.role
+        ?? source.articleRole
+        ?? source.sourceRole
+        ?? source.supportRole
+        ?? metadata.role
+        ?? metadata.sourceRole
+    );
+}
+
 export function formatAnalysisIntentLabel(intent: unknown): string | null {
     const intentKey = normalizePublicKey(intent);
     if (!intentKey) return null;
@@ -214,13 +313,29 @@ export function extractStructuredSourceProfile(source: RawSourceLike): Structure
     const reputation = readRecord(source?.reputation ?? metadata.reputation ?? profileData.reputation);
     const externalReputation = readRecord(source?.externalReputation ?? metadata.externalReputation ?? profileData.externalReputation);
     const audit = readRecord(source?.audit ?? metadata.audit ?? profileData.audit);
+    const sourceFacts = readRecord(profileData.sourceFacts);
+    const editorialReputation = readRecord(profileData.editorialReputation);
+    const reliabilitySignals = collectListValues(
+        editorialReputation.reliabilitySignals,
+        source.strengths,
+        source.positiveSignals,
+        metadata.strengths,
+        metadata.positiveSignals,
+        profile.strengths,
+        profileData.strengths,
+        profileData.positiveSignals,
+        profileData.favorableElements,
+        sourceProfile.strengths,
+        reputation.strengths
+    );
 
     return {
-        countryLabel: countryToPublicLabel(source.country ?? metadata.country ?? profile.country ?? profileData.country ?? sourceProfile.country),
-        typeLabel: formatPublicSourceType(source.category ?? source.type ?? metadata.type ?? metadata.category ?? profile.type ?? profileData.type ?? sourceProfile.type) ?? undefined,
+        countryLabel: countryToPublicLabel(source.country ?? profile.country ?? sourceFacts.country ?? profileData.country ?? sourceProfile.country),
+        typeLabel: formatPublicSourceType(source.category ?? source.type ?? metadata.type ?? metadata.category ?? profile.type ?? sourceFacts.type ?? profileData.type ?? sourceProfile.type) ?? undefined,
         description: cleanDisplayText(source.description)
             ?? cleanDisplayText(metadata.description)
             ?? cleanDisplayText(profile.description)
+            ?? cleanDisplayText(profileData.profileSummary)
             ?? cleanDisplayText(profileData.description)
             ?? cleanDisplayText(sourceProfile.description),
         roleLabel: formatSourceRoleLabel(
@@ -238,20 +353,21 @@ export function extractStructuredSourceProfile(source: RawSourceLike): Structure
             ?? profileData.supportRole
             ?? sourceProfile.role
         ) ?? undefined,
-        strengths: collectListValues(
-            source.strengths,
-            source.positiveSignals,
-            source.favorableElements,
-            metadata.strengths,
-            metadata.positiveSignals,
-            profile.strengths,
-            profileData.strengths,
-            profileData.positiveSignals,
-            profileData.favorableElements,
-            sourceProfile.strengths,
-            reputation.strengths
-        ),
+        sourceFacts: {
+            ownership: cleanDisplayText(sourceFacts.ownership ?? profileData.ownership),
+            businessModel: cleanDisplayText(sourceFacts.businessModel ?? profileData.businessModel),
+            specialty: cleanDisplayText(sourceFacts.specialty ?? profileData.specialty),
+            coverageArea: cleanDisplayText(sourceFacts.coverageArea ?? profileData.coverageArea),
+        },
+        editorialPositioning: cleanDisplayText(editorialReputation.editorialPositioning ?? profileData.editorialPositioning),
+        generalReputation: cleanDisplayText(editorialReputation.generalReputation ?? profileData.generalReputation),
+        reliabilitySignals,
+        misinformationSignals: collectListValues(editorialReputation.misinformationSignals, profileData.misinformationSignals),
+        correctionHistory: cleanDisplayText(editorialReputation.correctionHistory ?? profileData.correctionHistory),
+        editorialPolicy: cleanDisplayText(editorialReputation.editorialPolicy ?? profileData.editorialPolicy),
+        strengths: reliabilitySignals,
         warnings: collectListValues(
+            source.vigilancePoints,
             source.warnings,
             source.criticisms,
             source.limitations,
@@ -264,6 +380,8 @@ export function extractStructuredSourceProfile(source: RawSourceLike): Structure
             profile.warnings,
             profile.criticisms,
             profile.limitations,
+            profile.vigilancePoints,
+            profileData.vigilancePoints,
             profileData.warnings,
             profileData.criticisms,
             profileData.limitations,
@@ -318,19 +436,6 @@ export function extractStructuredSourceProfile(source: RawSourceLike): Structure
     };
 }
 
-const DEFAULT_FLAGS = {
-    isAdsTxtValid: true,
-    isClickbait: false,
-    isPlatform: false,
-};
-
-const DEFAULT_EXPLANATION = {
-    formula: '70% Base de donnees + 30% Analyse Live',
-    sources: ['Audit Epion (Legacy)'],
-    livePenalties: [],
-    pillarWeights: { transparency: '20%', editorial: '30%', semantic: '30%', pluralism: '20%' },
-};
-
 export function resolveSourceDomain(source: RawSourceLike): string {
     if (typeof source?.domain === 'string' && source.domain.trim()) return source.domain.trim();
     if (typeof source?.name === 'string' && source.name.trim()) return source.name.trim();
@@ -364,31 +469,45 @@ function resolveTrustScore(source: RawSourceLike): number | null {
  */
 export function normalizeSourceForUi(
     source: RawSourceLike,
-    fallbackDescription: string,
+    _fallbackDescription: string,
 ) {
     const domain = resolveSourceDomain(source);
     const trustScore = resolveTrustScore(source);
     const metrics = source.metrics || source.metric || undefined;
 
+    const profileConfidence = readFirstString(
+        source.profileConfidence,
+        source.profileSnapshot?.profileConfidence,
+        source.currentProfile?.profileConfidence,
+    )?.toUpperCase();
+    const verifiedProfileCountry = profileConfidence === 'MEDIUM' || profileConfidence === 'HIGH'
+        ? source.profileData?.country
+            ?? source.profileData?.sourceFacts?.country
+            ?? source.profileSnapshot?.profileData?.country
+            ?? source.profileSnapshot?.profileData?.sourceFacts?.country
+            ?? source.currentProfile?.profileData?.country
+            ?? source.currentProfile?.profileData?.sourceFacts?.country
+        : undefined;
+
     return {
         ...source,
         domain,
         name: domain,
-        url: source.url || source.link || '#',
+        url: source.url || source.link || undefined,
         // Score = backend trustScore (no client-side recalculation)
         score: trustScore,
         trustScore,
         dbScore: trustScore ?? undefined,
-        country: source.metadata?.country || source.country || undefined,
+        country: verifiedProfileCountry,
         politicalBias: source.metadata?.politicalBias || source.politicalBias || undefined,
         reliability: source.metadata?.reliability || source.reliability || undefined,
         biasScore: source.metadata?.biasScore || source.biasScore || undefined,
-        explanation: source.explanation || source.metadata?.explanation || DEFAULT_EXPLANATION,
-        description: source.description || source.metadata?.description || fallbackDescription,
+        explanation: source.explanation || source.metadata?.explanation || undefined,
+        description: source.description || source.metadata?.description || undefined,
         type: source.type || source.category || undefined,
         category: source.category || source.type || undefined,
-        logo: source.logo || `https://www.google.com/s2/favicons?domain=${domain !== 'Source inconnue' ? domain : 'example.com'}`,
-        flags: source.flags || DEFAULT_FLAGS,
+        logo: source.logo || undefined,
+        flags: source.flags || undefined,
         metric: metrics,
         metrics,
     };
@@ -431,7 +550,7 @@ const SOURCE_ANALYSIS_LABELS: Record<SourceAnalysisStatus, { fr: string; en: str
     PENDING: { fr: 'Analyse en cours...', en: 'Analysis in progress...' },
 };
 
-function readSourceAnalysisStatus(source: RawSourceLike): SourceAnalysisStatus | null {
+export function readSourceAnalysisStatus(source: RawSourceLike): SourceAnalysisStatus | null {
     const status = typeof source?.analysisStatus === 'string' ? source.analysisStatus.toUpperCase() : '';
     return status in SOURCE_ANALYSIS_LABELS ? status as SourceAnalysisStatus : null;
 }
@@ -440,13 +559,7 @@ export function isSourceAnalysisPending(source: RawSourceLike): boolean {
     const status = readSourceAnalysisStatus(source);
     if (status) return status === 'PENDING';
 
-    const score = typeof source?.score === 'number'
-        ? source.score
-        : typeof source?.trustScore === 'number'
-            ? source.trustScore
-            : null;
-
-    return source?.isEnriching === true || score === null || source?.type === 'PENDING';
+    return source?.isEnriching === true || source?.type === 'PENDING';
 }
 
 export function getSourceAnalysisLabel(source: RawSourceLike, lang: 'fr' | 'en' = 'fr'): string | null {

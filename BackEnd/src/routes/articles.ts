@@ -26,6 +26,7 @@ import { enforceContributionRateLimit } from '../lib/contribution-rate-limit.js'
 import { getArticleImageProposals } from '../lib/images/proposals.js';
 import { hydrateSourcesWithProfiles } from '../lib/source-profile.js';
 import { normalizeArticleSourceUrl } from '../lib/article-source-service.js';
+import { buildArticleLightAnalysis } from '../lib/article-light-analysis.js';
 
 export const router = Router();
 
@@ -133,9 +134,17 @@ async function buildArticleDetailResponse(article: any) {
     ? mergeArticleSourcesForResponse(legacySources, articleSources, articleStatus)
     : legacySources;
 
+  // `sources` is the canonical public corpus. The nested copy remains an exact alias for legacy clients.
   const hydratedFactCheckData = normalizedFactCheckData
     ? { ...normalizedFactCheckData, sources: responseSources }
     : normalizedFactCheckData;
+  const lightAnalysis = buildArticleLightAnalysis({
+    articleSources,
+    factCheckData: article.factCheckData,
+    contentHash: normalizedFactCheckData?.contentHash ?? article.factCheckContentHash ?? null,
+    factCheckStatus: articleStatus,
+    analyzedAt: new Date().toISOString(),
+  });
 
   return {
     id: article.id,
@@ -156,6 +165,7 @@ async function buildArticleDetailResponse(article: any) {
     factCheckStatus: articleStatus,
     factCheckData: hydratedFactCheckData ?? article.factCheckData ?? null,
     sources: responseSources,
+    lightAnalysis,
     generationPrompt: article.generationPrompt ?? null,
   };
 }

@@ -14,6 +14,20 @@ export interface InvestigationResult {
     politicalBias: PoliticalBias;
     biasScore: number;
     shortBio: string | null;
+    profileSummary: string | null;
+    ownership: string | null;
+    businessModel: string | null;
+    editorialPositioning: string | null;
+    specialty: string | null;
+    coverageArea?: string | null;
+    generalReputation?: string | null;
+    misinformationSignals?: string[];
+    correctionHistory?: string | null;
+    editorialPolicy?: string | null;
+    strengths: string[];
+    vigilancePoints: string[];
+    externalReferences: Array<{ id: string; label: string; url: string; publisher?: string; referenceType?: string }>;
+    claimReferences: Record<string, string[]>;
 }
 
 const VALID_RELIABILITIES = new Set<Reliability>([
@@ -44,6 +58,32 @@ function normalizeShortBio(input: unknown): string | null {
     return normalized || null;
 }
 
+function normalizeDocumentedPoints(input: unknown): string[] {
+    if (!Array.isArray(input)) return [];
+    return Array.from(new Set(input
+        .filter((item): item is string => typeof item === 'string')
+        .map((item) => item.replace(/\s+/g, ' ').trim())
+        .filter(Boolean)));
+}
+
+function normalizeProfileFact(input: unknown): string | null {
+    return normalizeShortBio(input);
+}
+
+function emptyProfileEvidence() {
+    return {
+        profileSummary: null,
+        ownership: null,
+        businessModel: null,
+        editorialPositioning: null,
+        specialty: null,
+        strengths: [] as string[],
+        vigilancePoints: [] as string[],
+        externalReferences: [] as Array<{ id: string; label: string; url: string; publisher?: string; referenceType?: string }>,
+        claimReferences: {} as Record<string, string[]>,
+    };
+}
+
 export async function evaluateUnknownSource(
     domain: string,
     factCheckResult?: FactCheckResult,
@@ -56,14 +96,15 @@ export async function evaluateUnknownSource(
         return {
             reliability: Reliability.LOW,
             sourceType: 'GENERAL',
-            reasoning: `Historique probl�matique : ${effectiveFactCheckResult.failureCount} �checs de v�rification factuelle d�tect�s (via Google Fact Check).`,
+            reasoning: `Historique problématique : ${effectiveFactCheckResult.failureCount} échecs de vérification factuelle détectés (via Google Fact Check).`,
             politicalBias: PoliticalBias.UNKNOWN,
             biasScore: 0,
             shortBio: null,
+            ...emptyProfileEvidence(),
         };
     }
 
-    const searchResults = await searchSerper(`${domain} ownership reputation reliability wikipedia`, {
+    const searchResults = await searchSerper(`${domain} propriétaire ownership modèle économique financement ligne éditoriale spécialité réputation`, {
         maxResults: 5,
         gl: 'fr',
         hl: 'fr',
@@ -74,16 +115,17 @@ export async function evaluateUnknownSource(
         return {
             reliability: Reliability.MIXED,
             sourceType: 'GENERAL',
-            reasoning: 'Aucun contexte Serper trouv� pour �valuer finement la source.',
+            reasoning: 'Aucun contexte Serper trouvé pour évaluer finement la source.',
             politicalBias: PoliticalBias.UNKNOWN,
             biasScore: 0,
             shortBio: null,
+            ...emptyProfileEvidence(),
         };
     }
 
     const serperContext = searchResults
         .map((result, index) => [
-            `[Result ${index + 1}]`,
+            `[ref_${index + 1}]`,
             `Title: ${result.title}`,
             `URL: ${result.url}`,
             `Snippet: ${result.content || '(no snippet)'}`,
@@ -91,8 +133,9 @@ export async function evaluateUnknownSource(
         .join('\n\n');
 
     const prompt = `
-Agis comme un expert en d�sinformation et analyse la fiabilit� de la source : "${domain}".
-Base-toi UNIQUEMENT sur les r�sultats Serper suivants (titres, URLs, snippets).
+Construis le profil global, factuel et neutre de la source ou organisation correspondant au domaine "${domain}".
+Base-toi UNIQUEMENT sur les résultats Serper suivants (titres, URLs, snippets).
+Le profil doit décrire l'organisation ou la plateforme elle-même, jamais l'article, la vidéo, le post ou la page ayant cité ce domaine.
 
 CONTEXTE SERPER:
 ${serperContext}
@@ -104,29 +147,59 @@ Verdict attendu (JSON strict) :
   "politicalBias": "EXTREME_LEFT" | "LEFT" | "CENTER_LEFT" | "CENTER" | "CENTER_RIGHT" | "RIGHT" | "EXTREME_RIGHT" | "SATIRE" | "UNKNOWN",
   "biasScore": number,
   "short_bio": "Courte biographie factuelle (max 15 mots)",
-  "reasoning": "Court r�sum� des preuves trouv�es (max 2 phrases)"
+  "profileSummary": "Résumé global factuel de la source en 2 à 4 phrases, ou null",
+  "ownership": "Propriétaire, groupe ou gouvernance documentée, ou null",
+  "businessModel": "Modèle économique documenté, ou null",
+  "editorialPositioning": "Positionnement éditorial documenté, formulé sans jugement, ou null",
+  "specialty": "Domaine de spécialité documenté, ou null",
+  "coverageArea": "Pays, région ou zone principalement couverte, ou null",
+  "generalReputation": "Réputation générale documentée, formulée prudemment, ou null",
+  "strengths": ["Signaux de fiabilité documentés : politique de correction, méthode éditoriale ou reconnaissance indépendante"],
+  "misinformationSignals": ["Signaux de désinformation ou manquements uniquement s'ils sont solidement documentés"],
+  "correctionHistory": "Historique de corrections documenté, ou null",
+  "editorialPolicy": "Politique éditoriale ou de correction publiée, ou null",
+  "vigilancePoints": ["Points de vigilance explicitement documentés dans les résultats"],
+  "claimReferences": {
+    "editorialReputation.editorialPositioning": ["ref_1"],
+    "editorialReputation.generalReputation": ["ref_1"],
+    "editorialReputation.reliabilitySignals": ["ref_1"],
+    "editorialReputation.misinformationSignals": ["ref_2"],
+    "editorialReputation.correctionHistory": ["ref_1"],
+    "editorialReputation.editorialPolicy": ["ref_1"],
+    "vigilancePoints": ["ref_2"]
+  },
+  "reasoning": "Court résumé des preuves trouvées (max 2 phrases)"
 }
 
-Crit�res de classification (reliability) :
-- HIGH : M�dia reconnu, institution scientifique, agence de presse, ou source tr�s transparente.
-- MIXED : Blog d'opinion, site partisan mais factuel, ou site r�cent sans historique clair.
-- LOW : Tablo�d sensationnaliste, clickbait av�r�, ou manque de transparence marqu�.
-- PROPAGANDA : Fake news, complotisme, ou satire non d�clar�e.
+Critères de classification (reliability) :
+- HIGH : Média reconnu, institution scientifique, agence de presse, ou source très transparente.
+- MIXED : Blog d'opinion, site partisan mais factuel, ou site récent sans historique clair.
+- LOW : Tabloïd sensationnaliste, clickbait avéré, ou manque de transparence marqué.
+- PROPAGANDA : Fake news, complotisme, ou satire non déclarée.
 
-Crit�res de classification (sourceType) :
+Critères de classification (sourceType) :
 - AGENCY : Agence de presse.
-- MEDIA : Journal, cha�ne TV, radio, magazine d'information.
-- ACADEMIC : Universit�, revue scientifique, centre de recherche.
+- MEDIA : Journal, chaîne TV, radio, magazine d'information.
+- ACADEMIC : Université, revue scientifique, centre de recherche.
 - GOVERNMENT : Site gouvernemental, institution publique.
-- BLOG : Blog personnel, newsletter ind�pendante.
-- SOCIAL : R�seau social, plateforme communautaire.
+- BLOG : Blog personnel, newsletter indépendante.
+- SOCIAL : Réseau social, plateforme communautaire.
 - COMMERCIAL : Site d'entreprise, e-commerce, relations publiques.
 - GENERAL : Autre ou inclassable.
 
-Consignes suppl�mentaires :
-- G�n�re �galement une courte biographie factuelle de ce m�dia (max 15 mots) bas�e sur le texte fourni.
+Consignes supplémentaires :
+- Génère une courte biographie globale de la source (max 15 mots), sans reprendre le titre ni la description d'un contenu individuel.
+- Chaque fait spécifique doit être directement étayé par au moins un résultat fourni. Utilise null ou [] si l'information n'est pas documentée.
+- Pour un média, recherche propriété, modèle économique, spécialité et positionnement éditorial documenté.
+- Ne place jamais dans strengths le modèle économique, le nombre de salariés, la taille, l'ancienneté, un slogan ou une fonctionnalité du site. Ces éléments ne sont pas des preuves de fiabilité.
+- strengths est réservé aux signaux de fiabilité documentés. misinformationSignals est réservé aux signaux négatifs étayés par une référence solide.
+- Pour une institution, résume son mandat officiel et son autorité sur le sujet ; signale neutralement que sa communication exprime un point de vue institutionnel et n'est pas une évaluation indépendante.
+- Pour YouTube, Facebook, Dailymotion ou une autre plateforme, décris uniquement la plateforme globale. Indique que la fiabilité dépend du compte, de l'auteur et du contenu cité.
+- N'ajoute dans strengths et vigilancePoints que des éléments factuels, neutres, globaux et explicitement étayés par les résultats. Utilise [] si rien n'est documenté.
+- Toute affirmation sensible doit avoir une entrée claimReferences utilisant uniquement les IDs ref_N fournis. Sans référence précise, utilise null ou [].
+- Une preuve indirecte ou ambiguë doit être formulée prudemment et rattachée à sa référence ; une accusation ou controverse sans preuve claire doit être omise.
 - biasScore doit rester entre -100 et 100.
-- R�ponds UNIQUEMENT le JSON.
+- Réponds UNIQUEMENT le JSON.
 `;
 
     const messages: WebChatMessage[] = [
@@ -158,26 +231,92 @@ Consignes suppl�mentaires :
             : 0;
 
         const shortBio = normalizeShortBio(parsed.short_bio);
+        const profileSummary = normalizeProfileFact(parsed.profileSummary);
+        const ownership = normalizeProfileFact(parsed.ownership);
+        const businessModel = normalizeProfileFact(parsed.businessModel);
+        const externalReferences = searchResults.map((result, index) => ({
+            id: `ref_${index + 1}`,
+            label: result.title,
+            url: result.url,
+            publisher: safeHostname(result.url),
+            referenceType: 'Résultat de recherche externe',
+        }));
+        const claimReferences = normalizeClaimReferences(parsed.claimReferences, externalReferences.map((reference) => reference.id));
+        const editorialPositioning = hasClaimReference(claimReferences, 'editorialReputation.editorialPositioning')
+            ? normalizeProfileFact(parsed.editorialPositioning) : null;
+        const specialty = normalizeProfileFact(parsed.specialty);
+        const coverageArea = normalizeProfileFact(parsed.coverageArea);
+        const generalReputation = hasClaimReference(claimReferences, 'editorialReputation.generalReputation')
+            ? normalizeProfileFact(parsed.generalReputation) : null;
+        const misinformationSignals = hasClaimReference(claimReferences, 'editorialReputation.misinformationSignals')
+            ? normalizeDocumentedPoints(parsed.misinformationSignals) : [];
+        const correctionHistory = hasClaimReference(claimReferences, 'editorialReputation.correctionHistory')
+            ? normalizeProfileFact(parsed.correctionHistory) : null;
+        const editorialPolicy = hasClaimReference(claimReferences, 'editorialReputation.editorialPolicy')
+            ? normalizeProfileFact(parsed.editorialPolicy) : null;
+        const strengths = hasClaimReference(claimReferences, 'editorialReputation.reliabilitySignals')
+            ? normalizeDocumentedPoints(parsed.strengths) : [];
+        const vigilancePoints = hasClaimReference(claimReferences, 'vigilancePoints')
+            ? normalizeDocumentedPoints(parsed.vigilancePoints) : [];
 
         logger.info(`Investigation complete for ${domain}: ${reliability} (${sourceType})`, { module: 'ColdProfiler' });
 
         return {
             reliability,
             sourceType,
-            reasoning: parsed.reasoning || 'Analyse IA bas�e sur la r�putation web.',
+            reasoning: parsed.reasoning || 'Analyse IA basée sur la réputation web.',
             politicalBias,
             biasScore,
             shortBio,
+            profileSummary,
+            ownership,
+            businessModel,
+            editorialPositioning,
+            specialty,
+            coverageArea,
+            generalReputation,
+            misinformationSignals,
+            correctionHistory,
+            editorialPolicy,
+            strengths,
+            vigilancePoints,
+            externalReferences,
+            claimReferences,
         };
     } catch (error: any) {
         logger.error(`Web investigation failed for ${domain}`, { module: 'ColdProfiler', error: error.message });
         return {
             reliability: Reliability.MIXED,
             sourceType: 'GENERAL',
-            reasoning: 'Investigation �chou�e (service indisponible). Class� MIXED par prudence.',
+            reasoning: 'Investigation échouée (service indisponible). Classé MIXED par prudence.',
             politicalBias: PoliticalBias.UNKNOWN,
             biasScore: 0,
             shortBio: null,
+            ...emptyProfileEvidence(),
         };
     }
+}
+
+function safeHostname(value: string): string | undefined {
+    try {
+        return new URL(value).hostname.replace(/^www\./, '');
+    } catch {
+        return undefined;
+    }
+}
+
+function normalizeClaimReferences(value: unknown, validReferenceIds: string[]): Record<string, string[]> {
+    if (!value || typeof value !== 'object' || Array.isArray(value)) return {};
+    const validIds = new Set(validReferenceIds);
+    const output: Record<string, string[]> = {};
+    for (const [path, rawIds] of Object.entries(value as Record<string, unknown>)) {
+        if (!Array.isArray(rawIds)) continue;
+        const ids = Array.from(new Set(rawIds.filter((id): id is string => typeof id === 'string' && validIds.has(id))));
+        if (ids.length > 0) output[path] = ids;
+    }
+    return output;
+}
+
+function hasClaimReference(claimReferences: Record<string, string[]>, path: string): boolean {
+    return Boolean(claimReferences[path]?.length);
 }

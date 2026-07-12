@@ -1,6 +1,10 @@
 import { createHash } from 'node:crypto';
 import { Prisma } from '@prisma/client';
 
+const TRACKING_QUERY_PARAMETERS = new Set([
+  'fbclid', 'gclid', 'msclkid', 'ref', 'ref_src', 'igshid', 'mc_cid', 'mc_eid',
+]);
+
 export type ArticleSourceRoleValue =
   | 'PRIMARY_EVIDENCE'
   | 'CONTEXT'
@@ -25,6 +29,20 @@ export interface ArticleSourceProfileSnapshot {
   publicTrustLabel: string | null;
   lastProfiledAt: string | null;
   snapshotAt: string;
+  platformContext?: PlatformArticleContext;
+}
+
+export type PlatformActorType = 'CHANNEL' | 'ACCOUNT' | 'COMMUNITY';
+
+export interface PlatformArticleContext {
+  platform: string;
+  actorName?: string;
+  handle?: string;
+  actorUrl?: string;
+  actorType?: PlatformActorType;
+  actorDescription?: string;
+  contentTitle?: string;
+  contentUrl: string;
 }
 
 export interface BuildArticleSourceUpsertInput {
@@ -53,6 +71,7 @@ export function normalizeArticleSourceUrl(input: unknown): string | null {
     url.hash = '';
 
     const sortedParams = [...url.searchParams.entries()]
+      .filter(([key]) => !isTrackingQueryParameter(key))
       .sort(([leftKey, leftValue], [rightKey, rightValue]) =>
         leftKey.localeCompare(rightKey) || leftValue.localeCompare(rightValue));
     url.search = '';
@@ -62,6 +81,11 @@ export function normalizeArticleSourceUrl(input: unknown): string | null {
   } catch {
     return null;
   }
+}
+
+function isTrackingQueryParameter(key: string): boolean {
+  const normalized = key.toLowerCase();
+  return normalized.startsWith('utm_') || TRACKING_QUERY_PARAMETERS.has(normalized);
 }
 
 export function hashArticleSourceUrl(input: unknown): string | null {
@@ -76,9 +100,20 @@ export function buildArticleSourceProfileSnapshot(input: {
   publicTrustLabel?: unknown;
   lastProfiledAt?: Date | string | null;
   snapshotAt?: Date | string;
+  sourceUrl?: unknown;
+  actorName?: unknown;
+  actorDescription?: unknown;
+  contentTitle?: unknown;
 }): ArticleSourceProfileSnapshot {
   const snapshotAt = toIsoString(input.snapshotAt) ?? new Date().toISOString();
   const profileData = removeTechnicalScoreFields(input.profileData);
+
+  const platformContext = extractPlatformArticleContext({
+    sourceUrl: input.sourceUrl,
+    actorName: input.actorName,
+    actorDescription: input.actorDescription,
+    contentTitle: input.contentTitle,
+  });
 
   return {
     profileData,
@@ -86,6 +121,111 @@ export function buildArticleSourceProfileSnapshot(input: {
     publicTrustLabel: cleanOptionalString(input.publicTrustLabel),
     lastProfiledAt: toIsoString(input.lastProfiledAt),
     snapshotAt,
+    ...(platformContext ? { platformContext } : {}),
+  };
+}
+
+const PLATFORM_BY_DOMAIN: Record<string, string> = {
+  'youtube.com': 'YouTube',
+  'youtu.be': 'YouTube',
+  'reddit.com': 'Reddit',
+  'x.com': 'X',
+  'twitter.com': 'X',
+  'instagram.com': 'Instagram',
+  'facebook.com': 'Facebook',
+  'fb.watch': 'Facebook',
+  'tiktok.com': 'TikTok',
+  'dailymotion.com': 'Dailymotion',
+};
+
+export function isPlatformSourceDomain(input: unknown): boolean {
+  return platformNameFromUrl(input) !== null;
+}
+
+export function extractPlatformArticleContext(input: {
+  sourceUrl?: unknown;
+  actorName?: unknown;
+  actorDescription?: unknown;
+  contentTitle?: unknown;
+}): PlatformArticleContext | null {
+  const contentUrl = normalizeArticleSourceUrl(input.sourceUrl);
+  if (!contentUrl) return null;
+
+  const url = new URL(contentUrl);
+  const domain = url.hostname.replace(/^www\./, '').toLowerCase();
+  const platform = PLATFORM_BY_DOMAIN[domain];
+  if (!platform) return null;
+
+  const derived = deriveActorFromPlatformUrl(platform, url);
+  const actorName = cleanOptionalString(input.actorName) ?? derived.actorName;
+  const actorDescription = cleanOptionalString(input.actorDescription);
+  const contentTitle = cleanOptionalString(input.contentTitle);
+
+  return {
+    platform,
+    ...(actorName ? { actorName } : {}),
+    ...(derived.handle ? { handle: derived.handle } : {}),
+    ...(derived.actorUrl ? { actorUrl: derived.actorUrl } : {}),
+    ...(actorName || derived.handle ? { actorType: derived.actorType } : {}),
+    ...(actorDescription ? { actorDescription } : {}),
+    ...(contentTitle ? { contentTitle } : {}),
+    contentUrl,
+  };
+}
+
+function platformNameFromUrl(input: unknown): string | null {
+  const normalized = normalizeArticleSourceUrl(input);
+  if (!normalized) return null;
+  return PLATFORM_BY_DOMAIN[new URL(normalized).hostname.replace(/^www\./, '').toLowerCase()] ?? null;
+}
+
+function deriveActorFromPlatformUrl(platform: string, url: URL): {
+  actorName?: string;
+  handle?: string;
+  actorUrl?: string;
+  actorType: PlatformActorType;
+} {
+  const parts = url.pathname.split('/').filter(Boolean);
+  let rawHandle: string | undefined;
+  let actorType: PlatformActorType = platform === 'YouTube' || platform === 'Dailymotion'
+    ? 'CHANNEL'
+    : 'ACCOUNT';
+
+  if (platform === 'YouTube') {
+    if (parts[0]?.startsWith('@')) rawHandle = parts[0];
+    else if (['channel', 'user', 'c'].includes(parts[0]) && parts[1]) rawHandle = parts[1];
+  } else if (platform === 'TikTok' && parts[0]?.startsWith('@')) {
+    rawHandle = parts[0];
+  } else if (platform === 'X' && parts[0] && !['home', 'explore', 'search', 'i'].includes(parts[0])) {
+    rawHandle = parts[0];
+  } else if (platform === 'Instagram' && parts[0] && !['p', 'reel', 'reels', 'stories', 'explore'].includes(parts[0])) {
+    rawHandle = parts[0];
+  } else if (platform === 'Facebook' && parts[0] && !['watch', 'reel', 'share', 'photo', 'groups'].includes(parts[0])) {
+    rawHandle = parts[0];
+  } else if (platform === 'Reddit') {
+    if (parts[0] === 'user' && parts[1]) rawHandle = parts[1];
+    if (parts[0] === 'r' && parts[1]) {
+      rawHandle = `r/${parts[1]}`;
+      actorType = 'COMMUNITY';
+    }
+  } else if (platform === 'Dailymotion' && parts[0] === 'user' && parts[1]) {
+    rawHandle = parts[1];
+  }
+
+  if (!rawHandle) return { actorType };
+  const handle = rawHandle.startsWith('@') || rawHandle.startsWith('r/') ? rawHandle : `@${rawHandle}`;
+  const actorPath = platform === 'Reddit' && rawHandle.startsWith('r/')
+    ? `/${rawHandle}`
+    : platform === 'Reddit' ? `/user/${rawHandle}`
+      : platform === 'YouTube' && parts[0] && ['channel', 'user', 'c'].includes(parts[0]) ? `/${parts[0]}/${rawHandle}`
+        : platform === 'Dailymotion' ? `/user/${rawHandle}`
+          : `/${rawHandle}`;
+
+  return {
+    actorName: handle,
+    handle,
+    actorUrl: `${url.protocol}//${url.host}${actorPath}`,
+    actorType,
   };
 }
 

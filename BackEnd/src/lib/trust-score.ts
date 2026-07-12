@@ -16,6 +16,7 @@ import {
     mergeSourceProfileData,
     normalizeSourceProfileData,
     resolveSourceProfileConfidence,
+    SOURCE_PROFILE_VERSION,
 } from "./source-profile.js";
 
 export interface RichTrustScore {
@@ -238,10 +239,13 @@ export async function getRichTrustScore(
     }
 
     const resolvedDescription = resolveImmediateSourceDescription(
-        auditInput.metaDescription,
         investigation?.shortBio,
         source?.description,
+        auditInput.metaDescription,
     );
+    const globalProfileDescription = investigation?.profileSummary
+        ?? investigation?.shortBio
+        ?? resolvedDescription;
 
     const sourceMetadata = source?.metadata;
     const legacyProfileData = sourceMetadata && typeof sourceMetadata === 'object' && !Array.isArray(sourceMetadata)
@@ -249,11 +253,25 @@ export async function getRichTrustScore(
         : null;
     const existingProfileData = normalizeSourceProfileData(source?.profileData ?? legacyProfileData);
     const generatedProfileData = buildSourceProfileDataFromTrustScore({
+        domain,
         metadata: {
-            description: resolvedDescription,
-            country: source?.detectedCountry,
+            description: globalProfileDescription,
             type: detectedSourceType,
         },
+        profileSummary: investigation?.profileSummary,
+        ownership: investigation?.ownership,
+        businessModel: investigation?.businessModel,
+        editorialPositioning: investigation?.editorialPositioning,
+        specialty: investigation?.specialty,
+        coverageArea: investigation?.coverageArea,
+        generalReputation: investigation?.generalReputation,
+        misinformationSignals: investigation?.misinformationSignals,
+        correctionHistory: investigation?.correctionHistory,
+        editorialPolicy: investigation?.editorialPolicy,
+        strengths: investigation?.strengths,
+        vigilancePoints: investigation?.vigilancePoints,
+        externalReferences: investigation?.externalReferences,
+        claimReferences: investigation?.claimReferences,
     });
     const mergedProfileData = mergeSourceProfileData(existingProfileData, generatedProfileData);
     const profileDataChanged = JSON.stringify(existingProfileData) !== JSON.stringify(mergedProfileData);
@@ -266,11 +284,23 @@ export async function getRichTrustScore(
     const profileConfidence = resolveSourceProfileConfidence(
         source?.profileConfidence,
         source?.isConsensusVerified ?? false,
+        Boolean(
+            investigation?.externalReferences.length
+            && (
+                investigation.profileSummary
+                || investigation.ownership
+                || investigation.businessModel
+                || investigation.editorialPositioning
+                || investigation.specialty
+                || investigation.strengths.length
+                || investigation.vigilancePoints.length
+            )
+        ),
     ) as ConfidenceLevel;
     const profileFields = shouldWriteProfile
         ? {
             profileData: mergedProfileData as object,
-            profileVersion: source?.profileVersion ?? 1,
+            profileVersion: source?.profileVersion ?? SOURCE_PROFILE_VERSION,
             profileConfidence,
             ...(profileWasBuiltOrUpdated ? { lastProfiledAt: now } : {}),
         }
@@ -327,6 +357,11 @@ export async function getRichTrustScore(
 }
 
 function formatResponse(source: Source, min: number, max: number, qualityRatio: number, penalties: string[]): RichTrustScore {
+    const profileData = normalizeSourceProfileData(source.profileData);
+    const profileCountry = source.profileConfidence === 'MEDIUM' || source.profileConfidence === 'HIGH'
+        ? profileData?.sourceFacts?.country ?? null
+        : null;
+
     return {
         durableSourceId: source.id,
         globalScore: source.trustScore,
@@ -350,7 +385,7 @@ function formatResponse(source: Source, min: number, max: number, qualityRatio: 
             politicalBias: source.politicalBias,
             biasScore: source.biasScore,
             reliability: source.reliability,
-            country: source.detectedCountry,
+            country: profileCountry,
             type: source.type,
             explanation: {
                 formula: `Range ${source.reliability} [${min}-${max}] + Qualité`,
@@ -359,7 +394,7 @@ function formatResponse(source: Source, min: number, max: number, qualityRatio: 
                 penalties,
             },
         },
-        profileData: normalizeSourceProfileData(source.profileData),
+        profileData,
         profileVersion: source.profileVersion,
         profileConfidence: source.profileConfidence,
         lastProfiledAt: source.lastProfiledAt?.toISOString() ?? null,

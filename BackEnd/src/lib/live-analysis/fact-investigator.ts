@@ -216,6 +216,8 @@ async function extractSearchResult(result: FactCheckSource): Promise<FactCheckSo
             title: extracted.title?.trim() || result.title?.trim() || url,
             content,
             metaDescription: extracted.metaDescription,
+            author: extracted.author,
+            siteName: extracted.siteName,
             publishedDate: result.publishedDate || undefined,
             domain: getDomainKeyFromUrl(url),
             score: result.score || 0,
