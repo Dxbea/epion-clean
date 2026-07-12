@@ -14,7 +14,7 @@ const DEFAULT_BATCH_SIZE = 50;
 const SAMPLE_LIMIT = 5;
 
 export interface RefreshSourceProfilesOptions {
-  mode: 'dry-run' | 'write';
+  mode: 'report-only' | 'dry-run' | 'write';
   limit?: number;
   batchSize: number;
   domain?: string;
@@ -82,15 +82,26 @@ type Log = (message: string) => void;
 
 export function parseRefreshSourceProfilesOptions(argv: string[]): RefreshSourceProfilesOptions {
   assertKnownArguments(argv);
+  const hasReportOnly = argv.includes('--report-only');
   const hasDryRun = argv.includes('--dry-run');
   const hasWrite = argv.includes('--write');
-  if (hasDryRun && hasWrite) throw new Error('Choose only one mode: --dry-run or --write.');
+  const modeCount = [hasReportOnly, hasDryRun, hasWrite].filter(Boolean).length;
+  if (modeCount !== 1) {
+    throw new Error('Choose exactly one mode: --report-only, --dry-run, or --write.');
+  }
+
+  const limit = readPositiveIntegerOption(argv, '--limit');
+  const domain = normalizeRequestedDomain(readStringOption(argv, '--domain'));
+  const mode = hasReportOnly ? 'report-only' : hasWrite ? 'write' : 'dry-run';
+  if (mode !== 'report-only' && limit === undefined && domain === undefined) {
+    throw new Error(`${mode} requires --limit or --domain to prevent an unbounded refresh.`);
+  }
 
   return {
-    mode: hasWrite ? 'write' : 'dry-run',
-    limit: readPositiveIntegerOption(argv, '--limit'),
+    mode,
+    limit,
     batchSize: readPositiveIntegerOption(argv, '--batch-size') ?? DEFAULT_BATCH_SIZE,
-    domain: normalizeRequestedDomain(readStringOption(argv, '--domain')),
+    domain,
     onlyLowConfidence: argv.includes('--only-low-confidence'),
     onlyMissingProfile: argv.includes('--only-missing-profile'),
     json: argv.includes('--json'),
@@ -121,6 +132,9 @@ export async function runRefreshSourceProfiles(
   profileSource: ProfileSource = evaluateUnknownSource,
   log: Log = console.log,
 ): Promise<RefreshSourceProfilesReport> {
+  if (options.mode !== 'report-only' && options.limit === undefined && options.domain === undefined) {
+    throw new Error(`${options.mode} requires --limit or --domain to prevent an unbounded refresh.`);
+  }
   if (options.mode === 'write' && !isWriteClient(client)) {
     throw new Error('Write mode requires an explicit write client and the --write flag.');
   }
@@ -188,6 +202,24 @@ export async function runRefreshSourceProfiles(
       report.candidatesFound++;
       for (const reason of selectedReasons) {
         report.selectionReasons[reason] = (report.selectionReasons[reason] ?? 0) + 1;
+      }
+
+      if (options.mode === 'report-only') {
+        report.wouldRefresh++;
+        if (report.samples.length < SAMPLE_LIMIT) {
+          report.samples.push({
+            domain: source.domain,
+            reasons: selectedReasons,
+            before: {
+              profileData: source.profileData,
+              profileVersion: source.profileVersion,
+              profileConfidence: source.profileConfidence,
+              lastProfiledAt: source.lastProfiledAt,
+            },
+            after: null,
+          });
+        }
+        continue;
       }
 
       try {
@@ -272,7 +304,6 @@ function buildRebuiltProfile(source: RefreshableSource, investigation: Investiga
     domain: source.domain,
     metadata: {
       description: investigation.profileSummary ?? investigation.shortBio ?? source.description,
-      country: source.detectedCountry,
       type: source.type,
     },
     profileSummary: investigation.profileSummary,
@@ -347,7 +378,7 @@ function normalizeRequestedDomain(value: string | undefined): string | undefined
 
 function assertKnownArguments(argv: string[]): void {
   const flags = new Set([
-    '--dry-run', '--write', '--only-low-confidence', '--only-missing-profile', '--json',
+    '--report-only', '--dry-run', '--write', '--only-low-confidence', '--only-missing-profile', '--json',
   ]);
   const valued = new Set(['--limit', '--batch-size', '--domain']);
 
@@ -389,8 +420,10 @@ async function main(): Promise<void> {
   const options = parseRefreshSourceProfilesOptions(process.argv.slice(2));
   if (!options.json) {
     console.log(options.mode === 'write'
-      ? '[WRITE] Only descriptive Source profile fields may be updated.'
-      : '[DRY-RUN] Default safe mode. No database writes will be performed.');
+      ? '[WRITE] Profiler preview with descriptive Source profile writes.'
+      : options.mode === 'dry-run'
+        ? '[DRY-RUN] Profiler preview: network/AI may be used; no database writes.'
+        : '[REPORT-ONLY] Local database read only; no profiler, network, AI, or writes.');
   }
   try {
     const report = await runRefreshSourceProfiles(prisma, options);

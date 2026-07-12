@@ -255,7 +255,6 @@ export async function getRichTrustScore(
         domain,
         metadata: {
             description: globalProfileDescription,
-            country: source?.detectedCountry,
             type: detectedSourceType,
         },
         profileSummary: investigation?.profileSummary,
@@ -356,6 +355,11 @@ export async function getRichTrustScore(
 }
 
 function formatResponse(source: Source, min: number, max: number, qualityRatio: number, penalties: string[]): RichTrustScore {
+    const profileData = normalizeSourceProfileData(source.profileData);
+    const profileCountry = source.profileConfidence === 'MEDIUM' || source.profileConfidence === 'HIGH'
+        ? profileData?.sourceFacts?.country ?? null
+        : null;
+
     return {
         durableSourceId: source.id,
         globalScore: source.trustScore,
@@ -379,7 +383,7 @@ function formatResponse(source: Source, min: number, max: number, qualityRatio: 
             politicalBias: source.politicalBias,
             biasScore: source.biasScore,
             reliability: source.reliability,
-            country: source.detectedCountry,
+            country: profileCountry,
             type: source.type,
             explanation: {
                 formula: `Range ${source.reliability} [${min}-${max}] + Qualité`,
@@ -388,7 +392,7 @@ function formatResponse(source: Source, min: number, max: number, qualityRatio: 
                 penalties,
             },
         },
-        profileData: normalizeSourceProfileData(source.profileData),
+        profileData,
         profileVersion: source.profileVersion,
         profileConfidence: source.profileConfidence,
         lastProfiledAt: source.lastProfiledAt?.toISOString() ?? null,

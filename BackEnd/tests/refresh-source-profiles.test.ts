@@ -55,6 +55,7 @@ function investigation() {
 function options(overrides: Partial<RefreshSourceProfilesOptions> = {}): RefreshSourceProfilesOptions {
   return {
     mode: 'dry-run',
+    limit: 1,
     batchSize: 50,
     onlyLowConfidence: false,
     onlyMissingProfile: false,
@@ -83,10 +84,10 @@ function createClient(rows: RefreshableSource[], writable = false) {
 }
 
 describe('refresh-source-profiles CLI', () => {
-  it('defaults to dry-run and parses the supported filters', () => {
-    expect(parseRefreshSourceProfilesOptions([])).toMatchObject({ mode: 'dry-run', batchSize: 50 });
+  it('parses report-only and bounded profiler modes', () => {
+    expect(parseRefreshSourceProfilesOptions(['--report-only'])).toMatchObject({ mode: 'report-only', batchSize: 50 });
     expect(parseRefreshSourceProfilesOptions([
-      '--domain', 'https://WWW.Example.com/path', '--limit', '4', '--batch-size', '2',
+      '--dry-run', '--domain', 'https://WWW.Example.com/path', '--limit', '4', '--batch-size', '2',
       '--only-low-confidence', '--json',
     ])).toMatchObject({
       domain: 'example.com', limit: 4, batchSize: 2, onlyLowConfidence: true, json: true,
@@ -96,7 +97,16 @@ describe('refresh-source-profiles CLI', () => {
   it('rejects unknown and positional arguments', () => {
     expect(() => parseRefreshSourceProfilesOptions(['unexpected'])).toThrow('Unexpected CLI argument');
     expect(() => parseRefreshSourceProfilesOptions(['--unknown'])).toThrow('Unexpected CLI argument');
-    expect(() => parseRefreshSourceProfilesOptions(['--dry-run', '--write'])).toThrow('Choose only one mode');
+    expect(() => parseRefreshSourceProfilesOptions([])).toThrow('Choose exactly one mode');
+    expect(() => parseRefreshSourceProfilesOptions(['--dry-run', '--write', '--limit', '1']))
+      .toThrow('Choose exactly one mode');
+  });
+
+  it('refuses unbounded dry-run and write modes', () => {
+    expect(() => parseRefreshSourceProfilesOptions(['--dry-run']))
+      .toThrow('dry-run requires --limit or --domain');
+    expect(() => parseRefreshSourceProfilesOptions(['--write']))
+      .toThrow('write requires --limit or --domain');
   });
 });
 
@@ -125,6 +135,32 @@ describe('profile refresh detection', () => {
 });
 
 describe('profile refresh execution safety', () => {
+  it('reports candidates locally without invoking the profiler or writes', async () => {
+    const fixture = source({ profileData: null, profileConfidence: 'LOW' });
+    const { client, update } = createClient([fixture], true);
+    const profiler = vi.fn(async () => investigation());
+
+    const report = await runRefreshSourceProfiles(
+      client as any,
+      options({ mode: 'report-only', limit: undefined }),
+      profiler,
+    );
+
+    expect(report).toMatchObject({ sourcesScanned: 1, candidatesFound: 1, wouldRefresh: 1, refreshed: 0 });
+    expect(profiler).not.toHaveBeenCalled();
+    expect(update).not.toHaveBeenCalled();
+    expect(report.samples[0].after).toBeNull();
+  });
+
+  it('refuses programmatic unbounded profiler execution', async () => {
+    const { client } = createClient([source({ profileData: null })]);
+    await expect(runRefreshSourceProfiles(
+      client as any,
+      options({ mode: 'dry-run', limit: undefined }),
+      async () => investigation(),
+    )).rejects.toThrow('dry-run requires --limit or --domain');
+  });
+
   it('performs no write in dry-run', async () => {
     const fixture = source({ profileData: null, profileConfidence: 'LOW' });
     const { client, update } = createClient([fixture], true);

@@ -48,6 +48,27 @@ describe('normalizeSourceForUi', () => {
     expect(profile.countryLabel).toBeUndefined();
   });
 
+  it('does not expose a raw or low-confidence default country', () => {
+    const raw = normalizeSourceForUi({ country: 'FR' }, '');
+    const lowConfidence = normalizeSourceForUi({
+      profileData: { sourceFacts: { country: 'FR' } },
+      profileConfidence: 'LOW',
+    }, '');
+
+    expect(raw.country).toBeUndefined();
+    expect(lowConfidence.country).toBeUndefined();
+  });
+
+  it('keeps a country from a documented profile', () => {
+    const source = normalizeSourceForUi({
+      profileData: { sourceFacts: { country: 'BE' } },
+      profileConfidence: 'MEDIUM',
+    }, '');
+
+    expect(source.country).toBe('BE');
+    expect(extractStructuredSourceProfile(source).countryLabel).toBe('BE');
+  });
+
   it('does not invent a source type', () => {
     const source = normalizeSourceForUi({ name: 'example.com' }, 'Description');
 

@@ -18,6 +18,24 @@ describe('article-source-service', () => {
     expect(hashArticleSourceUrl(first)).toBe(hashArticleSourceUrl(second));
   });
 
+  it('removes tracking parameters before hashing', () => {
+    const first = 'https://example.com/article?id=42&utm_source=newsletter&fbclid=first';
+    const second = 'https://example.com/article?fbclid=second&id=42&utm_campaign=launch';
+
+    expect(normalizeArticleSourceUrl(first)).toBe('https://example.com/article?id=42');
+    expect(hashArticleSourceUrl(first)).toBe(hashArticleSourceUrl(second));
+  });
+
+  it('ignores URL fragments before hashing', () => {
+    expect(hashArticleSourceUrl('https://example.com/article#introduction'))
+      .toBe(hashArticleSourceUrl('https://example.com/article#conclusion'));
+  });
+
+  it('keeps content-defining parameters in the hash', () => {
+    expect(hashArticleSourceUrl('https://example.com/watch?v=first'))
+      .not.toBe(hashArticleSourceUrl('https://example.com/watch?v=second'));
+  });
+
   it('allows two different URLs from the same domain', () => {
     const first = buildArticleSourceUpsertInput({
       articleId: 'article-1',

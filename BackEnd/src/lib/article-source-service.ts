@@ -1,6 +1,10 @@
 import { createHash } from 'node:crypto';
 import { Prisma } from '@prisma/client';
 
+const TRACKING_QUERY_PARAMETERS = new Set([
+  'fbclid', 'gclid', 'msclkid', 'ref', 'ref_src', 'igshid', 'mc_cid', 'mc_eid',
+]);
+
 export type ArticleSourceRoleValue =
   | 'PRIMARY_EVIDENCE'
   | 'CONTEXT'
@@ -67,6 +71,7 @@ export function normalizeArticleSourceUrl(input: unknown): string | null {
     url.hash = '';
 
     const sortedParams = [...url.searchParams.entries()]
+      .filter(([key]) => !isTrackingQueryParameter(key))
       .sort(([leftKey, leftValue], [rightKey, rightValue]) =>
         leftKey.localeCompare(rightKey) || leftValue.localeCompare(rightValue));
     url.search = '';
@@ -76,6 +81,11 @@ export function normalizeArticleSourceUrl(input: unknown): string | null {
   } catch {
     return null;
   }
+}
+
+function isTrackingQueryParameter(key: string): boolean {
+  const normalized = key.toLowerCase();
+  return normalized.startsWith('utm_') || TRACKING_QUERY_PARAMETERS.has(normalized);
 }
 
 export function hashArticleSourceUrl(input: unknown): string | null {

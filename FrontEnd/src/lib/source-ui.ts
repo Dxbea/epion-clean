@@ -488,6 +488,20 @@ export function normalizeSourceForUi(
     const trustScore = resolveTrustScore(source);
     const metrics = source.metrics || source.metric || undefined;
 
+    const profileConfidence = readFirstString(
+        source.profileConfidence,
+        source.profileSnapshot?.profileConfidence,
+        source.currentProfile?.profileConfidence,
+    )?.toUpperCase();
+    const verifiedProfileCountry = profileConfidence === 'MEDIUM' || profileConfidence === 'HIGH'
+        ? source.profileData?.country
+            ?? source.profileData?.sourceFacts?.country
+            ?? source.profileSnapshot?.profileData?.country
+            ?? source.profileSnapshot?.profileData?.sourceFacts?.country
+            ?? source.currentProfile?.profileData?.country
+            ?? source.currentProfile?.profileData?.sourceFacts?.country
+        : undefined;
+
     return {
         ...source,
         domain,
@@ -497,11 +511,7 @@ export function normalizeSourceForUi(
         score: trustScore,
         trustScore,
         dbScore: trustScore ?? undefined,
-        country: source.profileData?.country
-            ?? source.profileSnapshot?.profileData?.country
-            ?? source.currentProfile?.profileData?.country
-            ?? source.country
-            ?? undefined,
+        country: verifiedProfileCountry,
         politicalBias: source.metadata?.politicalBias || source.politicalBias || undefined,
         reliability: source.metadata?.reliability || source.reliability || undefined,
         biasScore: source.metadata?.biasScore || source.biasScore || undefined,
