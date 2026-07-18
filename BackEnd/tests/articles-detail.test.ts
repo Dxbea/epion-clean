@@ -85,6 +85,7 @@ function publishedArticle(overrides: Record<string, unknown> = {}) {
     imageUrl: null,
     status: 'PUBLISHED',
     createdAt: new Date('2026-01-01T00:00:00.000Z'),
+    publishedAt: null,
     updatedAt: new Date('2026-01-02T00:00:00.000Z'),
     authorId: 'author-id',
     category: null,
@@ -335,6 +336,20 @@ describe('article detail fact-check payloads', () => {
     expect(response.body.factCheckScore).toBe(82);
     expect(response.body.factCheckStatus).toBe('COMPLETED');
     expect(response.body.factCheckData).not.toHaveProperty('lightAnalysis');
+  });
+
+  it('uses the real publication timestamp and only falls back for legacy articles', async () => {
+    articleFindUnique
+      .mockResolvedValueOnce(publishedArticle({ publishedAt: new Date('2026-01-03T12:30:00.000Z') }))
+      .mockResolvedValueOnce(publishedArticle());
+
+    const current = await request(buildApp()).get('/api/articles/article-id');
+    const legacy = await request(buildApp()).get('/api/articles/article-id');
+
+    expect(current.status).toBe(200);
+    expect(current.body.publishedAt).toBe('2026-01-03T12:30:00.000Z');
+    expect(legacy.status).toBe(200);
+    expect(legacy.body.publishedAt).toBe('2026-01-01T00:00:00.000Z');
   });
 
   it('returns normalized fact-check fields and array sources from GET /api/articles/slug/:slug', async () => {

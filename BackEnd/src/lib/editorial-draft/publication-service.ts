@@ -307,6 +307,11 @@ function validatePublicationState(
   }
   const articleIdentity = editorialArticleIdentity(draft.article.structuredContent);
   if (
+    articleIdentity.version !== 1
+    || articleIdentity.format !== 'epion-article-v1'
+    || !Array.isArray(articleIdentity.sections)
+    || !Array.isArray(articleIdentity.claims)
+    ||
     articleIdentity.origin !== 'EPION_AUTOMATIC_EDITORIAL'
     || articleIdentity.editorialDraftId !== draft.id
     || articleIdentity.editorialRevisionId !== draft.currentRevision.id
@@ -317,6 +322,21 @@ function validatePublicationState(
   const sources = draft.article.articleSources;
   if (!sources.length || sources.some((source) => source.provenance !== 'EDITORIAL' || !source.sourceId || !source.source?.domain)) {
     throw new EditorialRevisionBlockedError('EDITORIAL_ARTICLE_SOURCES_MISSING', 'Publication requires materialized validated ArticleSource records');
+  }
+  const scorePayload = editorialArticleIdentity(draft.article.factCheckData);
+  if (
+    draft.article.factCheckStatus !== 'COMPLETED'
+    || typeof draft.article.factCheckScore !== 'number'
+    || !draft.article.factCheckContentHash
+    || scorePayload.version !== 1
+    || scorePayload.status !== 'COMPLETED'
+    || scorePayload.score !== draft.article.factCheckScore
+    || scorePayload.contentHash !== draft.article.factCheckContentHash
+  ) {
+    throw new EditorialRevisionBlockedError(
+      'EDITORIAL_ARTICLE_FACTCHECK_INCOMPLETE',
+      'Publication requires the shared completed FactScore contract',
+    );
   }
   const authorization = draft.currentRevision.publicationAuthorizations.find((item) =>
     item.draftId === draft.id

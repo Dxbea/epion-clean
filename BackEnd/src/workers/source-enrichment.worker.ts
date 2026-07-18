@@ -4,20 +4,17 @@ import { Redis as IORedis } from 'ioredis';
 import { getRichTrustScore } from '../lib/trust-score.js';
 import { logger } from '../lib/logger.js';
 import { prisma } from '../lib/db.js';
-import { buildArticleScorePayload, hashAnalysisInput } from '../lib/score-helpers.js';
 import { stableSourceId } from '../lib/structured-article.js';
 import type { SourceScoreEntry, SourceAnalysisStatus } from '../lib/score-types.js';
+import {
+    buildArticleFinalizationContract,
+    isCanonicalStructuredArticleContent,
+    persistArticleFinalization,
+} from '../lib/article-finalization.js';
 import {
     buildEnrichedSourceScoreEntry,
     type SourceEnrichmentMetadata,
 } from '../lib/source-enrichment-source.js';
-import {
-    buildArticleSourceProfileSnapshot,
-    buildArticleSourceUpsertInput,
-    deriveArticleSourceSupportStrength,
-    hashArticleSourceUrl,
-    normalizeArticleSourceUrl,
-} from '../lib/article-source-service.js';
 
 const SOURCE_ENRICHMENT_WORKER_CONCURRENCY = 3;
 
@@ -78,8 +75,6 @@ export function startSourceEnrichmentWorker(): Worker<SourceEnrichmentJobData> {
             });
 
             const enrichedSources: SourceScoreEntry[] = [];
-            let totalScore = 0;
-            let validScores = 0;
             const trustScoreByDomain = new Map<string, Promise<any>>();
             const sourceMetadata = job.data.sourceMetadata ?? {};
 
@@ -148,10 +143,6 @@ export function startSourceEnrichmentWorker(): Worker<SourceEnrichmentJobData> {
                 if (res) {
                     res.id = enrichedSources.length + 1;
                     enrichedSources.push(res);
-                    if (res.analysisStatus === 'ANALYZED' && res.trustScore > 0) {
-                        totalScore += res.trustScore;
-                        validScores++;
-                    }
                 }
             });
 
@@ -170,26 +161,22 @@ export function startSourceEnrichmentWorker(): Worker<SourceEnrichmentJobData> {
                 failed: sourceOutcomeCounts.unavailable,
             });
             const scoreLiveBrut = job.data.scoreLiveBrut ?? 75;
-            const sourcesMean = validScores > 0 ? Math.round(totalScore / validScores) : null;
 
             const article = await prisma.article.findUnique({
                 where: { id: articleId },
-                select: { title: true, summary: true, content: true },
+                select: { title: true, summary: true, content: true, structuredContent: true },
             });
+            if (!article) throw new Error(`Article not found during finalization: ${articleId}`);
 
-            const contentHash = article
-                ? hashAnalysisInput({
-                    title: article.title,
-                    summary: article.summary,
-                    content: article.content,
-                    sourceDomains: enrichedSources.map((s) => s.domain),
-                })
-                : '';
-
-            const { factCheckScore, factCheckData } = buildArticleScorePayload({
-                sourcesMean,
+            const finalization = buildArticleFinalizationContract({
+                articleId,
+                title: article.title,
+                summary: article.summary,
+                content: article.content,
+                structuredContent: isCanonicalStructuredArticleContent(article.structuredContent)
+                    ? article.structuredContent
+                    : null,
                 contentScore: scoreLiveBrut,
-                contentHash,
                 sources: enrichedSources,
                 liveAnalysis: job.data.liveAnalysis || null,
             });
@@ -202,74 +189,19 @@ export function startSourceEnrichmentWorker(): Worker<SourceEnrichmentJobData> {
                 });
                 return {
                     enrichedCount: 0,
-                    finalScore: factCheckScore,
+                    finalScore: finalization.factCheckScore,
                     preservedGeneratedArticle: true,
                 };
             }
 
-            if (!hasEnrichedSources) {
-                factCheckData.status = 'FAILED';
-            }
-
-            const snapshotAt = new Date();
-            const articleSourceUpserts = enrichedSources.flatMap((source, position) => {
-                if (!source.durableSourceId) return [];
-
-                const normalizedUrl = normalizeArticleSourceUrl(source.url);
-                if (!normalizedUrl || !hashArticleSourceUrl(normalizedUrl)) return [];
-
-                const profileSnapshot = buildArticleSourceProfileSnapshot({
-                    profileData: source.profileData,
-                    profileConfidence: source.profileConfidence,
-                    publicTrustLabel: source.publicTrustLabel,
-                    lastProfiledAt: source.lastProfiledAt,
-                    snapshotAt,
-                    sourceUrl: source.url,
-                    actorName: source.metadata?.actorName,
-                    actorDescription: source.metadata?.actorDescription,
-                    contentTitle: source.metadata?.contentTitle,
-                });
-                const upsert = buildArticleSourceUpsertInput({
-                    articleId,
-                    durableSourceId: source.durableSourceId,
-                    sourceUrl: normalizedUrl,
-                    role: source.role,
-                    supportStrength: deriveArticleSourceSupportStrength(source.metadata?.supportStrength),
-                    provenance: source.provenance,
-                    profileSnapshot,
-                    profileVersion: source.profileVersion,
-                    snapshotAt,
-                    position,
-                    preserveExistingSnapshot: true,
-                });
-
-                return upsert ? [upsert] : [];
-            });
-
             try {
-                await prisma.$transaction(async (tx) => {
-                    for (const upsert of articleSourceUpserts) {
-                        await tx.articleSource.upsert(upsert);
-                    }
-
-                    await tx.article.update({
-                        where: { id: articleId },
-                        data: {
-                            factCheckScore,
-                            factCheckData: factCheckData as any,
-                            factCheckStatus: hasEnrichedSources ? 'COMPLETED' : 'FAILED',
-                            factCheckContentHash: contentHash,
-                            factCheckCompletedAt: new Date(),
-                            factCheckError: hasEnrichedSources ? null : 'No sources were available for enrichment',
-                        },
-                    });
-                });
+                await persistArticleFinalization(prisma, finalization);
             } catch (error: any) {
                 logger.error('[Worker] Failed to persist article source enrichment transaction', {
                     articleId,
                     jobId: job.id,
                     sourceCount: sources.length,
-                    articleSourceUpsertCount: articleSourceUpserts.length,
+                    articleSourceUpsertCount: finalization.articleSourceUpserts.length,
                     ...sourceOutcomeCounts,
                     error: error?.message,
                 });
@@ -278,14 +210,14 @@ export function startSourceEnrichmentWorker(): Worker<SourceEnrichmentJobData> {
 
             logger.info(`[Worker] Source enrichment complete for article ${articleId}`, {
                 enrichedCount: enrichedSources.length,
-                finalScore: factCheckScore,
-                supportLevel: factCheckData.supportLevel,
-                factCheckStatus: hasEnrichedSources ? 'COMPLETED' : 'FAILED',
+                finalScore: finalization.factCheckScore,
+                supportLevel: finalization.factCheckData.supportLevel,
+                factCheckStatus: finalization.factCheckStatus,
             });
 
             return {
                 enrichedCount: enrichedSources.length,
-                finalScore: factCheckScore,
+                finalScore: finalization.factCheckScore,
             };
         },
         {

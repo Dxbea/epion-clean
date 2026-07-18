@@ -155,7 +155,7 @@ async function buildArticleDetailResponse(article: any) {
     structuredContent: article.structuredContent ?? null,
     imageUrl: article.imageUrl ?? null,
     status: article.status,
-    publishedAt: article.createdAt.toISOString(),
+    publishedAt: articlePublishedAt(article),
     category: article.category
       ? { id: article.category.id, slug: article.category.slug, name: article.category.name }
       : null,
@@ -168,6 +168,11 @@ async function buildArticleDetailResponse(article: any) {
     lightAnalysis,
     generationPrompt: article.generationPrompt ?? null,
   };
+}
+
+function articlePublishedAt(article: { publishedAt?: Date | null; createdAt: Date; status?: string }): string | null {
+  if (article.publishedAt) return article.publishedAt.toISOString();
+  return article.status === 'DRAFT' ? null : article.createdAt.toISOString();
 }
 
 function mergeArticleSourcesForResponse(
@@ -667,7 +672,7 @@ router.get('/top', async (req, res, next) => {
             excerpt: a.summary ?? null,
             imageUrl: a.imageUrl ?? null,
             url: `/article/${a.slug || a.id}`,
-            publishedAt: a.createdAt.toISOString(),
+            publishedAt: articlePublishedAt(a),
             category: a.category?.name ?? null,
             tags: [],
             views: r.viewsAll,
@@ -708,7 +713,7 @@ router.get('/top', async (req, res, next) => {
           excerpt: a.summary ?? null,
           imageUrl: a.imageUrl ?? null,
           url: `/article/${a.slug || a.id}`,
-          publishedAt: a.createdAt.toISOString(),
+          publishedAt: articlePublishedAt(a),
           category: a.category?.name ?? null,
           tags: [],
           views: f.viewsAll,
@@ -732,7 +737,7 @@ router.get('/top', async (req, res, next) => {
           excerpt: a.summary ?? null,
           imageUrl: a.imageUrl ?? null,
           url: `/article/${a.slug || a.id}`,
-          publishedAt: a.createdAt.toISOString(),
+          publishedAt: articlePublishedAt(a),
           category: a.category?.name ?? null,
           tags: [],
           views: 0,
@@ -765,7 +770,7 @@ router.get('/top', async (req, res, next) => {
           excerpt: a.summary ?? null,
           imageUrl: a.imageUrl ?? null,
           url: `/article/${a.slug || a.id}`,
-          publishedAt: a.createdAt.toISOString(),
+          publishedAt: articlePublishedAt(a),
           category: a.category?.name ?? null,
           tags: [],
           views: cnt,
@@ -848,6 +853,7 @@ router.get('/', async (req, res, next) => {
         imageUrl: true,
         status: true,
         createdAt: true,
+        publishedAt: true,
         category: { select: { id: true, slug: true, name: true } },
         author: { select: { id: true, name: true, username: true, avatarUrl: true } },
       },
@@ -862,7 +868,7 @@ router.get('/', async (req, res, next) => {
       structuredContent: a.structuredContent ?? null,
       imageUrl: a.imageUrl ?? null,
       status: a.status,
-      publishedAt: a.createdAt.toISOString(),
+      publishedAt: articlePublishedAt(a),
       category: a.category
         ? {
           id: a.category.id,
@@ -922,6 +928,7 @@ router.get('/following', async (req, res, next) => {
         summary: true,
         imageUrl: true,
         createdAt: true,
+        publishedAt: true,
         category: { select: { name: true } },
         author: { select: { id: true, name: true, username: true, avatarUrl: true } },
       },
@@ -933,7 +940,7 @@ router.get('/following', async (req, res, next) => {
       title: a.title,
       excerpt: a.summary ?? null,
       imageUrl: a.imageUrl ?? null,
-      publishedAt: a.createdAt.toISOString(),
+      publishedAt: articlePublishedAt(a),
       category: a.category?.name ?? null,
       author: a.author,
       url: `/article/${a.slug || a.id}`,
@@ -1739,6 +1746,7 @@ router.get('/slug/:slug', async (req, res, next) => {
         imageUrl: true,
         status: true,
         createdAt: true,
+        publishedAt: true,
         updatedAt: true,
         authorId: true,
         category: { select: { id: true, slug: true, name: true } },
@@ -1766,6 +1774,7 @@ router.get('/slug/:slug', async (req, res, next) => {
           imageUrl: true,
           status: true,
           createdAt: true,
+          publishedAt: true,
           updatedAt: true,
           authorId: true,
           category: { select: { id: true, slug: true, name: true } },
@@ -1807,6 +1816,7 @@ router.get('/slug/:slug', async (req, res, next) => {
           imageUrl: true,
           status: true,
           createdAt: true,
+          publishedAt: true,
           updatedAt: true,
           authorId: true,
           category: { select: { id: true, slug: true, name: true } },
@@ -1931,6 +1941,7 @@ router.get('/search', async (req, res, next) => {
         structuredContent: true,
         imageUrl: true,
         createdAt: true,
+        publishedAt: true,
         category: {
           select: { id: true, slug: true, name: true },
         },
@@ -1945,7 +1956,7 @@ router.get('/search', async (req, res, next) => {
       content: a.content ?? null,
       structuredContent: a.structuredContent ?? null,
       imageUrl: a.imageUrl ?? null,
-      publishedAt: a.createdAt.toISOString(),
+      publishedAt: articlePublishedAt(a),
       category: a.category
         ? {
           id: a.category.id,
@@ -2051,6 +2062,7 @@ router.get('/:id', async (req, res, next) => {
         structuredContent: true,
         imageUrl: true,
         createdAt: true,
+        publishedAt: true,
         updatedAt: true,
         status: true,
         authorId: true,

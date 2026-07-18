@@ -86,7 +86,17 @@ function job(sources: string[]) {
 describe('source enrichment worker ArticleSource dual-write', () => {
   beforeEach(() => {
     vi.clearAllMocks();
-    articleFindUnique.mockResolvedValue({ title: 'Title', summary: 'Summary', content: 'Content' });
+    articleFindUnique.mockResolvedValue({
+      title: 'Title',
+      summary: 'Summary',
+      content: 'Content',
+      structuredContent: {
+        version: 1,
+        format: 'epion-article-v1',
+        sections: [],
+        claims: [],
+      },
+    });
     articleUpdate.mockResolvedValue({ id: 'article-1' });
     articleSourceUpsert.mockResolvedValue({ id: 'article-source-1' });
     transaction.mockImplementation(async (callback: any) => callback({
@@ -112,6 +122,7 @@ describe('source enrichment worker ArticleSource dual-write', () => {
     expect(articleUpdate).toHaveBeenCalledWith({
       where: { id: 'article-1' },
       data: expect.objectContaining({
+        structuredContent: expect.objectContaining({ format: 'epion-article-v1' }),
         factCheckStatus: 'COMPLETED',
         factCheckData: expect.objectContaining({
           sources: expect.arrayContaining([

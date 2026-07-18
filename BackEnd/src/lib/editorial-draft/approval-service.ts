@@ -6,7 +6,8 @@ import {
 } from '../article-source-service.js';
 import { sanitizeArticleHtml } from '../sanitizeHtml.js';
 import { hashEditorialDraftArtifact, renderEditorialDraftHtml } from './draft-service.js';
-import { EDITORIAL_QUALITY_GATE_VERSION } from './types.js';
+import { editorialDraftArtifactToStructuredArticle } from './structured-article-adapter.js';
+import { EDITORIAL_QUALITY_GATE_VERSION, type EditorialDraftArtifact } from './types.js';
 
 export interface EditorialHumanReviewInput {
   draftId: string;
@@ -169,6 +170,13 @@ export async function reviewControlledEditorialDraft(
   const category = categoryId
     ? await client.category.findUnique({ where: { id: categoryId }, select: { id: true } })
     : null;
+  const publicStructuredContent = editorialDraftArtifactToStructuredArticle(
+    draft.structuredContent as unknown as EditorialDraftArtifact,
+    {
+      evidence: collectStructuredEvidence(draft),
+      claimVerdicts: Object.fromEntries(draft.claims.map((claim) => [claim.claimKey, claim.verdict])),
+    },
+  );
   return client.$transaction(async (transaction) => {
     const claimed = await transaction.editorialQualityGate.updateMany({
       where: {
@@ -220,14 +228,14 @@ export async function reviewControlledEditorialDraft(
         summary: sanitizeArticleHtml(summary),
         content: sanitizeArticleHtml(contentHtml),
         structuredContent: {
+          ...publicStructuredContent,
           origin: 'EPION_AUTOMATIC_EDITORIAL',
           editorialDraftId: draft.id,
           editorialRevisionId: draft.currentRevision!.id,
           editorialRevisionVersion: draft.currentRevision!.version,
           editorialBriefId: draft.briefId,
           contentHash,
-          artifact: draft.structuredContent,
-        } as Prisma.InputJsonValue,
+        } as unknown as Prisma.InputJsonValue,
         status: 'DRAFT',
         authorId: null,
         categoryId: category?.id ?? null,
@@ -242,6 +250,13 @@ export async function reviewControlledEditorialDraft(
           automaticPublicationAllowed: false,
           publicationAuthorized: false,
         },
+        factCheckStatus: 'PENDING',
+        factCheckScore: null,
+        factCheckData: Prisma.JsonNull,
+        factCheckContentHash: null,
+        factCheckStartedAt: null,
+        factCheckCompletedAt: null,
+        factCheckError: null,
       };
     const article = draft.articleId
       ? await transaction.article.update({
@@ -257,6 +272,13 @@ export async function reviewControlledEditorialDraft(
           generatedAt: articleData.generatedAt,
           generationVersion: { increment: 1 },
           generationConfig: articleData.generationConfig,
+          factCheckStatus: 'PENDING',
+          factCheckScore: null,
+          factCheckData: Prisma.JsonNull,
+          factCheckContentHash: null,
+          factCheckStartedAt: null,
+          factCheckCompletedAt: null,
+          factCheckError: null,
         },
         select: { id: true },
       })
@@ -333,6 +355,30 @@ interface ValidatedArticleSource {
   profileVersion: number | null;
   snapshotAt: Date;
   position: number;
+}
+
+function collectStructuredEvidence(draft: any) {
+  const byKey = new Map<string, {
+    evidenceKey: string;
+    url: string;
+    title: string | null;
+    domain: string;
+  }>();
+  for (const claim of draft.claims as any[]) {
+    for (const citation of claim.evidence as any[]) {
+      const proof = citation.briefEvidence;
+      if (byKey.has(proof.evidenceKey)) continue;
+      const url = normalizeArticleSourceUrl(proof.canonicalUrl);
+      if (!url) continue;
+      byKey.set(proof.evidenceKey, {
+        evidenceKey: proof.evidenceKey,
+        url,
+        title: proof.documentTitle ?? null,
+        domain: proof.domain,
+      });
+    }
+  }
+  return [...byKey.values()];
 }
 
 function collectValidatedArticleSources(draft: any): ValidatedArticleSource[] {

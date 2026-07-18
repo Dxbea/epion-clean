@@ -51,7 +51,20 @@ function publicationState(overrides: Record<string, unknown> = {}) {
       id: 'article-1',
       status: 'DRAFT',
       publishedAt: null,
+      factCheckStatus: 'COMPLETED',
+      factCheckScore: 88,
+      factCheckContentHash: 'fact-hash-1',
+      factCheckData: {
+        version: 1,
+        status: 'COMPLETED',
+        score: 88,
+        contentHash: 'fact-hash-1',
+      },
       structuredContent: {
+        version: 1,
+        format: 'epion-article-v1',
+        sections: [{ id: 'facts', type: 'facts', title: 'Facts', items: [{ text: 'Fact' }] }],
+        claims: [{ id: 'claim-1', text: 'Fact', support: 'strong' }],
         origin: 'EPION_AUTOMATIC_EDITORIAL',
         editorialDraftId: 'draft-1',
         editorialRevisionId: 'revision-2',
@@ -161,6 +174,7 @@ describe('manual transactional editorial publication', () => {
   it.each([
     ['missing sources', { article: { ...publicationState().article, articleSources: [] } }, 'EDITORIAL_ARTICLE_SOURCES_MISSING'],
     ['stale article identity', { article: { ...publicationState().article, structuredContent: { contentHash } } }, 'EDITORIAL_ARTICLE_DRAFT_STALE'],
+    ['incomplete FactScore', { article: { ...publicationState().article, factCheckStatus: 'PENDING' } }, 'EDITORIAL_ARTICLE_FACTCHECK_INCOMPLETE'],
     ['failed gate', { qualityGate: { ...publicationState().qualityGate, automatedDecision: 'FAILED' } }, 'EDITORIAL_PUBLICATION_GATE_INVALID'],
     ['archived article', { article: { ...publicationState().article, status: 'ARCHIVED' } }, 'EDITORIAL_ARTICLE_STATUS_INCOMPATIBLE'],
   ])('blocks publication with %s', async (_label, overrides, expectedCode) => {

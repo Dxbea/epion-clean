@@ -77,7 +77,24 @@ describe('mandatory human editorial gate', () => {
     const result = await reviewControlledEditorialDraft(client, input());
     expect(result).toEqual({ draftId: 'draft-1', outcome: 'ARTICLE_DRAFT_CREATED', articleId: 'article-1' });
     const articleData = transaction.article.create.mock.calls[0][0].data;
-    expect(articleData).toMatchObject({ status: 'DRAFT', authorId: null });
+    expect(articleData).toMatchObject({
+      status: 'DRAFT',
+      authorId: null,
+      factCheckStatus: 'PENDING',
+      factCheckScore: null,
+      structuredContent: {
+        version: 1,
+        format: 'epion-article-v1',
+        editorialDraftId: 'draft-1',
+        editorialRevisionId: 'revision-1',
+      },
+    });
+    expect(articleData.structuredContent.sections).toHaveLength(2);
+    expect(articleData.structuredContent.claims[0]).toMatchObject({
+      id: 'claim_1',
+      support: 'strong',
+      sourceUrls: expect.arrayContaining(['https://one.example/article']),
+    });
     expect(articleData.generationConfig).toMatchObject({ origin: 'EPION_AUTOMATIC_EDITORIAL', automaticPublicationAllowed: false, publicationAuthorized: false, draftApproverId: 'admin-1' });
     expect(transaction.editorialDraft.update).toHaveBeenCalledWith(expect.objectContaining({ data: { status: 'ARTICLE_DRAFT_CREATED', articleId: 'article-1' } }));
     expect(transaction.articleSource.upsert).toHaveBeenCalledTimes(2);
@@ -204,7 +221,12 @@ describe('mandatory human editorial gate', () => {
     } as unknown as PrismaClient;
     await expect(reviewControlledEditorialDraft(client, input())).resolves.toMatchObject({ outcome: 'ARTICLE_DRAFT_CREATED', articleId: 'article-existing' });
     expect(transaction.article.create).not.toHaveBeenCalled();
-    expect(transaction.article.update.mock.calls[0][0].data).toMatchObject({ status: 'DRAFT', generationVersion: { increment: 1 } });
+    expect(transaction.article.update.mock.calls[0][0].data).toMatchObject({
+      status: 'DRAFT',
+      generationVersion: { increment: 1 },
+      factCheckStatus: 'PENDING',
+      factCheckScore: null,
+    });
     expect(transaction.article.update.mock.calls[0][0].data.structuredContent).toMatchObject({ editorialRevisionId: 'revision-2', contentHash: VALID_CONTENT_HASH });
     expect(transaction.articleSource.deleteMany).toHaveBeenCalledWith({ where: { articleId: 'article-existing' } });
   });
