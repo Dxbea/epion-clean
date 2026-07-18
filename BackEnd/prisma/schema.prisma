@@ -149,6 +149,40 @@ enum EditorialEvidenceRole {
   CONTEXT
 }
 
+enum EditorialDraftStatus {
+  PENDING
+  GENERATING
+  READY_FOR_REVIEW
+  QUALITY_FAILED
+  HUMAN_REJECTED
+  ARTICLE_DRAFT_CREATED
+  FAILED
+}
+
+enum EditorialClaimImportance {
+  CORE
+  SUPPORTING
+  CONTEXT
+}
+
+enum EditorialClaimVerdict {
+  SUPPORTED
+  PARTIALLY_SUPPORTED
+  UNSUPPORTED
+  CONTRADICTED
+}
+
+enum EditorialGateDecision {
+  PASSED
+  FAILED
+}
+
+enum EditorialHumanReviewStatus {
+  PENDING
+  APPROVED
+  REJECTED
+}
+
 model User {
   id           String   @id @default(cuid())
   email        String   @unique
@@ -175,6 +209,7 @@ model User {
   contributionValidations ArticleContributionValidation[] @relation("UserArticleContributionValidations")
   contributionReports ArticleContributionReport[] @relation("UserArticleContributionReports")
   reviewedContributionReports ArticleContributionReport[] @relation("UserReviewedArticleContributionReports")
+  editorialGateReviews EditorialQualityGate[] @relation("EditorialQualityGateReviewer")
   ArticleView ArticleView[]
   ChatFolder  ChatFolder[]
 
@@ -376,6 +411,7 @@ model Article {
   isIndexed       Boolean         @default(false)
 
   chunks          KnowledgeChunk[]
+  editorialDraft  EditorialDraft?
 
   @@index([authorId])
   @@index([categoryId])
@@ -1094,6 +1130,8 @@ model EditorialBriefEvidence {
   contentHash      String
   createdAt        DateTime                @default(now())
 
+  draftClaimEvidence EditorialDraftClaimEvidence[]
+
   @@unique([dossierId, chunkId])
   @@unique([dossierId, evidenceKey])
   @@index([documentId])
@@ -1117,8 +1155,112 @@ model EditorialBrief {
   generatedAt         DateTime               @default(now())
   updatedAt           DateTime               @updatedAt
 
+  drafts EditorialDraft[]
+
   @@index([contentHash])
   @@index([generatedAt])
+}
+
+model EditorialDraft {
+  id                    String               @id @default(cuid())
+  briefId               String
+  brief                 EditorialBrief       @relation(fields: [briefId], references: [id], onDelete: Restrict)
+  idempotencyKey        String               @unique
+  draftVersion          String
+  promptVersion         String
+  generatorModel        String
+  criticModel           String
+  status                EditorialDraftStatus @default(PENDING)
+  title                 String?
+  summary               String?              @db.Text
+  contentHtml           String?              @db.Text
+  structuredContent     Json?
+  contentHash           String?
+  briefContentHash      String
+  evidenceHash          String
+  configuration         Json?
+  attempts              Int                  @default(0)
+  leaseExpiresAt        DateTime?
+  error                 String?
+  metrics               Json?
+  generatedAt           DateTime?
+  completedAt           DateTime?
+  articleId             String?              @unique
+  article               Article?             @relation(fields: [articleId], references: [id], onDelete: Restrict)
+  createdAt             DateTime              @default(now())
+  updatedAt             DateTime              @updatedAt
+
+  claims      EditorialDraftClaim[]
+  qualityGate EditorialQualityGate?
+
+  @@index([briefId, createdAt])
+  @@index([status, createdAt])
+}
+
+model EditorialDraftClaim {
+  id                    String                     @id @default(cuid())
+  draftId               String
+  draft                 EditorialDraft             @relation(fields: [draftId], references: [id], onDelete: Cascade)
+  claimKey              String
+  position              Int
+  text                  String                     @db.Text
+  importance            EditorialClaimImportance
+  evidenceKeys          Json
+  citedDocumentIds      Json
+  citedChunkIds         Json
+  citedDomains          Json
+  verdict               EditorialClaimVerdict
+  criticExplanation     String                     @db.Text
+  criticEvidenceKeys    Json
+  createdAt             DateTime                   @default(now())
+  updatedAt             DateTime                   @updatedAt
+
+  evidence EditorialDraftClaimEvidence[]
+
+  @@unique([draftId, claimKey])
+  @@index([draftId, verdict, importance])
+}
+
+model EditorialDraftClaimEvidence {
+  id               String                 @id @default(cuid())
+  claimId          String
+  claim            EditorialDraftClaim    @relation(fields: [claimId], references: [id], onDelete: Cascade)
+  briefEvidenceId  String
+  briefEvidence    EditorialBriefEvidence @relation(fields: [briefEvidenceId], references: [id], onDelete: Restrict)
+  citationOrder    Int
+  criticConfirmed  Boolean                @default(false)
+  createdAt        DateTime               @default(now())
+
+  @@unique([claimId, briefEvidenceId])
+  @@index([briefEvidenceId])
+  @@index([claimId, citationOrder])
+}
+
+model EditorialQualityGate {
+  id                    String                     @id @default(cuid())
+  draftId               String                     @unique
+  draft                 EditorialDraft             @relation(fields: [draftId], references: [id], onDelete: Cascade)
+  gateVersion           String
+  qualityScore          Float
+  publishabilityScore   Float
+  citationCoverage      Float
+  supportedClaimRatio   Float
+  coreClaimSupportRatio Float
+  independentDomains    Int
+  automatedDecision     EditorialGateDecision
+  automatedReasons      Json
+  thresholds            Json
+  humanReviewStatus     EditorialHumanReviewStatus @default(PENDING)
+  reviewedById          String?
+  reviewedBy            User?                      @relation("EditorialQualityGateReviewer", fields: [reviewedById], references: [id], onDelete: Restrict)
+  reviewNote            String?                    @db.Text
+  reviewedAt            DateTime?
+  articleCreatedAt      DateTime?
+  createdAt             DateTime                   @default(now())
+  updatedAt             DateTime                   @updatedAt
+
+  @@index([automatedDecision, humanReviewStatus, createdAt])
+  @@index([reviewedById, reviewedAt])
 }
 
 enum PoliticalBias {

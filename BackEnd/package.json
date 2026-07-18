@@ -19,6 +19,7 @@
     "worker:document-corpus": "node --import ./dist/instrument.js dist/workers/document-corpus.worker.js",
     "worker:editorial-shadow": "node --import ./dist/instrument.js dist/workers/editorial-shadow.worker.js",
     "worker:editorial-brief": "node --import ./dist/instrument.js dist/workers/editorial-brief.worker.js",
+    "worker:editorial-draft": "node --import ./dist/instrument.js dist/workers/editorial-draft.worker.js",
     "test": "vitest --run",
     "dev:api": "tsx --import ./src/instrument.ts src/server.ts",
     "dev:worker": "tsx --import ./src/instrument.ts src/workers/index.ts",
