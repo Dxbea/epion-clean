@@ -16,6 +16,7 @@
     "worker:source-enrichment": "node --import ./dist/instrument.js dist/workers/source-enrichment.worker.js",
     "worker:news": "node --import ./dist/instrument.js dist/workers/news-worker.js",
     "worker:discovery": "node --import ./dist/instrument.js dist/workers/discovery.worker.js",
+    "worker:document-corpus": "node --import ./dist/instrument.js dist/workers/document-corpus.worker.js",
     "test": "vitest --run",
     "dev:api": "tsx --import ./src/instrument.ts src/server.ts",
     "dev:worker": "tsx --import ./src/instrument.ts src/workers/index.ts",

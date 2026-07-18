@@ -100,6 +100,8 @@ enum IngestedDocumentStatus {
   DISCOVERED
   FETCH_PENDING
   FETCHED
+  EXTRACTED
+  INDEXED
   PARTIAL
   BLOCKED
   FAILED
@@ -790,10 +792,17 @@ model IngestedDocument {
   contentHash             String?
   language                String?
 
-  publishedAt     DateTime?
-  sourceUpdatedAt DateTime?
-  discoveredAt    DateTime  @default(now())
-  fetchedAt       DateTime?
+  duplicateOfId String?
+  duplicateOf   IngestedDocument?  @relation("IngestedDocumentDuplicates", fields: [duplicateOfId], references: [id], onDelete: SetNull)
+  duplicates    IngestedDocument[] @relation("IngestedDocumentDuplicates")
+
+  publishedAt       DateTime?
+  sourceUpdatedAt   DateTime?
+  discoveredAt      DateTime  @default(now())
+  fetchedAt         DateTime?
+  lastFetchAttemptAt DateTime?
+  fetchAttempts      Int       @default(0)
+  fetchError         String?
 
   status           IngestedDocumentStatus        @default(DISCOVERED)
   extractionMethod String?
@@ -806,17 +815,52 @@ model IngestedDocument {
   sourceId String?
   source   Source? @relation(fields: [sourceId], references: [id], onDelete: SetNull)
 
-  isIndexed Boolean @default(false)
-  metadata  Json?
+  isIndexed           Boolean   @default(false)
+  indexedAt           DateTime?
+  embeddingModel      String?
+  chunkingVersion     Int?
+  embeddingTokenCount Int?
+  metadata            Json?
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
-  discoveries DocumentDiscovery[]
+  discoveries               DocumentDiscovery[]
+  chunks                    DocumentChunk[]
+  canonicalContentIdentities DocumentContentIdentity[] @relation("CanonicalDocumentContentIdentity")
 
   @@index([domain, publishedAt])
   @@index([sourceId, publishedAt])
   @@index([status, discoveredAt])
+  @@index([contentHash])
+  @@index([duplicateOfId])
+}
+
+model DocumentContentIdentity {
+  contentHash         String           @id
+  canonicalDocumentId String
+  canonicalDocument   IngestedDocument @relation("CanonicalDocumentContentIdentity", fields: [canonicalDocumentId], references: [id], onDelete: Cascade)
+  createdAt           DateTime         @default(now())
+
+  @@index([canonicalDocumentId])
+}
+
+model DocumentChunk {
+  id              String                        @id @default(uuid())
+  documentId      String
+  document        IngestedDocument              @relation(fields: [documentId], references: [id], onDelete: Cascade)
+  position        Int
+  content         String                        @db.Text
+  contentHash     String
+  estimatedTokens Int
+  embedding       Unsupported("vector(1536)")?
+  embeddingModel  String
+  chunkingVersion Int
+  createdAt       DateTime                      @default(now())
+  updatedAt       DateTime                      @updatedAt
+
+  @@unique([documentId, position])
+  @@index([documentId])
   @@index([contentHash])
 }
 
