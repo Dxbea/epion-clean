@@ -9,10 +9,11 @@ describe('admin editorial route security wiring', () => {
     expect(server.indexOf("app.use('/api', adminEditorialRouter)")).toBeGreaterThan(server.indexOf("app.use('/api', csrfRequired)"));
   });
 
-  it('contains no publication action or public route alias', () => {
+  it('keeps manual publication exclusively under the private admin router', () => {
     const routes = readFileSync(join(process.cwd(), 'src', 'routes', 'admin-editorial.ts'), 'utf8');
     expect(routes).toContain("const root = '/admin/editorial-drafts'");
-    expect(routes).not.toContain('/publish');
-    expect(routes).not.toContain("status: 'PUBLISHED'");
+    expect(routes).toContain('`${root}/:id/revisions/:revisionId/publish`');
+    expect(routes).not.toContain("router.post('/articles/");
+    expect(routes).not.toContain("router.post('/publish");
   });
 });

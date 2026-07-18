@@ -194,6 +194,9 @@ enum EditorialReviewAuditAction {
   DRAFT_REJECTED
   PUBLICATION_AUTHORIZED
   DECISIONS_INVALIDATED
+  ARTICLE_PUBLISHED
+  PUBLICATION_REVOKED
+  PUBLICATION_EXPIRED
 }
 
 enum EditorialRevisionOrigin {
@@ -218,6 +221,9 @@ enum EditorialReviewDecisionType {
 enum EditorialPublicationAuthorizationStatus {
   AUTHORIZED
   INVALIDATED
+  REVOKED
+  EXPIRED
+  CONSUMED
 }
 
 enum EditorialPublicationDecisionType {
@@ -256,6 +262,7 @@ model User {
   editorialReviewDecisions EditorialReviewDecision[] @relation("EditorialReviewDecisionActor")
   editorialDraftApprovals EditorialPublicationAuthorization[] @relation("EditorialPublicationDraftApprover")
   editorialPublicationAuthorizations EditorialPublicationAuthorization[] @relation("EditorialPublicationAuthorizer")
+  editorialPublicationRevocations EditorialPublicationAuthorization[] @relation("EditorialPublicationRevoker")
   ArticleView ArticleView[]
   ChatFolder  ChatFolder[]
 
@@ -412,6 +419,7 @@ model Article {
   structuredContent Json?
   status    ArticleStatus @default(DRAFT)
   imageUrl  String?
+  publishedAt DateTime?
   createdAt DateTime      @default(now())
   updatedAt DateTime      @updatedAt
 
@@ -464,6 +472,7 @@ model Article {
   @@index([authorId])
   @@index([categoryId])
   @@index([status, createdAt])
+  @@index([status, publishedAt])
 }
 
 model SavedArticle {
@@ -1279,7 +1288,7 @@ model EditorialDraftRevision {
 
   currentForDraft    EditorialDraft? @relation("EditorialDraftCurrentRevision")
   reviewDecisions    EditorialReviewDecision[]
-  publicationAuthorization EditorialPublicationAuthorization?
+  publicationAuthorizations EditorialPublicationAuthorization[]
   auditLogs          EditorialReviewAuditLog[]
 
   @@unique([draftId, version])
@@ -1314,7 +1323,7 @@ model EditorialPublicationAuthorization {
   id                String                                  @id @default(cuid())
   draftId           String
   draft             EditorialDraft                          @relation(fields: [draftId], references: [id], onDelete: Restrict)
-  revisionId        String                                  @unique
+  revisionId        String
   revision          EditorialDraftRevision                  @relation(fields: [revisionId], references: [id], onDelete: Restrict)
   articleId         String
   article           Article                                 @relation(fields: [articleId], references: [id], onDelete: Restrict)
@@ -1327,6 +1336,12 @@ model EditorialPublicationAuthorization {
   status            EditorialPublicationAuthorizationStatus @default(AUTHORIZED)
   note              String?                                 @db.Text
   authorizedAt      DateTime                                @default(now())
+  expiresAt         DateTime
+  consumedAt        DateTime?
+  revokedAt         DateTime?
+  revokedById       String?
+  revokedBy         User?                                   @relation("EditorialPublicationRevoker", fields: [revokedById], references: [id], onDelete: Restrict)
+  revocationReason  String?                                 @db.Text
   invalidatedAt     DateTime?
   invalidationReason String?                                @db.Text
   createdAt         DateTime                                @default(now())
@@ -1336,6 +1351,9 @@ model EditorialPublicationAuthorization {
   @@index([articleId, status])
   @@index([draftApproverId, createdAt])
   @@index([authorizedById, createdAt])
+  @@index([revisionId, status, authorizedAt])
+  @@index([status, expiresAt])
+  @@index([revokedById, revokedAt])
 }
 
 model EditorialDraftClaim {

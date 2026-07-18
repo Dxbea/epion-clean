@@ -22,6 +22,7 @@ function correctionSource() {
     id: 'draft-1',
     status: 'ARTICLE_DRAFT_CREATED',
     articleId: 'article-1',
+    article: { id: 'article-1', status: 'DRAFT' },
     contentHash: originalHash,
     configuration: null,
     currentRevision: { id: 'revision-1', version: 1, status: 'APPROVED', contentHash: originalHash },
@@ -35,6 +36,7 @@ function correctionSource() {
 describe('versioned editorial corrections', () => {
   it('creates an immutable next revision and invalidates every previous decision and gate', async () => {
     const transaction = {
+      article: { updateMany: vi.fn(async () => ({ count: 1 })) },
       editorialReviewDecision: { updateMany: vi.fn(async () => ({ count: 1 })) },
       editorialPublicationAuthorization: { updateMany: vi.fn(async () => ({ count: 1 })) },
       editorialDraftRevision: {
@@ -82,6 +84,30 @@ describe('versioned editorial corrections', () => {
     };
     await expect(createEditorialDraftCorrection(client, { ...base, expectedContentHash: 'stale' })).rejects.toMatchObject({ code: 'EDITORIAL_DRAFT_HASH_MISMATCH' });
     await expect(createEditorialDraftCorrection(client, { ...base, expectedContentHash: originalHash })).rejects.toMatchObject({ code: 'EDITORIAL_CORRECTION_UNCHANGED' });
+  });
+
+  it('cannot correct an Article that is published or wins a concurrent publication race', async () => {
+    const input = {
+      draftId: 'draft-1', correctedByUserId: 'admin-corrector', expectedContentHash: originalHash,
+      correctionNote: 'Correction factuelle documentée par la rédaction.', artifact: correctedArtifact,
+    };
+    const publishedClient = {
+      user: { findUnique: vi.fn(async () => ({ id: 'admin-corrector', role: 'ADMIN' })) },
+      editorialDraft: { findUnique: vi.fn(async () => ({ ...correctionSource(), article: { id: 'article-1', status: 'PUBLISHED' } })) },
+    } as unknown as PrismaClient;
+    await expect(createEditorialDraftCorrection(publishedClient, input)).rejects.toMatchObject({ code: 'EDITORIAL_PUBLISHED_ARTICLE_IMMUTABLE' });
+
+    const transaction = {
+      article: { updateMany: vi.fn(async () => ({ count: 0 })) },
+      editorialReviewDecision: { updateMany: vi.fn() },
+    };
+    const concurrentClient = {
+      user: { findUnique: vi.fn(async () => ({ id: 'admin-corrector', role: 'ADMIN' })) },
+      editorialDraft: { findUnique: vi.fn(async () => correctionSource()) },
+      $transaction: vi.fn(async (callback: any) => callback(transaction)),
+    } as unknown as PrismaClient;
+    await expect(createEditorialDraftCorrection(concurrentClient, input)).rejects.toMatchObject({ code: 'EDITORIAL_PUBLICATION_CONFLICT' });
+    expect(transaction.editorialReviewDecision.updateMany).not.toHaveBeenCalled();
   });
 });
 
@@ -141,7 +167,7 @@ function authorizationSource(overrides: Record<string, unknown> = {}) {
     currentRevision: {
       id: 'revision-2', version: 2, status: 'APPROVED', contentHash: correctedHash, correctedById: 'admin-corrector',
       reviewDecisions: [{ id: 'decision-1', adminUserId: 'admin-approver', contentHash: correctedHash }],
-      publicationAuthorization: null,
+      publicationAuthorizations: [],
     },
     qualityGate: { humanReviewStatus: 'APPROVED', evaluatedContentHash: correctedHash },
     article: { id: 'article-1', status: 'DRAFT', structuredContent: { contentHash: correctedHash } },
@@ -184,6 +210,7 @@ describe('four-eyes publication authorization', () => {
     expect(transaction.editorialPublicationAuthorization.create.mock.calls[0][0].data).toMatchObject({
       draftApproverId: 'admin-approver', authorizedById: 'admin-second', decisionType: 'AUTHORIZE_PUBLICATION', status: 'AUTHORIZED',
     });
+    expect(transaction.editorialPublicationAuthorization.create.mock.calls[0][0].data.expiresAt).toBeInstanceOf(Date);
     expect(transaction.article.update).not.toHaveBeenCalled();
     expect(transaction.editorialReviewAuditLog.create.mock.calls[0][0].data.details).toMatchObject({ decision: 'AUTHORIZE_PUBLICATION', articleStatusUnchanged: true });
   });

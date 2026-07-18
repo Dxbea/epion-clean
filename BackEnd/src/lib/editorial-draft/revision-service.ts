@@ -60,10 +60,14 @@ export async function createEditorialDraftCorrection(
       qualityGate: true,
       reviewDecisions: { where: { active: true }, select: { id: true } },
       publicationAuthorizations: { where: { status: 'AUTHORIZED' }, select: { id: true } },
+      article: { select: { id: true, status: true } },
       brief: { include: { dossier: { include: { evidence: { orderBy: { position: 'asc' } } } } } },
     },
   });
   if (!draft?.currentRevision || !draft.contentHash) throw new Error('Editorial draft has no versioned artifact to correct');
+  if (draft.article && draft.article.status !== 'DRAFT') {
+    throw new EditorialRevisionBlockedError('EDITORIAL_PUBLISHED_ARTICLE_IMMUTABLE', 'A published or archived editorial Article cannot be corrected through the draft workflow');
+  }
   assertExpectedHash(draft.contentHash, input.expectedContentHash);
   if (draft.currentRevision.contentHash !== draft.contentHash) {
     throw new EditorialRevisionBlockedError('EDITORIAL_REVISION_STALE', 'Current revision does not match the draft artifact');
@@ -81,6 +85,15 @@ export async function createEditorialDraftCorrection(
   const now = new Date();
 
   return client.$transaction(async (transaction) => {
+    if (draft.articleId) {
+      const articleClaim = await transaction.article.updateMany({
+        where: { id: draft.articleId, status: 'DRAFT' },
+        data: { updatedAt: now },
+      });
+      if (articleClaim.count !== 1) {
+        throw new EditorialRevisionBlockedError('EDITORIAL_PUBLICATION_CONFLICT', 'Article left DRAFT status while the correction was starting');
+      }
+    }
     const invalidatedDecisions = await transaction.editorialReviewDecision.updateMany({
       where: { draftId: draft.id, active: true },
       data: { active: false, invalidatedAt: now, invalidationReason: 'SUPERSEDED_BY_CORRECTION' },
@@ -388,7 +401,10 @@ export async function authorizeEditorialPublication(
             where: { active: true, decisionType: 'APPROVE_DRAFT' },
             orderBy: { createdAt: 'asc' },
           },
-          publicationAuthorization: true,
+          publicationAuthorizations: {
+            where: { status: 'AUTHORIZED' },
+            orderBy: { authorizedAt: 'desc' },
+          },
         },
       },
       qualityGate: true,
@@ -401,17 +417,7 @@ export async function authorizeEditorialPublication(
   assertCurrentRevision(draft.currentRevision.id, input.revisionId);
   assertExpectedHash(draft.contentHash, input.expectedContentHash);
   if (draft.currentRevision.contentHash !== draft.contentHash) throw new EditorialRevisionBlockedError('EDITORIAL_REVISION_STALE', 'Current revision hash is stale');
-  const existing = draft.currentRevision.publicationAuthorization;
-  if (existing?.status === 'AUTHORIZED' && existing.contentHash === draft.contentHash) {
-    return {
-      draftId: draft.id,
-      revisionId: draft.currentRevision.id,
-      articleId: existing.articleId,
-      authorizationId: existing.id,
-      outcome: 'ALREADY_AUTHORIZED',
-      articleStatus: 'DRAFT',
-    };
-  }
+  const existing = draft.currentRevision.publicationAuthorizations[0];
   const approval = draft.currentRevision.reviewDecisions[0];
   if (
     draft.currentRevision.status !== 'APPROVED'
@@ -433,8 +439,41 @@ export async function authorizeEditorialPublication(
     throw new EditorialRevisionBlockedError('EDITORIAL_ARTICLE_DRAFT_STALE', 'Article DRAFT does not match the approved editorial revision');
   }
   const now = new Date();
+  if (existing?.contentHash === draft.contentHash && existing.expiresAt > now) {
+    return {
+      draftId: draft.id,
+      revisionId: draft.currentRevision.id,
+      articleId: existing.articleId,
+      authorizationId: existing.id,
+      outcome: 'ALREADY_AUTHORIZED',
+      articleStatus: 'DRAFT',
+    };
+  }
+  const expiresAt = new Date(now.getTime() + editorialAuthorizationTtlMs());
   try {
     return await client.$transaction(async (transaction) => {
+      if (existing && existing.expiresAt <= now) {
+        const expired = await transaction.editorialPublicationAuthorization.updateMany({
+          where: { id: existing.id, status: 'AUTHORIZED', expiresAt: { lte: now } },
+          data: { status: 'EXPIRED' },
+        });
+        if (expired.count === 1) {
+          await transaction.editorialReviewAuditLog.create({
+            data: {
+              draftId: draft.id,
+              revisionId: draft.currentRevision!.id,
+              actorUserId: admin.id,
+              action: 'PUBLICATION_EXPIRED',
+              contentHash: draft.contentHash!,
+              previousStatus: draft.status,
+              resultingStatus: draft.status,
+              articleId: draft.article!.id,
+              reviewNote: 'Previous publication authorization expired before renewal.',
+              details: { authorizationId: existing.id, expiresAt: existing.expiresAt },
+            },
+          });
+        }
+      }
       const authorization = await transaction.editorialPublicationAuthorization.create({
         data: {
           draftId: draft.id,
@@ -447,6 +486,7 @@ export async function authorizeEditorialPublication(
           status: 'AUTHORIZED',
           note: authorizationNote,
           authorizedAt: now,
+          expiresAt,
         },
       });
       await transaction.editorialReviewAuditLog.create({
@@ -480,10 +520,17 @@ export async function authorizeEditorialPublication(
     });
   } catch (error) {
     if (!isUniqueConstraintError(error)) throw error;
-    const authorization = await client.editorialPublicationAuthorization.findUnique({
-      where: { revisionId: draft.currentRevision.id },
+    const authorization = await client.editorialPublicationAuthorization.findFirst({
+      where: { revisionId: draft.currentRevision.id, status: 'AUTHORIZED' },
+      orderBy: { authorizedAt: 'desc' },
     });
-    if (!authorization || authorization.status !== 'AUTHORIZED') throw error;
+    if (
+      !authorization
+      || authorization.status !== 'AUTHORIZED'
+      || authorization.contentHash !== draft.contentHash
+      || authorization.articleId !== draft.article.id
+      || authorization.expiresAt <= now
+    ) throw error;
     return {
       draftId: draft.id,
       revisionId: draft.currentRevision.id,
@@ -616,4 +663,10 @@ function unique(values: string[]): string[] {
 
 function isUniqueConstraintError(error: unknown): boolean {
   return error instanceof Prisma.PrismaClientKnownRequestError && error.code === 'P2002';
+}
+
+function editorialAuthorizationTtlMs(): number {
+  const hours = Number(process.env.EDITORIAL_PUBLICATION_AUTHORIZATION_TTL_HOURS ?? 24);
+  if (!Number.isFinite(hours)) return 24 * 60 * 60_000;
+  return Math.round(Math.min(168, Math.max(1 / 12, hours)) * 60 * 60_000);
 }

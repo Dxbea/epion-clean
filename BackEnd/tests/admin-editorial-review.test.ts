@@ -15,6 +15,8 @@ function appWith(options: {
   createCorrection?: any;
   recalculateGate?: any;
   authorizePublication?: any;
+  publishArticle?: any;
+  revokeAuthorization?: any;
   readLimiter?: RequestHandler;
   decisionLimiter?: RequestHandler;
 }) {
@@ -27,6 +29,8 @@ function appWith(options: {
     createCorrection: options.createCorrection ?? vi.fn(),
     recalculateGate: options.recalculateGate ?? vi.fn(),
     authorizePublication: options.authorizePublication ?? vi.fn(),
+    publishArticle: options.publishArticle ?? vi.fn(),
+    revokeAuthorization: options.revokeAuthorization ?? vi.fn(),
     readLimiter: options.readLimiter ?? noopLimiter,
     decisionLimiter: options.decisionLimiter ?? noopLimiter,
   }));
@@ -127,5 +131,35 @@ describe('private admin editorial review routes', () => {
     await request(app).post('/api/admin/editorial-drafts/draft-1/revisions/revision-1/approve').send({
       expectedContentHash: 'c'.repeat(64), reviewNote: 'Tentative de revue sur une ancienne version.',
     }).expect(409, { error: 'EDITORIAL_REVISION_SUPERSEDED' });
+  });
+
+  it('requires explicit admin calls for manual publication and authorization revocation', async () => {
+    const publishArticle = vi.fn(async () => ({ outcome: 'ARTICLE_PUBLISHED', articleStatus: 'PUBLISHED' }));
+    const revokeAuthorization = vi.fn(async () => ({ outcome: 'PUBLICATION_AUTHORIZATION_REVOKED' }));
+    const app = appWith({ publishArticle, revokeAuthorization });
+    const expectedContentHash = 'd'.repeat(64);
+
+    await request(app).post('/api/admin/editorial-drafts/draft-1/revisions/revision-2/publish').send({
+      expectedContentHash, publicationNote: 'Publication manuelle après toutes les validations.',
+    }).expect(200);
+    await request(app).post('/api/admin/editorial-drafts/draft-1/revisions/revision-2/revoke-publication-authorization').send({
+      expectedContentHash, revocationNote: 'Révocation manuelle motivée avant toute publication.',
+    }).expect(200);
+
+    expect(publishArticle.mock.calls[0][1]).toMatchObject({
+      draftId: 'draft-1', revisionId: 'revision-2', publishedByUserId: 'admin-1', expectedContentHash,
+    });
+    expect(revokeAuthorization.mock.calls[0][1]).toMatchObject({
+      draftId: 'draft-1', revisionId: 'revision-2', revokedByUserId: 'admin-1', expectedContentHash,
+    });
+  });
+
+  it('rejects malformed publication requests before service execution', async () => {
+    const publishArticle = vi.fn();
+    await request(appWith({ publishArticle }))
+      .post('/api/admin/editorial-drafts/draft-1/revisions/revision-2/publish')
+      .send({ expectedContentHash: '', publicationNote: 'short' })
+      .expect(400);
+    expect(publishArticle).not.toHaveBeenCalled();
   });
 });

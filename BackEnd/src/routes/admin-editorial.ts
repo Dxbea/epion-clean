@@ -10,6 +10,10 @@ import {
   createEditorialDraftCorrection,
   recalculateEditorialRevisionGate,
 } from '../lib/editorial-draft/revision-service.js';
+import {
+  publishEditorialArticle,
+  revokeEditorialPublicationAuthorization,
+} from '../lib/editorial-draft/publication-service.js';
 
 const readLimiter = rateLimit({
   windowMs: 60_000,
@@ -45,6 +49,16 @@ const authorizationBodySchema = z.object({
   authorizationNote: z.string().trim().min(10).max(4_000),
 }).strict();
 
+const publicationBodySchema = z.object({
+  expectedContentHash: z.string().trim().min(1).max(128),
+  publicationNote: z.string().trim().min(10).max(4_000),
+}).strict();
+
+const revocationBodySchema = z.object({
+  expectedContentHash: z.string().trim().min(1).max(128),
+  revocationNote: z.string().trim().min(10).max(4_000),
+}).strict();
+
 const allowedDraftStatuses = new Set([
   'PENDING', 'GENERATING', 'REVISION_PENDING_GATE', 'READY_FOR_REVIEW', 'QUALITY_FAILED',
   'HUMAN_REJECTED', 'ARTICLE_DRAFT_CREATED', 'FAILED',
@@ -58,6 +72,8 @@ export interface AdminEditorialRouterDependencies {
   createCorrection: typeof createEditorialDraftCorrection;
   recalculateGate: typeof recalculateEditorialRevisionGate;
   authorizePublication: typeof authorizeEditorialPublication;
+  publishArticle: typeof publishEditorialArticle;
+  revokeAuthorization: typeof revokeEditorialPublicationAuthorization;
   readLimiter: RequestHandler;
   decisionLimiter: RequestHandler;
 }
@@ -69,6 +85,8 @@ const defaults: AdminEditorialRouterDependencies = {
   createCorrection: createEditorialDraftCorrection,
   recalculateGate: recalculateEditorialRevisionGate,
   authorizePublication: authorizeEditorialPublication,
+  publishArticle: publishEditorialArticle,
+  revokeAuthorization: revokeEditorialPublicationAuthorization,
   readLimiter,
   decisionLimiter,
 };
@@ -147,7 +165,8 @@ export function createAdminEditorialRouter(
                 orderBy: { createdAt: 'desc' },
                 include: { adminUser: { select: { id: true, name: true, email: true } } },
               },
-              publicationAuthorization: {
+              publicationAuthorizations: {
+                orderBy: { authorizedAt: 'desc' },
                 include: {
                   draftApprover: { select: { id: true, name: true, email: true } },
                   authorizedBy: { select: { id: true, name: true, email: true } },
@@ -156,7 +175,7 @@ export function createAdminEditorialRouter(
             },
           },
           qualityGate: { include: { reviewedBy: { select: { id: true, name: true, email: true } } } },
-          article: { select: { id: true, slug: true, title: true, status: true, createdAt: true } },
+          article: { select: { id: true, slug: true, title: true, status: true, publishedAt: true, createdAt: true } },
           brief: {
             include: {
               dossier: {
@@ -230,7 +249,8 @@ export function createAdminEditorialRouter(
             orderBy: { createdAt: 'desc' },
             include: { adminUser: { select: { id: true, name: true, email: true } } },
           },
-          publicationAuthorization: {
+          publicationAuthorizations: {
+            orderBy: { authorizedAt: 'desc' },
             include: {
               draftApprover: { select: { id: true, name: true, email: true } },
               authorizedBy: { select: { id: true, name: true, email: true } },
@@ -287,6 +307,40 @@ export function createAdminEditorialRouter(
         draftId: String(req.params.id),
         revisionId: String(req.params.revisionId),
         authorizedByUserId: admin.id,
+        ...parsed.data,
+      });
+      return res.json(result);
+    } catch (error) {
+      next(error);
+    }
+  });
+
+  router.post(`${root}/:id/revisions/:revisionId/publish`, deps.decisionLimiter, async (req, res, next) => {
+    try {
+      const parsed = publicationBodySchema.safeParse(req.body);
+      if (!parsed.success) return res.status(400).json({ error: 'INVALID_EDITORIAL_PUBLICATION', issues: parsed.error.issues });
+      const admin = res.locals.editorialAdminUser as CurrentUser;
+      const result = await deps.publishArticle(deps.client, {
+        draftId: String(req.params.id),
+        revisionId: String(req.params.revisionId),
+        publishedByUserId: admin.id,
+        ...parsed.data,
+      });
+      return res.json(result);
+    } catch (error) {
+      next(error);
+    }
+  });
+
+  router.post(`${root}/:id/revisions/:revisionId/revoke-publication-authorization`, deps.decisionLimiter, async (req, res, next) => {
+    try {
+      const parsed = revocationBodySchema.safeParse(req.body);
+      if (!parsed.success) return res.status(400).json({ error: 'INVALID_PUBLICATION_REVOCATION', issues: parsed.error.issues });
+      const admin = res.locals.editorialAdminUser as CurrentUser;
+      const result = await deps.revokeAuthorization(deps.client, {
+        draftId: String(req.params.id),
+        revisionId: String(req.params.revisionId),
+        revokedByUserId: admin.id,
         ...parsed.data,
       });
       return res.json(result);
