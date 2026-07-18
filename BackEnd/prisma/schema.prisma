@@ -829,16 +829,21 @@ model DocumentDiscovery {
   discoverySourceId String
   discoverySource   DiscoverySource @relation(fields: [discoverySourceId], references: [id], onDelete: Restrict)
 
-  externalId        String?
-  discoveredUrl     String
-  discoveredUrlHash String
-  discoveredAt      DateTime @default(now())
-  metadata          Json?
+  externalId            String?
+  discoveredUrl         String
+  discoveredUrlHash     String
+  canonicalHint         String?
+  canonicalHintAccepted Boolean  @default(false)
+  discoveredAt          DateTime @default(now())
+  lastSeenAt            DateTime @default(now())
+  seenCount             Int      @default(1)
+  metadata              Json?
 
   @@unique([discoverySourceId, discoveredUrlHash])
   @@unique([discoverySourceId, externalId])
   @@index([documentId, discoveredAt])
   @@index([discoverySourceId, discoveredAt])
+  @@index([discoverySourceId, lastSeenAt])
 }
 
 enum PoliticalBias {

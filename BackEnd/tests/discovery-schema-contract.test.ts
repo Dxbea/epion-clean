@@ -26,9 +26,13 @@ describe('discovery corpus Prisma contract', () => {
   });
 
   it('deduplicates connector occurrences by URL hash and external identifier', () => {
-    expect(model('DocumentDiscovery').uniqueFields).toEqual([
+    const discovery = model('DocumentDiscovery');
+    expect(discovery.uniqueFields).toEqual([
       ['discoverySourceId', 'discoveredUrlHash'],
       ['discoverySourceId', 'externalId'],
     ]);
+    expect(discovery.fields.find((field) => field.name === 'seenCount')?.default).toBe(1);
+    expect(discovery.fields.find((field) => field.name === 'canonicalHintAccepted')?.default)
+      .toBe(false);
   });
 });

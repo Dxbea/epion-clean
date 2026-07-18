@@ -1,0 +1,15 @@
+<?xml version="1.0" encoding="utf-8"?>
+<feed xmlns="http://www.w3.org/2005/Atom">
+  <title>Epion Atom fixture</title>
+  <entry>
+    <id>tag:example.com,2026:atom-1</id>
+    <title>Premier sujet Atom</title>
+    <link rel="alternate" href="https://example.com/atom/story?utm_campaign=feed&amp;page=1" />
+    <link rel="canonical" href="https://example.com/atom/story?page=1" />
+    <summary>Résumé Atom.</summary>
+    <published>2026-07-18T09:00:00Z</published>
+    <updated>2026-07-18T09:15:00Z</updated>
+    <author><name>Journaliste Atom</name></author>
+    <category term="International" />
+  </entry>
+</feed>

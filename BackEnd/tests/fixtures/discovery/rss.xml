@@ -1,0 +1,21 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<rss version="2.0" xmlns:atom="http://www.w3.org/2005/Atom" xmlns:dc="http://purl.org/dc/elements/1.1/">
+  <channel>
+    <title>Epion RSS fixture</title>
+    <item>
+      <title>Premier sujet RSS</title>
+      <link>https://www.example.com/news/story/?utm_source=rss&amp;id=42</link>
+      <atom:link rel="canonical" href="https://example.com/news/story?id=42" />
+      <guid isPermaLink="false">rss-item-42</guid>
+      <description>Résumé du premier sujet.</description>
+      <pubDate>Fri, 18 Jul 2026 08:30:00 GMT</pubDate>
+      <dc:creator>Journaliste RSS</dc:creator>
+      <category>Technologie</category>
+    </item>
+    <item>
+      <title>Second sujet RSS</title>
+      <link>/news/second</link>
+      <guid>rss-item-43</guid>
+    </item>
+  </channel>
+</rss>

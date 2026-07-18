@@ -32,6 +32,15 @@ export interface CanonicalizedDocumentUrl {
   domain: string;
 }
 
+export interface ResolvedCanonicalizedDocumentUrl extends CanonicalizedDocumentUrl {
+  canonicalHint: string | null;
+  canonicalHintAccepted: boolean;
+}
+
+export interface CanonicalHintOptions {
+  allowCrossDomainCanonicalHint?: boolean;
+}
+
 export function canonicalizeDiscoveredUrl(input: unknown): string | null {
   if (typeof input !== 'string') return null;
 
@@ -86,6 +95,31 @@ export function buildCanonicalizedDocumentUrl(input: unknown): CanonicalizedDocu
     canonicalUrlHash,
     canonicalizationVersion: DISCOVERY_URL_CANONICALIZATION_VERSION,
     domain,
+  };
+}
+
+export function resolveCanonicalizedDocumentUrl(
+  input: unknown,
+  canonicalHint: unknown,
+  options: CanonicalHintOptions = {},
+): ResolvedCanonicalizedDocumentUrl | null {
+  const discoveredIdentity = buildCanonicalizedDocumentUrl(input);
+  if (!discoveredIdentity) return null;
+
+  const hintedIdentity = buildCanonicalizedDocumentUrl(canonicalHint);
+  const canonicalHintAccepted = Boolean(
+    hintedIdentity && (
+      options.allowCrossDomainCanonicalHint === true ||
+      hintedIdentity.domain === discoveredIdentity.domain
+    ),
+  );
+  const resolvedIdentity = canonicalHintAccepted ? hintedIdentity! : discoveredIdentity;
+
+  return {
+    ...resolvedIdentity,
+    originalUrl: discoveredIdentity.originalUrl,
+    canonicalHint: hintedIdentity?.canonicalUrl ?? null,
+    canonicalHintAccepted,
   };
 }
 

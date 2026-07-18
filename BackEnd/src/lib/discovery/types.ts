@@ -20,6 +20,7 @@ export interface DiscoverySourceConfig {
   priority: number;
   language?: string | null;
   country?: string | null;
+  sourceId?: string | null;
   maxItemsPerRun: number;
   requestTimeoutMs: number;
   rateLimitPerHour?: number | null;
@@ -40,6 +41,7 @@ export interface DiscoveryContext {
 export interface DiscoveredDocumentCandidate {
   externalId?: string;
   url: string;
+  canonicalHint?: string;
   title?: string;
   snippet?: string;
   publishedAt?: Date;

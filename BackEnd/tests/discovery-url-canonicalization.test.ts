@@ -4,6 +4,7 @@ import {
   buildCanonicalizedDocumentUrl,
   canonicalizeDiscoveredUrl,
   hashDiscoveredUrl,
+  resolveCanonicalizedDocumentUrl,
 } from '../src/lib/discovery/url-canonicalization.js';
 
 describe('discovery URL canonicalization', () => {
@@ -53,5 +54,40 @@ describe('discovery URL canonicalization', () => {
   it('does not merge distinct www and apex hosts without a trusted canonical hint', () => {
     expect(hashDiscoveredUrl('https://www.example.com/story'))
       .not.toBe(hashDiscoveredUrl('https://example.com/story'));
+  });
+
+  it('accepts same-domain canonical hints while retaining the observed URL', () => {
+    const resolved = resolveCanonicalizedDocumentUrl(
+      'https://www.example.com/story?utm_source=feed',
+      'https://example.com/story',
+    );
+
+    expect(resolved).toMatchObject({
+      originalUrl: 'https://www.example.com/story?utm_source=feed',
+      canonicalUrl: 'https://example.com/story',
+      canonicalHint: 'https://example.com/story',
+      canonicalHintAccepted: true,
+    });
+  });
+
+  it('rejects cross-domain canonical hints unless the source explicitly allows them', () => {
+    const safeDefault = resolveCanonicalizedDocumentUrl(
+      'https://example.com/story',
+      'https://publisher.test/story',
+    );
+    const explicitOverride = resolveCanonicalizedDocumentUrl(
+      'https://example.com/story',
+      'https://publisher.test/story',
+      { allowCrossDomainCanonicalHint: true },
+    );
+
+    expect(safeDefault).toMatchObject({
+      canonicalUrl: 'https://example.com/story',
+      canonicalHintAccepted: false,
+    });
+    expect(explicitOverride).toMatchObject({
+      canonicalUrl: 'https://publisher.test/story',
+      canonicalHintAccepted: true,
+    });
   });
 });
