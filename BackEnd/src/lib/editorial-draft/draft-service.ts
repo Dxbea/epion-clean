@@ -152,7 +152,7 @@ export async function generateControlledEditorialDraft(
       riskLevel: source.dossier.candidate.riskLevel,
       config,
     });
-    const contentHash = createHash('sha256').update(JSON.stringify(artifact)).digest('hex');
+    const contentHash = hashEditorialDraftArtifact(artifact);
     const contentHtml = renderEditorialDraftHtml(artifact);
     const inputTokens = nullableSum(generated.inputTokens, criticized.inputTokens);
     const outputTokens = nullableSum(generated.outputTokens, criticized.outputTokens);
@@ -199,8 +199,8 @@ export async function generateControlledEditorialDraft(
       });
       await transaction.editorialQualityGate.upsert({
         where: { draftId: draft.id },
-        create: qualityGateData(draft.id, gate),
-        update: qualityGateUpdate(gate),
+        create: qualityGateData(draft.id, contentHash, gate),
+        update: qualityGateUpdate(contentHash, gate),
       });
       await transaction.editorialDraft.update({
         where: { id: draft.id },
@@ -278,12 +278,13 @@ function toEvidenceSnapshot(item: {
   chunkPosition: number; contentSnapshot: string; contentHash: string;
 }): EditorialEvidenceSnapshot { return { ...item }; }
 
-function qualityGateData(draftId: string, gate: EditorialQualityGateResult) {
-  return { draftId, gateVersion: EDITORIAL_QUALITY_GATE_VERSION, ...qualityGateUpdate(gate), humanReviewStatus: 'PENDING' as const };
+function qualityGateData(draftId: string, contentHash: string, gate: EditorialQualityGateResult) {
+  return { draftId, gateVersion: EDITORIAL_QUALITY_GATE_VERSION, ...qualityGateUpdate(contentHash, gate), humanReviewStatus: 'PENDING' as const };
 }
 
-function qualityGateUpdate(gate: EditorialQualityGateResult) {
+function qualityGateUpdate(contentHash: string, gate: EditorialQualityGateResult) {
   return {
+    evaluatedContentHash: contentHash,
     qualityScore: gate.qualityScore,
     publishabilityScore: gate.publishabilityScore,
     citationCoverage: gate.citationCoverage,
@@ -302,6 +303,20 @@ export function renderEditorialDraftHtml(artifact: { sections: Array<{ heading: 
     const paragraphs = section.claimKeys.map((key) => `<p data-editorial-claim="${escapeHtml(key)}">${escapeHtml(claims.get(key)!)}</p>`).join('');
     return `<section><h2>${escapeHtml(section.heading)}</h2>${paragraphs}</section>`;
   }).join('');
+}
+
+export function hashEditorialDraftArtifact(artifact: unknown): string {
+  return createHash('sha256').update(JSON.stringify(stableJson(artifact))).digest('hex');
+}
+
+function stableJson(value: unknown): unknown {
+  if (Array.isArray(value)) return value.map(stableJson);
+  if (value && typeof value === 'object') {
+    return Object.fromEntries(Object.entries(value as Record<string, unknown>)
+      .sort(([left], [right]) => left.localeCompare(right))
+      .map(([key, nested]) => [key, stableJson(nested)]));
+  }
+  return value;
 }
 
 function escapeHtml(value: string): string {

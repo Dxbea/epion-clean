@@ -30,11 +30,12 @@ export function calculateEditorialQualityGate(input: {
     supportedClaimRatio * 45 + coreClaimSupportRatio * 20 + citationCoverage * 15 + structuralScore * 10 + diversityScore * 10,
   );
   const contradicted = input.reviews.filter((review) => review.verdict === 'CONTRADICTED').length;
+  const unsupported = input.reviews.filter((review) => review.verdict === 'UNSUPPORTED').length;
   const unsupportedCore = coreClaims.filter((claim) => {
     const verdict = reviews.get(claim.claimKey)?.verdict;
     return verdict !== 'SUPPORTED';
   }).length;
-  const publishabilityScore = round100(Math.max(0, qualityScore - contradicted * 15 - unsupportedCore * 20));
+  const publishabilityScore = round100(Math.max(0, qualityScore - contradicted * 15 - unsupported * 10 - unsupportedCore * 20));
   const reasons: string[] = [];
   if (qualityScore < input.config.minimumQualityScore) reasons.push('QUALITY_SCORE_BELOW_THRESHOLD');
   if (publishabilityScore < input.config.minimumPublishabilityScore) reasons.push('PUBLISHABILITY_SCORE_BELOW_THRESHOLD');
@@ -43,6 +44,7 @@ export function calculateEditorialQualityGate(input: {
   if (coreClaimSupportRatio < input.config.minimumCoreClaimSupportRatio) reasons.push('CORE_CLAIM_SUPPORT_BELOW_THRESHOLD');
   if (independentDomains < requiredDomains) reasons.push('INSUFFICIENT_INDEPENDENT_DOMAINS');
   if (contradicted > 0) reasons.push('CONTRADICTED_CLAIMS_PRESENT');
+  if (unsupported > 0) reasons.push('UNSUPPORTED_CLAIMS_PRESENT');
   return {
     qualityScore,
     publishabilityScore,

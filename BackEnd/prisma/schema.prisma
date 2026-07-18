@@ -183,6 +183,12 @@ enum EditorialHumanReviewStatus {
   REJECTED
 }
 
+enum EditorialReviewAuditAction {
+  APPROVED
+  REJECTED
+  APPROVAL_BLOCKED
+}
+
 model User {
   id           String   @id @default(cuid())
   email        String   @unique
@@ -210,6 +216,7 @@ model User {
   contributionReports ArticleContributionReport[] @relation("UserArticleContributionReports")
   reviewedContributionReports ArticleContributionReport[] @relation("UserReviewedArticleContributionReports")
   editorialGateReviews EditorialQualityGate[] @relation("EditorialQualityGateReviewer")
+  editorialReviewAuditLogs EditorialReviewAuditLog[] @relation("EditorialReviewAuditActor")
   ArticleView ArticleView[]
   ChatFolder  ChatFolder[]
 
@@ -412,6 +419,7 @@ model Article {
 
   chunks          KnowledgeChunk[]
   editorialDraft  EditorialDraft?
+  editorialReviewAuditLogs EditorialReviewAuditLog[]
 
   @@index([authorId])
   @@index([categoryId])
@@ -1192,6 +1200,7 @@ model EditorialDraft {
 
   claims      EditorialDraftClaim[]
   qualityGate EditorialQualityGate?
+  auditLogs    EditorialReviewAuditLog[]
 
   @@index([briefId, createdAt])
   @@index([status, createdAt])
@@ -1241,6 +1250,7 @@ model EditorialQualityGate {
   draftId               String                     @unique
   draft                 EditorialDraft             @relation(fields: [draftId], references: [id], onDelete: Cascade)
   gateVersion           String
+  evaluatedContentHash  String
   qualityScore          Float
   publishabilityScore   Float
   citationCoverage      Float
@@ -1261,6 +1271,28 @@ model EditorialQualityGate {
 
   @@index([automatedDecision, humanReviewStatus, createdAt])
   @@index([reviewedById, reviewedAt])
+}
+
+model EditorialReviewAuditLog {
+  id             String                     @id @default(cuid())
+  draftId        String
+  draft          EditorialDraft             @relation(fields: [draftId], references: [id], onDelete: Restrict)
+  actorUserId    String
+  actor          User                       @relation("EditorialReviewAuditActor", fields: [actorUserId], references: [id], onDelete: Restrict)
+  action         EditorialReviewAuditAction
+  contentHash    String
+  previousStatus EditorialDraftStatus
+  resultingStatus EditorialDraftStatus
+  articleId      String?
+  article        Article?                   @relation(fields: [articleId], references: [id], onDelete: Restrict)
+  reviewNote     String?                    @db.Text
+  details        Json?
+  createdAt      DateTime                   @default(now())
+
+  @@index([draftId, createdAt])
+  @@index([actorUserId, createdAt])
+  @@index([action, createdAt])
+  @@index([articleId])
 }
 
 enum PoliticalBias {
