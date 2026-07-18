@@ -135,6 +135,20 @@ enum EditorialTopicDocumentRole {
   QUASI_DUPLICATE
 }
 
+enum EditorialDossierStatus {
+  PENDING
+  RUNNING
+  EVIDENCE_READY
+  COMPLETED
+  BLOCKED
+  FAILED
+}
+
+enum EditorialEvidenceRole {
+  PRIMARY
+  CONTEXT
+}
+
 model User {
   id           String   @id @default(cuid())
   email        String   @unique
@@ -859,6 +873,7 @@ model IngestedDocument {
   editorialTopicDocuments        EditorialTopicDocument[]  @relation("EditorialTopicEvidenceDocument")
   representedEditorialTopics     EditorialTopic[]          @relation("EditorialTopicRepresentative")
   editorialQuasiDuplicateTargets EditorialTopicDocument[] @relation("EditorialTopicQuasiDuplicate")
+  editorialBriefEvidence         EditorialBriefEvidence[]
 
   @@index([domain, publishedAt])
   @@index([sourceId, publishedAt])
@@ -889,6 +904,8 @@ model DocumentChunk {
   chunkingVersion Int
   createdAt       DateTime                      @default(now())
   updatedAt       DateTime                      @updatedAt
+
+  editorialBriefEvidence EditorialBriefEvidence[]
 
   @@unique([documentId, position])
   @@index([documentId])
@@ -1013,8 +1030,95 @@ model EditorialCandidate {
   createdAt              DateTime                 @default(now())
   updatedAt              DateTime                 @updatedAt
 
+  sourceDossiers EditorialSourceDossier[]
+
   @@index([status, editorialScore])
   @@index([riskLevel, editorialScore])
+}
+
+model EditorialSourceDossier {
+  id                    String                  @id @default(cuid())
+  candidateId           String
+  candidate             EditorialCandidate      @relation(fields: [candidateId], references: [id], onDelete: Restrict)
+  idempotencyKey        String                  @unique
+  dossierVersion        String
+  status                EditorialDossierStatus @default(PENDING)
+  shadowOnly            Boolean                 @default(true)
+  generatorModel        String
+  promptVersion         String
+  selectionRank         Int
+  minimumDomains        Int
+  maxDocuments          Int
+  maxChunksPerDocument  Int
+  configuration         Json?
+  candidateSnapshot     Json?
+  sourceDomains         Json?
+  evidenceHash          String?
+  evidenceFrozenAt      DateTime?
+  selectedDocumentCount Int                     @default(0)
+  selectedDomainCount   Int                     @default(0)
+  selectedChunkCount    Int                     @default(0)
+  attempts              Int                     @default(0)
+  leaseExpiresAt        DateTime?
+  error                 String?
+  metrics               Json?
+  completedAt           DateTime?
+  createdAt             DateTime                @default(now())
+  updatedAt             DateTime                @updatedAt
+
+  evidence EditorialBriefEvidence[]
+  brief    EditorialBrief?
+
+  @@index([candidateId, createdAt])
+  @@index([status, createdAt])
+}
+
+model EditorialBriefEvidence {
+  id               String                  @id @default(cuid())
+  dossierId        String
+  dossier          EditorialSourceDossier  @relation(fields: [dossierId], references: [id], onDelete: Cascade)
+  documentId       String
+  document         IngestedDocument        @relation(fields: [documentId], references: [id], onDelete: Restrict)
+  chunkId          String
+  chunk             DocumentChunk           @relation(fields: [chunkId], references: [id], onDelete: Restrict)
+  evidenceKey      String
+  role             EditorialEvidenceRole
+  position         Int
+  similarity       Float
+  documentTitle    String
+  canonicalUrl     String
+  domain           String
+  publishedAt      DateTime?
+  chunkPosition    Int
+  contentSnapshot  String                  @db.Text
+  contentHash      String
+  createdAt        DateTime                @default(now())
+
+  @@unique([dossierId, chunkId])
+  @@unique([dossierId, evidenceKey])
+  @@index([documentId])
+  @@index([chunkId])
+  @@index([dossierId, role, position])
+}
+
+model EditorialBrief {
+  id                  String                 @id @default(cuid())
+  dossierId           String                 @unique
+  dossier             EditorialSourceDossier @relation(fields: [dossierId], references: [id], onDelete: Cascade)
+  schemaVersion       Int                    @default(1)
+  promptVersion       String
+  generatorModel      String
+  structuredContent   Json
+  contentHash         String
+  inputTokens         Int?
+  outputTokens        Int?
+  estimatedCostMicros Int?
+  shadowOnly          Boolean                @default(true)
+  generatedAt         DateTime               @default(now())
+  updatedAt           DateTime               @updatedAt
+
+  @@index([contentHash])
+  @@index([generatedAt])
 }
 
 enum PoliticalBias {
