@@ -15,6 +15,7 @@
     "worker:embedding": "node --import ./dist/instrument.js dist/workers/embedding.worker.js",
     "worker:source-enrichment": "node --import ./dist/instrument.js dist/workers/source-enrichment.worker.js",
     "worker:news": "node --import ./dist/instrument.js dist/workers/news-worker.js",
+    "worker:discovery": "node --import ./dist/instrument.js dist/workers/discovery.worker.js",
     "test": "vitest --run",
     "dev:api": "tsx --import ./src/instrument.ts src/server.ts",
     "dev:worker": "tsx --import ./src/instrument.ts src/workers/index.ts",
@@ -26,7 +27,8 @@
     "refresh:source-profiles:report-only": "node --import tsx src/scripts/refresh-source-profiles.ts --report-only",
     "refresh:source-profiles:dry-run": "node --import tsx src/scripts/refresh-source-profiles.ts --dry-run",
     "refresh:source-profiles:write": "node --import tsx src/scripts/refresh-source-profiles.ts --write",
-    "report:source-pipeline": "node --import tsx src/scripts/report-source-pipeline.ts"
+    "report:source-pipeline": "node --import tsx src/scripts/report-source-pipeline.ts",
+    "discovery:dry-run": "node --import tsx src/scripts/discovery-dry-run.ts"
   },
   "dependencies": {
     "@aws-sdk/client-sesv2": "^3.893.0",
