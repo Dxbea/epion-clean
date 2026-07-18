@@ -15,12 +15,13 @@ export interface EditorialVerificationReconciliationResult {
 export async function reconcileEditorialVerificationRuns(
   client: PrismaClient,
   queue: Pick<Queue<EditorialVerificationJobData>, 'add'>,
-  options: { now?: Date; limit?: number } = {},
+  options: { now?: Date; limit?: number; runId?: string } = {},
 ): Promise<EditorialVerificationReconciliationResult> {
   const now = options.now ?? new Date();
   const limit = Math.min(200, Math.max(1, options.limit ?? 50));
   const runs = await client.editorialVerificationRun.findMany({
     where: {
+      ...(options.runId ? { id: options.runId } : {}),
       OR: [
         { status: 'RUNNING', leaseExpiresAt: { lt: now } },
         { status: 'HUMAN_REVIEW_REQUIRED', serperRequired: true },

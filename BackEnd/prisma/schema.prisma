@@ -197,6 +197,9 @@ enum EditorialReviewAuditAction {
   ARTICLE_PUBLISHED
   PUBLICATION_REVOKED
   PUBLICATION_EXPIRED
+  VERIFICATION_REPLAYED
+  VERIFICATION_DLQ_REPLAYED
+  VERIFICATION_RECONCILED
 }
 
 enum EditorialRevisionOrigin {
@@ -1510,6 +1513,7 @@ model EditorialReviewAuditLog {
   revision       EditorialDraftRevision?    @relation(fields: [revisionId], references: [id], onDelete: Restrict)
   reviewNote     String?                    @db.Text
   details        Json?
+  operationKey   String?                    @unique
   createdAt      DateTime                   @default(now())
 
   @@index([draftId, createdAt])

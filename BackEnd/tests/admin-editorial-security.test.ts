@@ -7,6 +7,7 @@ describe('admin editorial route security wiring', () => {
     const server = readFileSync(join(process.cwd(), 'src', 'server.ts'), 'utf8');
     expect(server.indexOf("app.use('/api', csrfRequired)")).toBeGreaterThan(-1);
     expect(server.indexOf("app.use('/api', adminEditorialRouter)")).toBeGreaterThan(server.indexOf("app.use('/api', csrfRequired)"));
+    expect(server.indexOf("app.use('/api', adminEditorialOpsRouter)")).toBeGreaterThan(server.indexOf("app.use('/api', csrfRequired)"));
   });
 
   it('keeps manual publication exclusively under the private admin router', () => {
@@ -16,5 +17,14 @@ describe('admin editorial route security wiring', () => {
     expect(routes).not.toContain("router.post('/articles/");
     expect(routes).not.toContain("router.post('/publish");
     expect(routes).toContain('`${root}/:id/verify`');
+  });
+
+  it('keeps shadow operations private and contains no automatic publication route', () => {
+    const routes = readFileSync(join(process.cwd(), 'src', 'routes', 'admin-editorial-ops.ts'), 'utf8');
+    expect(routes).toContain("const root = '/admin/editorial-ops'");
+    expect(routes).toContain('requireEditorialOpsAdmin');
+    expect(routes).toContain('mode: \'SHADOW_ONLY\'');
+    expect(routes).not.toContain('/publish');
+    expect(routes).not.toContain('publishEditorialArticle');
   });
 });
