@@ -107,6 +107,34 @@ enum IngestedDocumentStatus {
   FAILED
 }
 
+enum EditorialRunMode {
+  SHADOW
+}
+
+enum EditorialRunStatus {
+  PENDING
+  RUNNING
+  COMPLETED
+  FAILED
+}
+
+enum EditorialCandidateStatus {
+  SHADOW_PROPOSED
+  SHADOW_SUPPRESSED
+}
+
+enum EditorialRiskLevel {
+  LOW
+  MEDIUM
+  HIGH
+}
+
+enum EditorialTopicDocumentRole {
+  REPRESENTATIVE
+  EVIDENCE
+  QUASI_DUPLICATE
+}
+
 model User {
   id           String   @id @default(cuid())
   email        String   @unique
@@ -825,9 +853,12 @@ model IngestedDocument {
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
-  discoveries               DocumentDiscovery[]
-  chunks                    DocumentChunk[]
-  canonicalContentIdentities DocumentContentIdentity[] @relation("CanonicalDocumentContentIdentity")
+  discoveries                    DocumentDiscovery[]
+  chunks                         DocumentChunk[]
+  canonicalContentIdentities     DocumentContentIdentity[] @relation("CanonicalDocumentContentIdentity")
+  editorialTopicDocuments        EditorialTopicDocument[]  @relation("EditorialTopicEvidenceDocument")
+  representedEditorialTopics     EditorialTopic[]          @relation("EditorialTopicRepresentative")
+  editorialQuasiDuplicateTargets EditorialTopicDocument[] @relation("EditorialTopicQuasiDuplicate")
 
   @@index([domain, publishedAt])
   @@index([sourceId, publishedAt])
@@ -888,6 +919,102 @@ model DocumentDiscovery {
   @@index([documentId, discoveredAt])
   @@index([discoverySourceId, discoveredAt])
   @@index([discoverySourceId, lastSeenAt])
+}
+
+model EditorialRun {
+  id               String             @id @default(cuid())
+  idempotencyKey   String             @unique
+  mode             EditorialRunMode   @default(SHADOW)
+  status           EditorialRunStatus @default(PENDING)
+  windowStart      DateTime
+  windowEnd        DateTime
+  algorithmVersion String
+  embeddingModel   String
+  configuration    Json?
+  startedAt        DateTime?
+  completedAt      DateTime?
+  leaseExpiresAt   DateTime?
+  attempts         Int                @default(0)
+  error            String?
+  metrics          Json?
+  createdAt        DateTime           @default(now())
+  updatedAt        DateTime           @updatedAt
+
+  topics EditorialTopic[]
+
+  @@index([status, createdAt])
+  @@index([windowStart, windowEnd])
+}
+
+model EditorialTopic {
+  id                       String                         @id @default(cuid())
+  runId                    String
+  run                      EditorialRun                   @relation(fields: [runId], references: [id], onDelete: Cascade)
+  clusterKey               String
+  label                    String
+  language                 String?
+  dominantCategoryId       String?
+  dominantSourceId         String?
+  representativeDocumentId String
+  representativeDocument   IngestedDocument               @relation("EditorialTopicRepresentative", fields: [representativeDocumentId], references: [id], onDelete: Restrict)
+  centroidEmbedding        Unsupported("vector(1536)")?
+  centroidModel            String
+  documentCount            Int
+  independentDomainCount   Int
+  firstEventAt             DateTime
+  latestEventAt            DateTime
+  metadata                 Json?
+  createdAt                DateTime                       @default(now())
+  updatedAt                DateTime                       @updatedAt
+
+  documents EditorialTopicDocument[]
+  candidate EditorialCandidate?
+
+  @@unique([runId, clusterKey])
+  @@index([runId, latestEventAt])
+  @@index([representativeDocumentId])
+  @@index([dominantCategoryId, latestEventAt])
+}
+
+model EditorialTopicDocument {
+  id                         String                     @id @default(cuid())
+  topicId                    String
+  topic                      EditorialTopic             @relation(fields: [topicId], references: [id], onDelete: Cascade)
+  documentId                 String
+  document                   IngestedDocument           @relation("EditorialTopicEvidenceDocument", fields: [documentId], references: [id], onDelete: Restrict)
+  role                       EditorialTopicDocumentRole
+  similarityToCentroid       Float
+  quasiDuplicateOfDocumentId String?
+  quasiDuplicateOfDocument   IngestedDocument?          @relation("EditorialTopicQuasiDuplicate", fields: [quasiDuplicateOfDocumentId], references: [id], onDelete: Restrict)
+  eventAt                    DateTime
+  createdAt                  DateTime                   @default(now())
+
+  @@unique([topicId, documentId])
+  @@index([documentId])
+  @@index([quasiDuplicateOfDocumentId])
+  @@index([topicId, role])
+}
+
+model EditorialCandidate {
+  id                     String                   @id @default(cuid())
+  topicId                String                   @unique
+  topic                  EditorialTopic           @relation(fields: [topicId], references: [id], onDelete: Cascade)
+  status                 EditorialCandidateStatus
+  editorialScore         Float
+  freshnessScore         Float
+  sourceDiversityScore   Float
+  independentDomainScore Float
+  coverageScore          Float
+  relevanceScore         Float
+  riskScore              Float
+  riskLevel              EditorialRiskLevel
+  shadowOnly             Boolean                  @default(true)
+  rationale              Json?
+  createdAt              DateTime                 @default(now())
+  updatedAt              DateTime                 @updatedAt
+
+  @@index([status, editorialScore])
+  @@index([riskLevel, editorialScore])
 }
 
 enum PoliticalBias {
