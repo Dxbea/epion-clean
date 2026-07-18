@@ -106,19 +106,26 @@ export async function enrichEditorialEvidenceWithSerper(
       },
     }, { now });
     if (persisted.dryRun) continue;
+    const storedDocument = await client.ingestedDocument.findUnique({
+      where: { id: persisted.documentId },
+      select: { content: true, status: true, publishedAt: true, sourceId: true },
+    });
+    const hasExtractedContent = Boolean(storedDocument?.content?.trim())
+      && ['EXTRACTED', 'INDEXED'].includes(storedDocument!.status);
     evidence.push({
       evidenceKey: `serper_${createHash('sha256').update(url).digest('hex').slice(0, 20)}`,
       documentId: persisted.documentId,
-      sourceId: null,
+      sourceId: storedDocument?.sourceId ?? null,
       url: persisted.canonicalUrl,
       title: result.title,
       domain,
-      content: result.content,
-      publishedAt: parseSerperDate(result.publishedDate) ?? null,
+      content: hasExtractedContent ? storedDocument!.content!.trim() : result.content,
+      publishedAt: storedDocument?.publishedAt ?? parseSerperDate(result.publishedDate) ?? null,
       lane: query.lane,
       origin: 'SERPER',
       query: query.query,
       officialStatement: query.lane === 'PRIMARY' && isOfficialDomain(domain),
+      extractionStatus: hasExtractedContent ? 'full' : 'metadata_only',
     });
   }
   return { queries, evidence, documentIds: evidence.map((item) => item.documentId) };
@@ -138,11 +145,11 @@ async function ensureEditorialSerperDiscoverySource(client: PrismaClient): Promi
       country: 'FR',
       maxItemsPerRun: MAX_PERSISTED_RESULTS,
       requestTimeoutMs: 8_000,
-      accessPolicy: 'METADATA_ONLY',
-      storagePolicy: 'METADATA_ONLY',
+      accessPolicy: 'ROBOTS_ALLOWED',
+      storagePolicy: 'EXCERPT_ONLY',
       configuration: { provider: 'serper', internalOnly: true },
     },
-    update: {},
+    update: { accessPolicy: 'ROBOTS_ALLOWED', storagePolicy: 'EXCERPT_ONLY' },
     select: {
       id: true, key: true, name: true, connectorType: true, endpoint: true, enabled: true,
       priority: true, language: true, country: true, sourceId: true, maxItemsPerRun: true,

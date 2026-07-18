@@ -140,6 +140,13 @@ export async function searchSerper(
     }
 }
 
+export async function searchSerperStrict(
+    query: string,
+    options: SearchSerperOptions = {},
+): Promise<SerperSearchResult[]> {
+    return requestSerper(query, options);
+}
+
 export async function probeSerper(): Promise<{ status: 'up' | 'down'; latency?: string; error?: string }> {
     const startedAt = Date.now();
 

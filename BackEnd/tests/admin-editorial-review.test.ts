@@ -17,7 +17,7 @@ function appWith(options: {
   authorizePublication?: any;
   publishArticle?: any;
   revokeAuthorization?: any;
-  verifyDraft?: any;
+  enqueueVerification?: any;
   readLimiter?: RequestHandler;
   decisionLimiter?: RequestHandler;
 }) {
@@ -32,7 +32,7 @@ function appWith(options: {
     authorizePublication: options.authorizePublication ?? vi.fn(),
     publishArticle: options.publishArticle ?? vi.fn(),
     revokeAuthorization: options.revokeAuthorization ?? vi.fn(),
-    verifyDraft: options.verifyDraft ?? vi.fn(),
+    enqueueVerification: options.enqueueVerification ?? vi.fn(),
     readLimiter: options.readLimiter ?? noopLimiter,
     decisionLimiter: options.decisionLimiter ?? noopLimiter,
   }));
@@ -85,19 +85,19 @@ describe('private admin editorial review routes', () => {
   });
 
   it('exposes editorial verification only through the protected admin action', async () => {
-    const verifyDraft = vi.fn(async () => ({ outcome: 'FINALIZED', articleId: 'article-1', factCheckScore: 84 }));
+    const enqueueVerification = vi.fn(async () => ({ outcome: 'VERIFICATION_QUEUED', articleId: 'article-1', jobId: 'job-1' }));
     const expectedContentHash = 'e'.repeat(64);
-    await request(appWith({ verifyDraft }))
+    await request(appWith({ enqueueVerification }))
       .post('/api/admin/editorial-drafts/draft-1/verify')
       .send({ expectedContentHash })
-      .expect(200, { outcome: 'FINALIZED', articleId: 'article-1', factCheckScore: 84 });
-    expect(verifyDraft).toHaveBeenCalledWith(expect.anything(), { draftId: 'draft-1', expectedContentHash });
+      .expect(202, { outcome: 'VERIFICATION_QUEUED', articleId: 'article-1', jobId: 'job-1' });
+    expect(enqueueVerification).toHaveBeenCalledWith(expect.anything(), { draftId: 'draft-1', expectedContentHash });
 
-    await request(appWith({ currentUser: vi.fn(async () => user), verifyDraft }))
+    await request(appWith({ currentUser: vi.fn(async () => user), enqueueVerification }))
       .post('/api/admin/editorial-drafts/draft-1/verify')
       .send({ expectedContentHash })
       .expect(403, { error: 'FORBIDDEN' });
-    expect(verifyDraft).toHaveBeenCalledTimes(1);
+    expect(enqueueVerification).toHaveBeenCalledTimes(1);
   });
 
   it('rejects malformed decisions before calling the review service', async () => {

@@ -14,7 +14,7 @@ import {
   publishEditorialArticle,
   revokeEditorialPublicationAuthorization,
 } from '../lib/editorial-draft/publication-service.js';
-import { verifyEditorialDraftForFinalization } from '../lib/editorial-verification/verification-service.js';
+import { enqueueEditorialVerificationForDraft } from '../lib/editorial-verification/enqueue-service.js';
 
 const readLimiter = rateLimit({
   windowMs: 60_000,
@@ -79,7 +79,7 @@ export interface AdminEditorialRouterDependencies {
   authorizePublication: typeof authorizeEditorialPublication;
   publishArticle: typeof publishEditorialArticle;
   revokeAuthorization: typeof revokeEditorialPublicationAuthorization;
-  verifyDraft: typeof verifyEditorialDraftForFinalization;
+  enqueueVerification: typeof enqueueEditorialVerificationForDraft;
   readLimiter: RequestHandler;
   decisionLimiter: RequestHandler;
 }
@@ -93,7 +93,7 @@ const defaults: AdminEditorialRouterDependencies = {
   authorizePublication: authorizeEditorialPublication,
   publishArticle: publishEditorialArticle,
   revokeAuthorization: revokeEditorialPublicationAuthorization,
-  verifyDraft: verifyEditorialDraftForFinalization,
+  enqueueVerification: enqueueEditorialVerificationForDraft,
   readLimiter,
   decisionLimiter,
 };
@@ -310,11 +310,11 @@ export function createAdminEditorialRouter(
     try {
       const parsed = verificationBodySchema.safeParse(req.body);
       if (!parsed.success) return res.status(400).json({ error: 'INVALID_EDITORIAL_VERIFICATION', issues: parsed.error.issues });
-      const result = await deps.verifyDraft(deps.client, {
+      const result = await deps.enqueueVerification(deps.client, {
         draftId: String(req.params.id),
         expectedContentHash: parsed.data.expectedContentHash,
       });
-      return res.json(result);
+      return res.status(202).json(result);
     } catch (error) {
       next(error);
     }

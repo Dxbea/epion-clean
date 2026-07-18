@@ -13,6 +13,7 @@ import { assessEditorialCorpus } from './sufficiency.js';
 import {
   EDITORIAL_MISTRAL_PROMPT_VERSION,
   EDITORIAL_VERIFICATION_VERSION,
+  RetryableEditorialVerificationDependencyError,
   type EditorialClaimForAudit,
   type EditorialCorpusAssessment,
   type EditorialMistralAuditor,
@@ -22,6 +23,38 @@ import {
 } from './types.js';
 
 const VERIFICATION_LEASE_MS = 10 * 60_000;
+
+export class TrustScoreEditorialSourceHydrator implements EditorialVerificationSourceHydrator {
+  async hydrate(evidence: EditorialVerificationEvidence, index: number): Promise<SourceScoreEntry> {
+    const richScore = await getRichTrustScore(evidence.domain, evidence.url, {
+      content: evidence.extractionStatus === 'full' ? evidence.content : undefined,
+      metaDescription: evidence.extractionStatus !== 'full' ? evidence.content : undefined,
+    });
+    const entry = buildEnrichedSourceScoreEntry({
+      url: evidence.url,
+      index,
+      domain: evidence.domain,
+      richScore,
+      analysisStatus: 'ANALYZED',
+      metadata: {
+        extractionStatus: evidence.extractionStatus ?? (evidence.origin === 'SERPER' ? 'metadata_only' : 'full'),
+        provider: evidence.origin === 'SERPER' ? 'web' : 'rag',
+        role: evidence.officialStatement
+          ? 'OFFICIAL_STATEMENT'
+          : evidence.lane === 'PRIMARY'
+            ? 'PRIMARY_EVIDENCE'
+            : evidence.lane === 'COUNTERPOINT'
+              ? 'COUNTERPOINT'
+              : 'CONTEXT',
+        provenance: evidence.origin === 'SERPER' ? 'WEB_SEARCH' : 'EDITORIAL',
+        officialStatement: evidence.officialStatement,
+        contentTitle: evidence.title,
+      },
+    });
+    entry.metadata = { ...entry.metadata, supportStrength: evidence.lane === 'CONTEXT' ? 'MODERATE' : 'STRONG' };
+    return entry;
+  }
+}
 
 export interface EditorialVerificationDependencies {
   mistralAuditor: EditorialMistralAuditor;
@@ -33,37 +66,7 @@ export interface EditorialVerificationDependencies {
 
 const defaultDependencies: EditorialVerificationDependencies = {
   mistralAuditor: new MistralEditorialAuditor(),
-  sourceHydrator: {
-    async hydrate(evidence, index) {
-      const richScore = await getRichTrustScore(evidence.domain, evidence.url, {
-        content: evidence.origin === 'CORPUS' ? evidence.content : undefined,
-        metaDescription: evidence.origin === 'SERPER' ? evidence.content : undefined,
-      });
-      const entry = buildEnrichedSourceScoreEntry({
-        url: evidence.url,
-        index,
-        domain: evidence.domain,
-        richScore,
-        analysisStatus: 'ANALYZED',
-        metadata: {
-          extractionStatus: evidence.origin === 'SERPER' ? 'metadata_only' : 'full',
-          provider: evidence.origin === 'SERPER' ? 'web' : 'rag',
-          role: evidence.officialStatement
-            ? 'OFFICIAL_STATEMENT'
-            : evidence.lane === 'PRIMARY'
-              ? 'PRIMARY_EVIDENCE'
-              : evidence.lane === 'COUNTERPOINT'
-                ? 'COUNTERPOINT'
-                : 'CONTEXT',
-          provenance: evidence.origin === 'SERPER' ? 'WEB_SEARCH' : 'EDITORIAL',
-          officialStatement: evidence.officialStatement,
-          contentTitle: evidence.title,
-        },
-      });
-      entry.metadata = { ...entry.metadata, supportStrength: evidence.lane === 'CONTEXT' ? 'MODERATE' : 'STRONG' };
-      return entry;
-    },
-  },
+  sourceHydrator: new TrustScoreEditorialSourceHydrator(),
   finalizeArticle: finalizeArticleAnalysis,
   now: () => new Date(),
 };
@@ -189,7 +192,8 @@ export async function verifyEditorialDraftForFinalization(
     const coreMetadataOnly = mistralAudit.claims.some((audit) => {
       const claim = claims.find((item) => item.claimKey === audit.claimKey);
       const cited = audit.evidenceKeys.map((key) => evidenceByKey.get(key)).filter(Boolean);
-      return claim?.importance === 'CORE' && cited.length > 0 && cited.every((item) => item?.origin === 'SERPER');
+      return claim?.importance === 'CORE' && cited.length > 0
+        && cited.every((item) => item?.extractionStatus !== 'full');
     });
     const auditCoverageReasons = [
       ...(auditedDomains.size < finalAssessment.requiredDomains ? ['MISTRAL_INSUFFICIENT_CITED_DOMAIN_DIVERSITY'] : []),
@@ -400,6 +404,7 @@ function buildCorpusEvidence(evidence: Array<any>, brief: EditorialBriefContent)
     lane: counterpointKeys.has(item.evidenceKey) ? 'COUNTERPOINT' : item.role === 'PRIMARY' ? 'PRIMARY' : 'CONTEXT',
     origin: 'CORPUS',
     officialStatement: false,
+    extractionStatus: 'full',
   }));
 }
 
@@ -415,7 +420,8 @@ async function hydrateSources(
     let source: SourceScoreEntry;
     try {
       source = await hydrator.hydrate(item, sources.length);
-    } catch {
+    } catch (error) {
+      if (error instanceof RetryableEditorialVerificationDependencyError) throw error;
       identityReasons.push(`SOURCE_HYDRATION_FAILED:${item.domain}`);
       continue;
     }

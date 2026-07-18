@@ -238,6 +238,12 @@ enum EditorialVerificationStatus {
   FAILED
 }
 
+enum EditorialShadowPublicationDecision {
+  WOULD_AUTO_PUBLISH
+  WOULD_REQUIRE_HUMAN
+  WOULD_REJECT
+}
+
 model User {
   id           String   @id @default(cuid())
   email        String   @unique
@@ -1458,6 +1464,10 @@ model EditorialVerificationRun {
   sourceSnapshot        Json?
   factCheckScore        Int?
   factCheckContentHash  String?
+  shadowDecision        EditorialShadowPublicationDecision?
+  shadowPolicyVersion   String?
+  shadowReasons         Json?
+  shadowEvaluatedAt     DateTime?
   attempts              Int                         @default(0)
   leaseExpiresAt        DateTime?
   startedAt             DateTime?
@@ -1470,6 +1480,18 @@ model EditorialVerificationRun {
   @@index([revisionId, status])
   @@index([articleId, status])
   @@index([status, createdAt])
+  @@index([shadowDecision, shadowEvaluatedAt])
+}
+
+model EditorialVerificationDailyUsage {
+  day                 DateTime @id @db.Date
+  verificationCount   Int      @default(0)
+  serperRequestCount  Int      @default(0)
+  mistralRequestCount Int      @default(0)
+  openaiRequestCount  Int      @default(0)
+  estimatedCostMicros Int      @default(0)
+  createdAt           DateTime @default(now())
+  updatedAt           DateTime @updatedAt
 }
 
 model EditorialReviewAuditLog {

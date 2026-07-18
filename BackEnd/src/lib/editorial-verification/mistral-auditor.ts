@@ -149,6 +149,7 @@ function userPrompt(input: {
       domain: item.domain,
       lane: item.lane,
       origin: item.origin,
+      extractionStatus: item.extractionStatus ?? (item.origin === 'SERPER' ? 'metadata_only' : 'full'),
       content: item.content.slice(0, 3_000),
     })),
     responseFormat: {

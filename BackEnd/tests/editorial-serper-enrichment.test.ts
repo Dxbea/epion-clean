@@ -29,7 +29,10 @@ describe('conditional editorial Serper enrichment', () => {
       configuration: {}, cursor: null, etag: null, lastModified: null,
       accessPolicy: 'METADATA_ONLY', storagePolicy: 'METADATA_ONLY',
     })) };
-    const client = { discoverySource } as any;
+    const client = {
+      discoverySource,
+      ingestedDocument: { findUnique: vi.fn(async () => null) },
+    } as any;
     const searcher = vi.fn(async (query: string) => query.includes('officielle')
       ? [
           { title: 'Official', url: 'https://agency.gouv.fr/report?utm_source=x', content: 'Official facts', score: 1 },
@@ -51,7 +54,7 @@ describe('conditional editorial Serper enrichment', () => {
     expect(searcher).toHaveBeenCalledTimes(2);
     expect(discoverySource.upsert).toHaveBeenCalledWith(expect.objectContaining({
       where: { key: 'internal-editorial-serper' },
-      create: expect.objectContaining({ enabled: false, accessPolicy: 'METADATA_ONLY' }),
+      create: expect.objectContaining({ enabled: false, accessPolicy: 'ROBOTS_ALLOWED', storagePolicy: 'EXCERPT_ONLY' }),
     }));
     expect(persistDiscoveredCandidate).toHaveBeenCalledTimes(3);
     expect(persistDiscoveredCandidate.mock.calls[0][2]).toMatchObject({

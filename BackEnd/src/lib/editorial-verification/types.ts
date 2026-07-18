@@ -4,6 +4,13 @@ import type { SourceScoreEntry } from '../score-types.js';
 export const EDITORIAL_VERIFICATION_VERSION = 'editorial-verification-v1';
 export const EDITORIAL_MISTRAL_PROMPT_VERSION = 'editorial-mistral-audit-v1';
 
+export class RetryableEditorialVerificationDependencyError extends Error {
+  constructor(readonly dependency: 'SERPER' | 'MISTRAL' | 'OPENAI', message: string) {
+    super(message);
+    this.name = 'RetryableEditorialVerificationDependencyError';
+  }
+}
+
 export type EditorialSerperReason =
   | 'MISSING_PRIMARY_SOURCE'
   | 'MISSING_COUNTERPOINT'
@@ -26,6 +33,7 @@ export interface EditorialVerificationEvidence {
   origin: 'CORPUS' | 'SERPER';
   query?: string;
   officialStatement?: boolean;
+  extractionStatus?: 'full' | 'metadata_only';
 }
 
 export interface EditorialClaimForAudit {
