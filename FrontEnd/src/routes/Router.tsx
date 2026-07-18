@@ -39,6 +39,7 @@ const Changelog = React.lazy(() => import('../pages/Changelog'));
 const Guide = React.lazy(() => import('../pages/Guide'));
 const Blog = React.lazy(() => import('../pages/Blog'));
 const Transparency = React.lazy(() => import('../pages/Transparency'));
+const SourceTransparency = React.lazy(() => import('../pages/SourceTransparency'));
 const Contact = React.lazy(() => import('../pages/Contact'));
 const ModerationPolicy = React.lazy(() => import('../pages/ModerationPolicy'));
 const Press = React.lazy(() => import('../pages/Press'));
@@ -105,6 +106,7 @@ export default function Router(): React.ReactElement {
         <Route path="/guide" element={lazy(<Guide />)} />
         <Route path="/blog" element={lazy(<Blog />)} />
         <Route path="/transparency" element={lazy(<Transparency />)} />
+        <Route path="/transparence/sources" element={lazy(<SourceTransparency />)} />
         <Route path="/contact" element={lazy(<Contact />)} />
         <Route path="/press" element={lazy(<Press />)} />
       </Route>

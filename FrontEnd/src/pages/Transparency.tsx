@@ -3,6 +3,7 @@ import React from 'react';
 import PageContainer from '@/components/ui/PageContainer';
 import { H2, Lead, Body } from '@/components/ui';
 import { useI18n } from '@/i18n/I18nContext';
+import { Link } from 'react-router-dom';
 
 export default function Transparency(){
   const { t } = useI18n();
@@ -13,6 +14,9 @@ export default function Transparency(){
       <div className="grid gap-4 md:grid-cols-2">
         <div className="rounded-2xl border border-black/10 p-4 dark:border-white/10">
           <Body>{t('transparency_sources')}</Body>
+          <Link to="/transparence/sources" className="mt-3 inline-flex text-sm font-medium underline decoration-gray-300 underline-offset-4">
+            {t('transparency_sources_more')}
+          </Link>
         </div>
         <div className="rounded-2xl border border-black/10 p-4 dark:border-white/10">
           <Body>{t('transparency_funding')}</Body>

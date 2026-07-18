@@ -66,6 +66,45 @@ enum ArticleSourceProvenance {
   UNKNOWN
 }
 
+enum DiscoveryConnectorType {
+  RSS
+  ATOM
+  SITEMAP
+  SITEMAP_INDEX
+  GDELT
+  GOOGLE_NEWS_RSS
+  OFFICIAL_API
+  HTML_LISTING
+  MANUAL
+}
+
+enum DiscoveryAccessPolicy {
+  FEED_ONLY
+  ROBOTS_ALLOWED
+  EXPLICIT_ALLOWLIST
+  OFFICIAL_API
+  LICENSED
+  METADATA_ONLY
+  BLOCKED
+}
+
+enum DiscoveryContentStoragePolicy {
+  FULL_TEXT
+  EXCERPT_ONLY
+  METADATA_ONLY
+  TRANSIENT
+  NONE
+}
+
+enum IngestedDocumentStatus {
+  DISCOVERED
+  FETCH_PENDING
+  FETCHED
+  PARTIAL
+  BLOCKED
+  FAILED
+}
+
 model User {
   id           String   @id @default(cuid())
   email        String   @unique
@@ -234,7 +273,8 @@ model Category {
   name      String
   createdAt DateTime @default(now())
 
-  articles Article[]
+  articles         Article[]
+  discoverySources DiscoverySource[]
 }
 
 // ---------------- Article ----------------
@@ -650,7 +690,9 @@ model Source {
   createdAt       DateTime @default(now())
   updatedAt       DateTime @updatedAt
 
-  articleSources ArticleSource[]
+  articleSources    ArticleSource[]
+  discoverySources  DiscoverySource[]
+  ingestedDocuments IngestedDocument[]
 }
 
 model ArticleSource {
@@ -681,6 +723,122 @@ model ArticleSource {
   @@index([articleId, position])
   @@index([sourceId])
   @@index([articleId, role])
+}
+
+// -----------------------------------------------------------------------------
+// EDITORIAL DISCOVERY CORPUS
+// -----------------------------------------------------------------------------
+model DiscoverySource {
+  id            String                 @id @default(cuid())
+  key           String                 @unique
+  name          String
+  connectorType DiscoveryConnectorType
+  endpoint      String
+  enabled       Boolean                @default(false)
+  priority      Int                    @default(0)
+
+  language String?
+  country  String?
+
+  categoryId String?
+  category   Category? @relation(fields: [categoryId], references: [id], onDelete: SetNull)
+
+  sourceId String?
+  source   Source? @relation(fields: [sourceId], references: [id], onDelete: SetNull)
+
+  schedule         String?
+  maxItemsPerRun   Int     @default(100)
+  requestTimeoutMs Int     @default(20000)
+  rateLimitPerHour Int?
+  configuration    Json?
+
+  cursor        String?
+  etag          String?
+  lastModified  String?
+  lastRunAt     DateTime?
+  nextRunAt     DateTime?
+  lastSuccessAt DateTime?
+
+  consecutiveFailures Int     @default(0)
+  disabledReason      String?
+
+  accessPolicy  DiscoveryAccessPolicy         @default(METADATA_ONLY)
+  storagePolicy DiscoveryContentStoragePolicy @default(METADATA_ONLY)
+  licenseNotes  String?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  discoveries DocumentDiscovery[]
+
+  @@index([enabled, nextRunAt])
+  @@index([connectorType, endpoint])
+  @@index([categoryId])
+  @@index([sourceId])
+}
+
+model IngestedDocument {
+  id                      String  @id @default(cuid())
+  url                     String
+  canonicalUrl            String
+  canonicalUrlHash        String  @unique
+  canonicalizationVersion Int     @default(1)
+  domain                  String
+  title                   String?
+  snippet                 String? @db.Text
+  content                 String? @db.Text
+  contentHash             String?
+  language                String?
+
+  publishedAt     DateTime?
+  sourceUpdatedAt DateTime?
+  discoveredAt    DateTime  @default(now())
+  fetchedAt       DateTime?
+
+  status           IngestedDocumentStatus        @default(DISCOVERED)
+  extractionMethod String?
+  accessPolicy     DiscoveryAccessPolicy         @default(METADATA_ONLY)
+  storagePolicy    DiscoveryContentStoragePolicy @default(METADATA_ONLY)
+  robotsAllowed    Boolean?
+  robotsCheckedAt  DateTime?
+  licenseDecision  String?
+
+  sourceId String?
+  source   Source? @relation(fields: [sourceId], references: [id], onDelete: SetNull)
+
+  isIndexed Boolean @default(false)
+  metadata  Json?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  discoveries DocumentDiscovery[]
+
+  @@index([domain, publishedAt])
+  @@index([sourceId, publishedAt])
+  @@index([status, discoveredAt])
+  @@index([contentHash])
+}
+
+model DocumentDiscovery {
+  id String @id @default(cuid())
+
+  documentId String
+  document   IngestedDocument @relation(fields: [documentId], references: [id], onDelete: Cascade)
+
+  discoverySourceId String
+  discoverySource   DiscoverySource @relation(fields: [discoverySourceId], references: [id], onDelete: Restrict)
+
+  externalId        String?
+  discoveredUrl     String
+  discoveredUrlHash String
+  discoveredAt      DateTime @default(now())
+  metadata          Json?
+
+  @@unique([discoverySourceId, discoveredUrlHash])
+  @@unique([discoverySourceId, externalId])
+  @@index([documentId, discoveredAt])
+  @@index([discoverySourceId, discoveredAt])
 }
 
 enum PoliticalBias {

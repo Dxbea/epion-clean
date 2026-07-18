@@ -94,12 +94,12 @@ export function GlobalTrustScoreModal({ isOpen, onClose, data }: GlobalTrustScor
     return (
         <Modal isOpen={isOpen} onClose={onClose} title={t('support_modal_title')} size="large">
             <div className="mx-auto max-w-2xl space-y-5 px-2 py-4">
-                <div className="rounded-2xl border border-black/10 bg-black/5 p-6 text-center dark:border-white/10 dark:bg-white/5">
+                <div className="rounded-2xl border border-black/10 p-6 text-center dark:border-white/10">
                     <ShieldCheck className="mx-auto mb-3 h-6 w-6" />
                     <div className="text-xs font-bold uppercase tracking-wider text-gray-500">{t('support_level')}</div>
                     <div className="mt-2 text-2xl font-bold">{label}</div>
                     <p className="mt-2 text-sm text-gray-600 dark:text-gray-300">{t(`support_explanation_${light?.supportLevel ?? 'legacy'}`)}</p>
-                    {light && <p className="mt-2 text-xs text-gray-500">{t('support_confidence')} : {t(`support_confidence_${light.analysisConfidence.toLowerCase()}`)}</p>}
+                    {light && <p className="mt-2 text-xs text-gray-500">{t(`support_confidence_${light.analysisConfidence.toLowerCase()}`)}</p>}
                 </div>
 
                 {light && metrics.length > 0 && (
@@ -121,17 +121,17 @@ export function GlobalTrustScoreModal({ isOpen, onClose, data }: GlobalTrustScor
                 )}
 
                 {light && (
-                    <section className="rounded-xl border border-indigo-200 bg-indigo-50/70 p-4 dark:border-indigo-900/40 dark:bg-indigo-950/20">
-                        <div className="flex items-center gap-2 text-sm font-semibold text-indigo-950 dark:text-indigo-200"><Compass className="h-4 w-4" />{recommended ? t('support_deep_recommended') : t('support_deep_available')}</div>
-                        <p className="mt-2 text-sm text-indigo-950/75 dark:text-indigo-100/75">
+                    <section className="rounded-xl border border-gray-200 p-4 dark:border-white/10">
+                        <div className="flex items-center gap-2 text-sm font-semibold text-gray-900 dark:text-white"><Compass className="h-4 w-4 text-gray-500" />{recommended ? t('support_deep_recommended') : t('support_deep_available')}</div>
+                        <p className="mt-2 text-sm text-gray-600 dark:text-gray-300">
                             {recommended ? t('support_deep_recommended_intro') : t('support_deep_available_intro')}
                         </p>
                         {recommended && light.deepAnalysisReasons.length > 0 && (
-                            <ul className="mt-3 space-y-2 text-sm text-indigo-950/80 dark:text-indigo-100/80">
+                            <ul className="mt-3 space-y-2 text-sm text-gray-600 dark:text-gray-300">
                                 {light.deepAnalysisReasons.map((reason) => <li key={reason}>• {t(REASON_KEYS[reason] ?? 'support_reason_other')}</li>)}
                             </ul>
                         )}
-                        <p className="mt-3 text-xs text-indigo-950/60 dark:text-indigo-100/60">
+                        <p className="mt-3 text-xs text-gray-500 dark:text-gray-400">
                             {light.deepAnalysisAvailable ? t('support_deep_available_all') : t('support_deep_unavailable')}
                         </p>
                     </section>
@@ -156,9 +156,9 @@ export function GlobalTrustScoreModal({ isOpen, onClose, data }: GlobalTrustScor
 
 function ExplanationSection({ title, items }: { title: string; items: string[] }) {
     return (
-        <section className="rounded-xl border border-amber-200 bg-amber-50/70 p-4 text-amber-950 dark:border-amber-900/40 dark:bg-amber-950/20 dark:text-amber-100">
-            <div className="flex items-center gap-2 text-sm font-semibold"><AlertTriangle className="h-4 w-4" />{title}</div>
-            <ul className="mt-3 space-y-2 text-sm opacity-80">{items.map((item) => <li key={item}>• {item}</li>)}</ul>
+        <section className="rounded-xl border border-gray-200 p-4 text-gray-900 dark:border-white/10 dark:text-white">
+            <div className="flex items-center gap-2 text-sm font-semibold"><AlertTriangle className="h-4 w-4 text-gray-500" />{title}</div>
+            <ul className="mt-3 space-y-2 text-sm text-gray-600 dark:text-gray-300">{items.map((item) => <li key={item}>• {item}</li>)}</ul>
         </section>
     );
 }
