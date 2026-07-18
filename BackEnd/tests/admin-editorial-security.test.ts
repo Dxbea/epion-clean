@@ -15,5 +15,6 @@ describe('admin editorial route security wiring', () => {
     expect(routes).toContain('`${root}/:id/revisions/:revisionId/publish`');
     expect(routes).not.toContain("router.post('/articles/");
     expect(routes).not.toContain("router.post('/publish");
+    expect(routes).toContain('`${root}/:id/verify`');
   });
 });

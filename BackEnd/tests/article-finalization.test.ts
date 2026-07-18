@@ -118,6 +118,27 @@ describe('shared Article finalization contract', () => {
     });
   });
 
+  it('optionally removes stale ArticleSource rows for an editorial finalization', async () => {
+    const articleSourceUpsert = vi.fn(async () => ({}));
+    const articleSourceDeleteMany = vi.fn(async () => ({ count: 1 }));
+    const articleUpdate = vi.fn(async () => ({}));
+    const client = {
+      $transaction: vi.fn(async (callback: any) => callback({
+        articleSource: { upsert: articleSourceUpsert, deleteMany: articleSourceDeleteMany },
+        article: { update: articleUpdate },
+      })),
+    } as unknown as PrismaClient;
+
+    await finalizeArticleAnalysis(client, { ...input(), replaceArticleSources: true });
+
+    expect(articleSourceDeleteMany).toHaveBeenCalledWith({
+      where: {
+        articleId: 'article-1',
+        sourceUrlHash: { notIn: [expect.any(String)] },
+      },
+    });
+  });
+
   it('produces the same public Article contract for equivalent user-prompt and editorial inputs', () => {
     vi.useFakeTimers();
     vi.setSystemTime(completedAt);

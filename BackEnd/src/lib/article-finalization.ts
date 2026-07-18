@@ -3,6 +3,8 @@ import {
   buildArticleSourceProfileSnapshot,
   buildArticleSourceUpsertInput,
   deriveArticleSourceSupportStrength,
+  hashArticleSourceUrl,
+  normalizeArticleSourceUrl,
 } from './article-source-service.js';
 import { buildArticleScorePayload, hashAnalysisInput } from './score-helpers.js';
 import type { ArticleScorePayload, SourceScoreEntry } from './score-types.js';
@@ -18,6 +20,7 @@ export interface ArticleFinalizationInput {
   sources: SourceScoreEntry[];
   liveAnalysis?: unknown | null;
   completedAt?: Date;
+  replaceArticleSources?: boolean;
 }
 
 export interface ArticleFinalizationContract {
@@ -29,7 +32,16 @@ export interface ArticleFinalizationContract {
   factCheckContentHash: string;
   publicSources: SourceScoreEntry[];
   articleSourceUpserts: Prisma.ArticleSourceUpsertArgs[];
+  replaceArticleSources: boolean;
+  articleSourceUrlHashes: string[];
   completedAt: Date;
+}
+
+export interface ArticleFinalizationPersistenceOptions {
+  afterPersist?: (
+    transaction: Prisma.TransactionClient,
+    contract: ArticleFinalizationContract,
+  ) => Promise<void>;
 }
 
 export function isCanonicalStructuredArticleContent(value: unknown): value is StructuredArticleContent {
@@ -73,6 +85,7 @@ export function buildArticleFinalizationContract(
   factCheckData.status = factCheckStatus;
   factCheckData.analyzedAt = completedAt.toISOString();
 
+  const articleSourceUpserts = buildArticleSourceUpserts(input.articleId, input.sources, completedAt);
   return {
     articleId: input.articleId,
     structuredContent: input.structuredContent ?? null,
@@ -81,7 +94,13 @@ export function buildArticleFinalizationContract(
     factCheckScore,
     factCheckContentHash,
     publicSources: input.sources,
-    articleSourceUpserts: buildArticleSourceUpserts(input.articleId, input.sources, completedAt),
+    articleSourceUpserts,
+    replaceArticleSources: input.replaceArticleSources === true,
+    articleSourceUrlHashes: input.sources.flatMap((source) => {
+      const normalized = normalizeArticleSourceUrl(source.url);
+      const hash = normalized ? hashArticleSourceUrl(normalized) : null;
+      return source.durableSourceId && hash ? [hash] : [];
+    }),
     completedAt,
   };
 }
@@ -89,10 +108,21 @@ export function buildArticleFinalizationContract(
 export async function persistArticleFinalization(
   client: PrismaClient,
   contract: ArticleFinalizationContract,
+  options: ArticleFinalizationPersistenceOptions = {},
 ): Promise<ArticleFinalizationContract> {
   await client.$transaction(async (transaction) => {
     for (const upsert of contract.articleSourceUpserts) {
       await transaction.articleSource.upsert(upsert);
+    }
+    if (contract.replaceArticleSources) {
+      await transaction.articleSource.deleteMany({
+        where: {
+          articleId: contract.articleId,
+          ...(contract.articleSourceUrlHashes.length
+            ? { sourceUrlHash: { notIn: contract.articleSourceUrlHashes } }
+            : {}),
+        },
+      });
     }
 
     await transaction.article.update({
@@ -111,6 +141,7 @@ export async function persistArticleFinalization(
           : 'No sources were available for enrichment',
       },
     });
+    await options.afterPersist?.(transaction, contract);
   });
 
   return contract;
@@ -119,9 +150,10 @@ export async function persistArticleFinalization(
 export async function finalizeArticleAnalysis(
   client: PrismaClient,
   input: ArticleFinalizationInput,
+  options: ArticleFinalizationPersistenceOptions = {},
 ): Promise<ArticleFinalizationContract> {
   const contract = buildArticleFinalizationContract(input);
-  return persistArticleFinalization(client, contract);
+  return persistArticleFinalization(client, contract, options);
 }
 
 function buildArticleSourceUpserts(

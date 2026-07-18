@@ -17,6 +17,7 @@ function appWith(options: {
   authorizePublication?: any;
   publishArticle?: any;
   revokeAuthorization?: any;
+  verifyDraft?: any;
   readLimiter?: RequestHandler;
   decisionLimiter?: RequestHandler;
 }) {
@@ -31,6 +32,7 @@ function appWith(options: {
     authorizePublication: options.authorizePublication ?? vi.fn(),
     publishArticle: options.publishArticle ?? vi.fn(),
     revokeAuthorization: options.revokeAuthorization ?? vi.fn(),
+    verifyDraft: options.verifyDraft ?? vi.fn(),
     readLimiter: options.readLimiter ?? noopLimiter,
     decisionLimiter: options.decisionLimiter ?? noopLimiter,
   }));
@@ -80,6 +82,22 @@ describe('private admin editorial review routes', () => {
     await request(appWith({ reviewDraft })).post('/api/admin/editorial-drafts/draft-1/reject').send(body).expect(200);
     expect(reviewDraft.mock.calls[0][1]).toMatchObject({ draftId: 'draft-1', reviewerUserId: 'admin-1', decision: 'APPROVE', ...body });
     expect(reviewDraft.mock.calls[1][1]).toMatchObject({ decision: 'REJECT' });
+  });
+
+  it('exposes editorial verification only through the protected admin action', async () => {
+    const verifyDraft = vi.fn(async () => ({ outcome: 'FINALIZED', articleId: 'article-1', factCheckScore: 84 }));
+    const expectedContentHash = 'e'.repeat(64);
+    await request(appWith({ verifyDraft }))
+      .post('/api/admin/editorial-drafts/draft-1/verify')
+      .send({ expectedContentHash })
+      .expect(200, { outcome: 'FINALIZED', articleId: 'article-1', factCheckScore: 84 });
+    expect(verifyDraft).toHaveBeenCalledWith(expect.anything(), { draftId: 'draft-1', expectedContentHash });
+
+    await request(appWith({ currentUser: vi.fn(async () => user), verifyDraft }))
+      .post('/api/admin/editorial-drafts/draft-1/verify')
+      .send({ expectedContentHash })
+      .expect(403, { error: 'FORBIDDEN' });
+    expect(verifyDraft).toHaveBeenCalledTimes(1);
   });
 
   it('rejects malformed decisions before calling the review service', async () => {

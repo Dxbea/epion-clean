@@ -230,6 +230,14 @@ enum EditorialPublicationDecisionType {
   AUTHORIZE_PUBLICATION
 }
 
+enum EditorialVerificationStatus {
+  PENDING
+  RUNNING
+  PASSED
+  HUMAN_REVIEW_REQUIRED
+  FAILED
+}
+
 model User {
   id           String   @id @default(cuid())
   email        String   @unique
@@ -468,6 +476,7 @@ model Article {
   editorialDraft  EditorialDraft?
   editorialReviewAuditLogs EditorialReviewAuditLog[]
   editorialPublicationAuthorizations EditorialPublicationAuthorization[]
+  editorialVerificationRuns EditorialVerificationRun[]
 
   @@index([authorId])
   @@index([categoryId])
@@ -1255,6 +1264,7 @@ model EditorialDraft {
   revisions    EditorialDraftRevision[] @relation("EditorialDraftRevisions")
   reviewDecisions EditorialReviewDecision[]
   publicationAuthorizations EditorialPublicationAuthorization[]
+  verificationRuns EditorialVerificationRun[]
 
   @@index([briefId, createdAt])
   @@index([status, createdAt])
@@ -1290,6 +1300,7 @@ model EditorialDraftRevision {
   reviewDecisions    EditorialReviewDecision[]
   publicationAuthorizations EditorialPublicationAuthorization[]
   auditLogs          EditorialReviewAuditLog[]
+  verificationRuns   EditorialVerificationRun[]
 
   @@unique([draftId, version])
   @@index([draftId, createdAt])
@@ -1421,6 +1432,44 @@ model EditorialQualityGate {
 
   @@index([automatedDecision, humanReviewStatus, createdAt])
   @@index([reviewedById, reviewedAt])
+}
+
+model EditorialVerificationRun {
+  id                    String                      @id @default(cuid())
+  idempotencyKey        String                      @unique
+  draftId               String
+  draft                 EditorialDraft              @relation(fields: [draftId], references: [id], onDelete: Restrict)
+  revisionId            String
+  revision              EditorialDraftRevision      @relation(fields: [revisionId], references: [id], onDelete: Restrict)
+  articleId             String
+  article               Article                     @relation(fields: [articleId], references: [id], onDelete: Restrict)
+  contentHash           String
+  status                EditorialVerificationStatus @default(PENDING)
+  verificationVersion   String
+  corpusAssessment      Json?
+  serperRequired        Boolean                     @default(false)
+  serperReasons         Json?
+  serperQueries         Json?
+  serperDocumentIds     Json?
+  mistralModel          String
+  mistralPromptVersion  String
+  mistralAudit          Json?
+  gateReasons           Json?
+  sourceSnapshot        Json?
+  factCheckScore        Int?
+  factCheckContentHash  String?
+  attempts              Int                         @default(0)
+  leaseExpiresAt        DateTime?
+  startedAt             DateTime?
+  completedAt           DateTime?
+  error                 String?
+  createdAt             DateTime                    @default(now())
+  updatedAt             DateTime                    @updatedAt
+
+  @@index([draftId, createdAt])
+  @@index([revisionId, status])
+  @@index([articleId, status])
+  @@index([status, createdAt])
 }
 
 model EditorialReviewAuditLog {

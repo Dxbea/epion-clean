@@ -14,6 +14,7 @@ import {
   publishEditorialArticle,
   revokeEditorialPublicationAuthorization,
 } from '../lib/editorial-draft/publication-service.js';
+import { verifyEditorialDraftForFinalization } from '../lib/editorial-verification/verification-service.js';
 
 const readLimiter = rateLimit({
   windowMs: 60_000,
@@ -59,6 +60,10 @@ const revocationBodySchema = z.object({
   revocationNote: z.string().trim().min(10).max(4_000),
 }).strict();
 
+const verificationBodySchema = z.object({
+  expectedContentHash: z.string().trim().min(1).max(128),
+}).strict();
+
 const allowedDraftStatuses = new Set([
   'PENDING', 'GENERATING', 'REVISION_PENDING_GATE', 'READY_FOR_REVIEW', 'QUALITY_FAILED',
   'HUMAN_REJECTED', 'ARTICLE_DRAFT_CREATED', 'FAILED',
@@ -74,6 +79,7 @@ export interface AdminEditorialRouterDependencies {
   authorizePublication: typeof authorizeEditorialPublication;
   publishArticle: typeof publishEditorialArticle;
   revokeAuthorization: typeof revokeEditorialPublicationAuthorization;
+  verifyDraft: typeof verifyEditorialDraftForFinalization;
   readLimiter: RequestHandler;
   decisionLimiter: RequestHandler;
 }
@@ -87,6 +93,7 @@ const defaults: AdminEditorialRouterDependencies = {
   authorizePublication: authorizeEditorialPublication,
   publishArticle: publishEditorialArticle,
   revokeAuthorization: revokeEditorialPublicationAuthorization,
+  verifyDraft: verifyEditorialDraftForFinalization,
   readLimiter,
   decisionLimiter,
 };
@@ -204,6 +211,7 @@ export function createAdminEditorialRouter(
               },
             },
           },
+          verificationRuns: { orderBy: { createdAt: 'desc' }, take: 20 },
         },
       });
       if (!draft) return res.status(404).json({ error: 'EDITORIAL_DRAFT_NOT_FOUND' });
@@ -298,6 +306,19 @@ export function createAdminEditorialRouter(
   });
 
   router.post(`${root}/:id/revisions/:revisionId/approve`, deps.decisionLimiter, versionDecisionHandler(deps));
+  router.post(`${root}/:id/verify`, deps.decisionLimiter, async (req, res, next) => {
+    try {
+      const parsed = verificationBodySchema.safeParse(req.body);
+      if (!parsed.success) return res.status(400).json({ error: 'INVALID_EDITORIAL_VERIFICATION', issues: parsed.error.issues });
+      const result = await deps.verifyDraft(deps.client, {
+        draftId: String(req.params.id),
+        expectedContentHash: parsed.data.expectedContentHash,
+      });
+      return res.json(result);
+    } catch (error) {
+      next(error);
+    }
+  });
   router.post(`${root}/:id/revisions/:revisionId/authorize-publication`, deps.decisionLimiter, async (req, res, next) => {
     try {
       const parsed = authorizationBodySchema.safeParse(req.body);
