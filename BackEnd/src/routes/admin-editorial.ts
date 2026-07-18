@@ -5,6 +5,11 @@ import type { PrismaClient } from '@prisma/client';
 import { prisma } from '../lib/db.js';
 import { getCurrentUser, type CurrentUser } from '../lib/currentUser.js';
 import { reviewControlledEditorialDraft } from '../lib/editorial-draft/approval-service.js';
+import {
+  authorizeEditorialPublication,
+  createEditorialDraftCorrection,
+  recalculateEditorialRevisionGate,
+} from '../lib/editorial-draft/revision-service.js';
 
 const readLimiter = rateLimit({
   windowMs: 60_000,
@@ -24,8 +29,24 @@ const reviewBodySchema = z.object({
   reviewNote: z.string().trim().min(10).max(4_000),
 }).strict();
 
+const correctionBodySchema = z.object({
+  expectedContentHash: z.string().trim().min(1).max(128),
+  correctionNote: z.string().trim().min(10).max(4_000),
+  artifact: z.record(z.string(), z.unknown()),
+}).strict();
+
+const gateBodySchema = z.object({
+  expectedContentHash: z.string().trim().min(1).max(128),
+  reviewNote: z.string().trim().min(10).max(4_000),
+}).strict();
+
+const authorizationBodySchema = z.object({
+  expectedContentHash: z.string().trim().min(1).max(128),
+  authorizationNote: z.string().trim().min(10).max(4_000),
+}).strict();
+
 const allowedDraftStatuses = new Set([
-  'PENDING', 'GENERATING', 'READY_FOR_REVIEW', 'QUALITY_FAILED',
+  'PENDING', 'GENERATING', 'REVISION_PENDING_GATE', 'READY_FOR_REVIEW', 'QUALITY_FAILED',
   'HUMAN_REJECTED', 'ARTICLE_DRAFT_CREATED', 'FAILED',
 ]);
 const allowedHumanStatuses = new Set(['PENDING', 'APPROVED', 'REJECTED']);
@@ -34,6 +55,9 @@ export interface AdminEditorialRouterDependencies {
   client: PrismaClient;
   currentUser: typeof getCurrentUser;
   reviewDraft: typeof reviewControlledEditorialDraft;
+  createCorrection: typeof createEditorialDraftCorrection;
+  recalculateGate: typeof recalculateEditorialRevisionGate;
+  authorizePublication: typeof authorizeEditorialPublication;
   readLimiter: RequestHandler;
   decisionLimiter: RequestHandler;
 }
@@ -42,6 +66,9 @@ const defaults: AdminEditorialRouterDependencies = {
   client: prisma,
   currentUser: getCurrentUser,
   reviewDraft: reviewControlledEditorialDraft,
+  createCorrection: createEditorialDraftCorrection,
+  recalculateGate: recalculateEditorialRevisionGate,
+  authorizePublication: authorizeEditorialPublication,
   readLimiter,
   decisionLimiter,
 };
@@ -81,6 +108,7 @@ export function createAdminEditorialRouter(
           generatedAt: true,
           completedAt: true,
           articleId: true,
+          currentRevisionId: true,
           createdAt: true,
           updatedAt: true,
           qualityGate: {
@@ -93,7 +121,10 @@ export function createAdminEditorialRouter(
               reviewedAt: true,
             },
           },
-          _count: { select: { claims: true, auditLogs: true } },
+          currentRevision: {
+            select: { id: true, version: true, origin: true, status: true, correctedById: true },
+          },
+          _count: { select: { claims: true, auditLogs: true, revisions: true, reviewDecisions: true, publicationAuthorizations: true } },
         },
       });
       const hasMore = drafts.length > limit;
@@ -109,6 +140,21 @@ export function createAdminEditorialRouter(
       const draft = await deps.client.editorialDraft.findUnique({
         where: { id: String(req.params.id) },
         include: {
+          currentRevision: {
+            include: {
+              correctedBy: { select: { id: true, name: true, email: true } },
+              reviewDecisions: {
+                orderBy: { createdAt: 'desc' },
+                include: { adminUser: { select: { id: true, name: true, email: true } } },
+              },
+              publicationAuthorization: {
+                include: {
+                  draftApprover: { select: { id: true, name: true, email: true } },
+                  authorizedBy: { select: { id: true, name: true, email: true } },
+                },
+              },
+            },
+          },
           qualityGate: { include: { reviewedBy: { select: { id: true, name: true, email: true } } } },
           article: { select: { id: true, slug: true, title: true, status: true, createdAt: true } },
           brief: {
@@ -159,6 +205,7 @@ export function createAdminEditorialRouter(
         include: {
           actor: { select: { id: true, name: true, email: true } },
           article: { select: { id: true, slug: true, status: true } },
+          revision: { select: { id: true, version: true, status: true, contentHash: true } },
         },
       });
       return res.json({ draftId: exists.id, audit });
@@ -167,9 +214,116 @@ export function createAdminEditorialRouter(
     }
   });
 
+  router.get(`${root}/:id/revisions`, async (req, res, next) => {
+    try {
+      const draft = await deps.client.editorialDraft.findUnique({
+        where: { id: String(req.params.id) },
+        select: { id: true, currentRevisionId: true },
+      });
+      if (!draft) return res.status(404).json({ error: 'EDITORIAL_DRAFT_NOT_FOUND' });
+      const revisions = await deps.client.editorialDraftRevision.findMany({
+        where: { draftId: draft.id },
+        orderBy: { version: 'desc' },
+        include: {
+          correctedBy: { select: { id: true, name: true, email: true } },
+          reviewDecisions: {
+            orderBy: { createdAt: 'desc' },
+            include: { adminUser: { select: { id: true, name: true, email: true } } },
+          },
+          publicationAuthorization: {
+            include: {
+              draftApprover: { select: { id: true, name: true, email: true } },
+              authorizedBy: { select: { id: true, name: true, email: true } },
+            },
+          },
+        },
+      });
+      return res.json({ draftId: draft.id, currentRevisionId: draft.currentRevisionId, revisions });
+    } catch (error) {
+      next(error);
+    }
+  });
+
+  router.post(`${root}/:id/corrections`, deps.decisionLimiter, async (req, res, next) => {
+    try {
+      const parsed = correctionBodySchema.safeParse(req.body);
+      if (!parsed.success) return res.status(400).json({ error: 'INVALID_EDITORIAL_CORRECTION', issues: parsed.error.issues });
+      const admin = res.locals.editorialAdminUser as CurrentUser;
+      const result = await deps.createCorrection(deps.client, {
+        draftId: String(req.params.id),
+        correctedByUserId: admin.id,
+        ...parsed.data,
+      });
+      return res.status(201).json(result);
+    } catch (error) {
+      next(error);
+    }
+  });
+
+  router.post(`${root}/:id/revisions/:revisionId/recheck`, deps.decisionLimiter, async (req, res, next) => {
+    try {
+      const parsed = gateBodySchema.safeParse(req.body);
+      if (!parsed.success) return res.status(400).json({ error: 'INVALID_EDITORIAL_GATE_RECHECK', issues: parsed.error.issues });
+      const admin = res.locals.editorialAdminUser as CurrentUser;
+      const result = await deps.recalculateGate(deps.client, {
+        draftId: String(req.params.id),
+        revisionId: String(req.params.revisionId),
+        reviewedByUserId: admin.id,
+        ...parsed.data,
+      });
+      return res.json(result);
+    } catch (error) {
+      next(error);
+    }
+  });
+
+  router.post(`${root}/:id/revisions/:revisionId/approve`, deps.decisionLimiter, versionDecisionHandler(deps));
+  router.post(`${root}/:id/revisions/:revisionId/authorize-publication`, deps.decisionLimiter, async (req, res, next) => {
+    try {
+      const parsed = authorizationBodySchema.safeParse(req.body);
+      if (!parsed.success) return res.status(400).json({ error: 'INVALID_PUBLICATION_AUTHORIZATION', issues: parsed.error.issues });
+      const admin = res.locals.editorialAdminUser as CurrentUser;
+      const result = await deps.authorizePublication(deps.client, {
+        draftId: String(req.params.id),
+        revisionId: String(req.params.revisionId),
+        authorizedByUserId: admin.id,
+        ...parsed.data,
+      });
+      return res.json(result);
+    } catch (error) {
+      next(error);
+    }
+  });
+
   router.post(`${root}/:id/approve`, deps.decisionLimiter, decisionHandler(deps, 'APPROVE'));
   router.post(`${root}/:id/reject`, deps.decisionLimiter, decisionHandler(deps, 'REJECT'));
   return router;
+}
+
+function versionDecisionHandler(deps: AdminEditorialRouterDependencies): RequestHandler {
+  return async (req, res, next) => {
+    try {
+      const parsed = reviewBodySchema.safeParse(req.body);
+      if (!parsed.success) return res.status(400).json({ error: 'INVALID_EDITORIAL_REVIEW', issues: parsed.error.issues });
+      const draft = await deps.client.editorialDraft.findUnique({
+        where: { id: String(req.params.id) },
+        select: { currentRevisionId: true },
+      });
+      if (!draft) return res.status(404).json({ error: 'EDITORIAL_DRAFT_NOT_FOUND' });
+      if (draft.currentRevisionId !== String(req.params.revisionId)) return res.status(409).json({ error: 'EDITORIAL_REVISION_SUPERSEDED' });
+      const admin = res.locals.editorialAdminUser as CurrentUser;
+      const result = await deps.reviewDraft(deps.client, {
+        draftId: String(req.params.id),
+        reviewerUserId: admin.id,
+        decision: 'APPROVE',
+        reviewNote: parsed.data.reviewNote,
+        expectedContentHash: parsed.data.expectedContentHash,
+      });
+      return res.json(result);
+    } catch (error) {
+      next(error);
+    }
+  };
 }
 
 function decisionHandler(

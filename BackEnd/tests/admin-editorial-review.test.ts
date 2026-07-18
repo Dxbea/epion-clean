@@ -12,6 +12,9 @@ function appWith(options: {
   currentUser?: any;
   client?: any;
   reviewDraft?: any;
+  createCorrection?: any;
+  recalculateGate?: any;
+  authorizePublication?: any;
   readLimiter?: RequestHandler;
   decisionLimiter?: RequestHandler;
 }) {
@@ -21,6 +24,9 @@ function appWith(options: {
     client: (options.client ?? {}) as PrismaClient,
     currentUser: options.currentUser ?? vi.fn(async () => admin),
     reviewDraft: options.reviewDraft ?? vi.fn(),
+    createCorrection: options.createCorrection ?? vi.fn(),
+    recalculateGate: options.recalculateGate ?? vi.fn(),
+    authorizePublication: options.authorizePublication ?? vi.fn(),
     readLimiter: options.readLimiter ?? noopLimiter,
     decisionLimiter: options.decisionLimiter ?? noopLimiter,
   }));
@@ -76,5 +82,50 @@ describe('private admin editorial review routes', () => {
     const reviewDraft = vi.fn();
     await request(appWith({ reviewDraft })).post('/api/admin/editorial-drafts/draft-1/approve').send({ expectedContentHash: '', reviewNote: 'short' }).expect(400);
     expect(reviewDraft).not.toHaveBeenCalled();
+  });
+
+  it('exposes only private admin operations for corrections, rechecks and four-eyes authorization', async () => {
+    const createCorrection = vi.fn(async () => ({ revisionId: 'revision-2', status: 'REVISION_PENDING_GATE' }));
+    const recalculateGate = vi.fn(async () => ({ revisionId: 'revision-2', outcome: 'READY_FOR_REVIEW' }));
+    const authorizePublication = vi.fn(async () => ({ revisionId: 'revision-2', outcome: 'PUBLICATION_AUTHORIZED', articleStatus: 'DRAFT' }));
+    const reviewDraft = vi.fn(async () => ({ outcome: 'ARTICLE_DRAFT_CREATED', articleId: 'article-1' }));
+    const client = { editorialDraft: { findUnique: vi.fn(async () => ({ currentRevisionId: 'revision-2' })) } };
+    const app = appWith({ client, createCorrection, recalculateGate, authorizePublication, reviewDraft });
+    const expectedContentHash = 'b'.repeat(64);
+    const artifact = { title: 'Titre', summary: 'Résumé', sections: [], claims: [] };
+
+    await request(app).post('/api/admin/editorial-drafts/draft-1/corrections').send({
+      expectedContentHash, correctionNote: 'Correction éditoriale précisément documentée.', artifact,
+    }).expect(201);
+    await request(app).post('/api/admin/editorial-drafts/draft-1/revisions/revision-2/recheck').send({
+      expectedContentHash, reviewNote: 'Nouvelle vérification factuelle obligatoire.',
+    }).expect(200);
+    await request(app).post('/api/admin/editorial-drafts/draft-1/revisions/revision-2/approve').send({
+      expectedContentHash, reviewNote: 'Version relue et approuvée avec ses preuves.',
+    }).expect(200);
+    await request(app).post('/api/admin/editorial-drafts/draft-1/revisions/revision-2/authorize-publication').send({
+      expectedContentHash, authorizationNote: 'Seconde revue indépendante avant publication.',
+    }).expect(200);
+
+    expect(createCorrection.mock.calls[0][1]).toMatchObject({ correctedByUserId: 'admin-1', artifact });
+    expect(recalculateGate.mock.calls[0][1]).toMatchObject({ reviewedByUserId: 'admin-1', revisionId: 'revision-2' });
+    expect(reviewDraft.mock.calls[0][1]).toMatchObject({ reviewerUserId: 'admin-1', decision: 'APPROVE' });
+    expect(authorizePublication.mock.calls[0][1]).toMatchObject({ authorizedByUserId: 'admin-1', revisionId: 'revision-2' });
+  });
+
+  it('lists immutable revisions with their decisions and rejects approval of a superseded version', async () => {
+    const client = {
+      editorialDraft: { findUnique: vi.fn()
+        .mockResolvedValueOnce({ id: 'draft-1', currentRevisionId: 'revision-2' })
+        .mockResolvedValueOnce({ currentRevisionId: 'revision-2' }) },
+      editorialDraftRevision: { findMany: vi.fn(async () => [{ id: 'revision-2', version: 2 }, { id: 'revision-1', version: 1 }]) },
+    };
+    const app = appWith({ client });
+    await request(app).get('/api/admin/editorial-drafts/draft-1/revisions').expect(200, {
+      draftId: 'draft-1', currentRevisionId: 'revision-2', revisions: [{ id: 'revision-2', version: 2 }, { id: 'revision-1', version: 1 }],
+    });
+    await request(app).post('/api/admin/editorial-drafts/draft-1/revisions/revision-1/approve').send({
+      expectedContentHash: 'c'.repeat(64), reviewNote: 'Tentative de revue sur une ancienne version.',
+    }).expect(409, { error: 'EDITORIAL_REVISION_SUPERSEDED' });
   });
 });

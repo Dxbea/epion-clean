@@ -26,6 +26,7 @@ describe('controlled editorial draft service', () => {
       editorialDraftClaim: { deleteMany: vi.fn(async () => ({ count: 0 })), createMany: vi.fn(async () => ({ count: 2 })) },
       editorialDraftClaimEvidence: { createMany: vi.fn(async () => ({ count: 3 })) },
       editorialQualityGate: { upsert: vi.fn(async () => ({})) },
+      editorialDraftRevision: { create: vi.fn(async () => ({})) },
       editorialDraft: { update: vi.fn(async () => ({})) },
       article: { create: vi.fn() },
     };
@@ -45,6 +46,8 @@ describe('controlled editorial draft service', () => {
     expect(transaction.editorialDraftClaim.createMany).toHaveBeenCalledOnce();
     expect(transaction.editorialDraftClaimEvidence.createMany).toHaveBeenCalledOnce();
     expect(transaction.editorialQualityGate.upsert.mock.calls[0][0].create).toMatchObject({ automatedDecision: 'PASSED', humanReviewStatus: 'PENDING' });
+    expect(transaction.editorialDraftRevision.create.mock.calls[0][0].data).toMatchObject({ version: 1, origin: 'GENERATED', status: 'GATE_PASSED' });
+    expect(transaction.editorialDraft.update.mock.calls[0][0].data.currentRevisionId).toBeTruthy();
     expect(transaction.article.create).not.toHaveBeenCalled();
   });
 

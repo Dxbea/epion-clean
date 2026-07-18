@@ -39,6 +39,8 @@ function reviewableDraft(overrides: Record<string, unknown> = {}) {
     contentHash: VALID_CONTENT_HASH, title: validArtifact.title, summary: validArtifact.summary,
     contentHtml: renderEditorialDraftHtml(validArtifact), structuredContent: validArtifact,
     generatedAt: new Date('2026-07-18T12:00:00Z'),
+    currentRevision: { id: 'revision-1', version: 1, contentHash: VALID_CONTENT_HASH, reviewDecisions: [] },
+    article: null,
     qualityGate: { id: 'gate-1', gateVersion: 'quality-gate-v2', automatedDecision: 'PASSED', humanReviewStatus: 'PENDING', evaluatedContentHash: VALID_CONTENT_HASH },
     brief: { dossier: { candidate: { topic: { dominantCategoryId: null } } } },
     claims: [
@@ -60,6 +62,8 @@ describe('mandatory human editorial gate', () => {
       article: { create: vi.fn(async (args) => ({ id: 'article-1', args })) },
       articleSource: { upsert: vi.fn(async () => ({})) },
       editorialDraft: { update: vi.fn(async () => ({})) },
+      editorialDraftRevision: { update: vi.fn(async () => ({})) },
+      editorialReviewDecision: { create: vi.fn(async () => ({})) },
       editorialReviewAuditLog: { create: vi.fn(async () => ({})) },
     };
     const findUnique = vi.fn(async () => reviewableDraft());
@@ -74,12 +78,13 @@ describe('mandatory human editorial gate', () => {
     expect(result).toEqual({ draftId: 'draft-1', outcome: 'ARTICLE_DRAFT_CREATED', articleId: 'article-1' });
     const articleData = transaction.article.create.mock.calls[0][0].data;
     expect(articleData).toMatchObject({ status: 'DRAFT', authorId: null });
-    expect(articleData.generationConfig).toMatchObject({ origin: 'EPION_AUTOMATIC_EDITORIAL', automaticPublicationAllowed: false, humanReviewerId: 'admin-1' });
+    expect(articleData.generationConfig).toMatchObject({ origin: 'EPION_AUTOMATIC_EDITORIAL', automaticPublicationAllowed: false, publicationAuthorized: false, draftApproverId: 'admin-1' });
     expect(transaction.editorialDraft.update).toHaveBeenCalledWith(expect.objectContaining({ data: { status: 'ARTICLE_DRAFT_CREATED', articleId: 'article-1' } }));
     expect(transaction.articleSource.upsert).toHaveBeenCalledTimes(2);
     expect(findUnique.mock.calls[0][0].include.claims.include.evidence.where).toEqual({ criticConfirmed: true });
     expect(transaction.articleSource.upsert.mock.calls.every(([args]) => args.create.provenance === 'EDITORIAL')).toBe(true);
-    expect(transaction.editorialReviewAuditLog.create).toHaveBeenCalledWith(expect.objectContaining({ data: expect.objectContaining({ action: 'APPROVED', articleId: 'article-1' }) }));
+    expect(transaction.editorialReviewDecision.create).toHaveBeenCalledWith(expect.objectContaining({ data: expect.objectContaining({ decisionType: 'APPROVE_DRAFT', revisionId: 'revision-1' }) }));
+    expect(transaction.editorialReviewAuditLog.create).toHaveBeenCalledWith(expect.objectContaining({ data: expect.objectContaining({ action: 'DRAFT_APPROVED', articleId: 'article-1' }) }));
   });
 
   it('never creates Article when the automated quality gate failed', async () => {
@@ -151,7 +156,7 @@ describe('mandatory human editorial gate', () => {
     const transaction = vi.fn();
     const client = {
       user: { findUnique: vi.fn(async () => ({ id: 'admin-1', role: 'ADMIN' })) },
-      editorialDraft: { findUnique: vi.fn(async () => reviewableDraft({ articleId: 'article-existing', status: 'ARTICLE_DRAFT_CREATED', qualityGate: { id: 'gate-1', gateVersion: 'quality-gate-v2', automatedDecision: 'PASSED', humanReviewStatus: 'APPROVED', evaluatedContentHash: VALID_CONTENT_HASH } })) },
+      editorialDraft: { findUnique: vi.fn(async () => reviewableDraft({ articleId: 'article-existing', article: { id: 'article-existing', status: 'DRAFT' }, status: 'ARTICLE_DRAFT_CREATED', currentRevision: { id: 'revision-1', version: 1, contentHash: VALID_CONTENT_HASH, reviewDecisions: [{ decisionType: 'APPROVE_DRAFT' }] }, qualityGate: { id: 'gate-1', gateVersion: 'quality-gate-v2', automatedDecision: 'PASSED', humanReviewStatus: 'APPROVED', evaluatedContentHash: VALID_CONTENT_HASH } })) },
       $transaction: transaction,
     } as unknown as PrismaClient;
     await expect(reviewControlledEditorialDraft(client, input())).resolves.toEqual({ draftId: 'draft-1', outcome: 'ALREADY_CREATED', articleId: 'article-existing' });
@@ -161,7 +166,10 @@ describe('mandatory human editorial gate', () => {
   it('resolves a concurrent approval as an idempotent replay', async () => {
     const transaction = {
       editorialQualityGate: { updateMany: vi.fn(async () => ({ count: 0 })) },
-      editorialDraft: { findUnique: vi.fn(async () => ({ articleId: 'article-concurrent' })) },
+      editorialDraft: { findUnique: vi.fn(async () => ({
+        articleId: 'article-concurrent', contentHash: VALID_CONTENT_HASH, currentRevisionId: 'revision-1',
+        currentRevision: { reviewDecisions: [{ contentHash: VALID_CONTENT_HASH }] },
+      })) },
       article: { create: vi.fn() },
       articleSource: { upsert: vi.fn() },
     };
@@ -175,10 +183,38 @@ describe('mandatory human editorial gate', () => {
     expect(transaction.article.create).not.toHaveBeenCalled();
   });
 
+  it('refreshes an existing Article DRAFT from an approved corrected revision without publishing it', async () => {
+    const transaction = {
+      editorialQualityGate: { updateMany: vi.fn(async () => ({ count: 1 })), update: vi.fn(async () => ({})) },
+      article: { update: vi.fn(async () => ({ id: 'article-existing' })), create: vi.fn() },
+      articleSource: { deleteMany: vi.fn(async () => ({})), upsert: vi.fn(async () => ({})) },
+      editorialDraft: { update: vi.fn(async () => ({})) },
+      editorialDraftRevision: { update: vi.fn(async () => ({})) },
+      editorialReviewDecision: { create: vi.fn(async () => ({})) },
+      editorialReviewAuditLog: { create: vi.fn(async () => ({})) },
+    };
+    const client = {
+      user: { findUnique: vi.fn(async () => ({ id: 'admin-1', role: 'ADMIN' })) },
+      editorialDraft: { findUnique: vi.fn(async () => reviewableDraft({
+        articleId: 'article-existing', article: { id: 'article-existing', status: 'DRAFT' },
+        currentRevision: { id: 'revision-2', version: 2, contentHash: VALID_CONTENT_HASH, reviewDecisions: [] },
+      })) },
+      category: { findUnique: vi.fn(async () => null) },
+      $transaction: vi.fn(async (callback: any) => callback(transaction)),
+    } as unknown as PrismaClient;
+    await expect(reviewControlledEditorialDraft(client, input())).resolves.toMatchObject({ outcome: 'ARTICLE_DRAFT_CREATED', articleId: 'article-existing' });
+    expect(transaction.article.create).not.toHaveBeenCalled();
+    expect(transaction.article.update.mock.calls[0][0].data).toMatchObject({ status: 'DRAFT', generationVersion: { increment: 1 } });
+    expect(transaction.article.update.mock.calls[0][0].data.structuredContent).toMatchObject({ editorialRevisionId: 'revision-2', contentHash: VALID_CONTENT_HASH });
+    expect(transaction.articleSource.deleteMany).toHaveBeenCalledWith({ where: { articleId: 'article-existing' } });
+  });
+
   it('records explicit human rejection without Article creation', async () => {
     const transaction = {
       editorialQualityGate: { updateMany: vi.fn(async () => ({ count: 1 })) },
       editorialDraft: { update: vi.fn(async () => ({})) },
+      editorialDraftRevision: { update: vi.fn(async () => ({})) },
+      editorialReviewDecision: { create: vi.fn(async () => ({})) },
       article: { create: vi.fn() },
       editorialReviewAuditLog: { create: vi.fn(async () => ({})) },
     };

@@ -45,7 +45,13 @@ export async function reviewControlledEditorialDraft(
   const draft = await client.editorialDraft.findUnique({
     where: { id: input.draftId },
     include: {
+      currentRevision: {
+        include: {
+          reviewDecisions: { where: { active: true } },
+        },
+      },
       qualityGate: true,
+      article: { select: { id: true, status: true } },
       brief: { include: { dossier: { include: { candidate: { include: { topic: true } } } } } },
       claims: {
         where: { verdict: { in: ['SUPPORTED', 'PARTIALLY_SUPPORTED'] } },
@@ -66,19 +72,25 @@ export async function reviewControlledEditorialDraft(
       },
     },
   });
-  if (!draft || !draft.qualityGate || !draft.contentHash || !draft.title || !draft.summary || !draft.contentHtml || !draft.structuredContent) {
+  if (!draft || !draft.currentRevision || !draft.qualityGate || !draft.contentHash || !draft.title || !draft.summary || !draft.contentHtml || !draft.structuredContent) {
     throw new Error('Editorial draft is not reviewable');
   }
+  if (draft.currentRevision.contentHash !== draft.contentHash) {
+    await recordBlockedReview(client, draft, reviewer.id, input.reviewNote, 'CURRENT_REVISION_HASH_MISMATCH', draft.currentRevision.id);
+    throw new EditorialReviewBlockedError('EDITORIAL_REVISION_STALE', 'Current revision does not match the reviewable draft');
+  }
   if (draft.contentHash !== input.expectedContentHash) {
-    await recordBlockedReview(client, draft, reviewer.id, input.reviewNote, 'CONTENT_HASH_MISMATCH');
+    await recordBlockedReview(client, draft, reviewer.id, input.reviewNote, 'CONTENT_HASH_MISMATCH', draft.currentRevision.id);
     throw new EditorialReviewBlockedError('EDITORIAL_DRAFT_HASH_MISMATCH', 'Editorial draft changed after the human review started');
   }
   if (!hasValidDraftIntegrity(draft)) {
-    await recordBlockedReview(client, draft, reviewer.id, input.reviewNote, 'DRAFT_INTEGRITY_MISMATCH');
+    await recordBlockedReview(client, draft, reviewer.id, input.reviewNote, 'DRAFT_INTEGRITY_MISMATCH', draft.currentRevision.id);
     throw new EditorialReviewBlockedError('EDITORIAL_DRAFT_INVALIDATED', 'Editorial draft content no longer matches the evaluated artifact');
   }
-  if (draft.articleId) return { draftId: draft.id, outcome: 'ALREADY_CREATED', articleId: draft.articleId };
-  if (draft.qualityGate.humanReviewStatus === 'REJECTED') return { draftId: draft.id, outcome: 'ALREADY_REJECTED', articleId: null };
+  const activeApproval = draft.currentRevision.reviewDecisions.find((item) => item.decisionType === 'APPROVE_DRAFT');
+  const activeRejection = draft.currentRevision.reviewDecisions.find((item) => item.decisionType === 'REJECT_DRAFT');
+  if (draft.articleId && activeApproval) return { draftId: draft.id, outcome: 'ALREADY_CREATED', articleId: draft.articleId };
+  if (draft.qualityGate.humanReviewStatus === 'REJECTED' && activeRejection) return { draftId: draft.id, outcome: 'ALREADY_REJECTED', articleId: null };
   if (draft.qualityGate.humanReviewStatus !== 'PENDING') throw new Error('Editorial draft human review is already finalized');
 
   if (input.decision === 'REJECT') {
@@ -98,16 +110,31 @@ export async function reviewControlledEditorialDraft(
         throw new Error('Editorial draft human review was decided concurrently');
       }
       await transaction.editorialDraft.update({ where: { id: draft.id }, data: { status: 'HUMAN_REJECTED' } });
+      await transaction.editorialDraftRevision.update({
+        where: { id: draft.currentRevision!.id },
+        data: { status: 'REJECTED' },
+      });
+      await transaction.editorialReviewDecision.create({
+        data: {
+          draftId: draft.id,
+          revisionId: draft.currentRevision!.id,
+          adminUserId: reviewer.id,
+          decisionType: 'REJECT_DRAFT',
+          contentHash: draft.contentHash!,
+          note: input.reviewNote.trim(),
+        },
+      });
       await transaction.editorialReviewAuditLog.create({
         data: {
           draftId: draft.id,
+          revisionId: draft.currentRevision!.id,
           actorUserId: reviewer.id,
-          action: 'REJECTED',
+          action: 'DRAFT_REJECTED',
           contentHash: draft.contentHash!,
           previousStatus: draft.status,
           resultingStatus: 'HUMAN_REJECTED',
           reviewNote: input.reviewNote.trim(),
-          details: { reviewPolicy: 'single-admin-v1' },
+          details: { decision: 'REJECT_DRAFT', reviewPolicy: 'versioned-four-eyes-v1' },
         },
       });
       return true;
@@ -116,15 +143,15 @@ export async function reviewControlledEditorialDraft(
   }
 
   if (draft.status !== 'READY_FOR_REVIEW' || draft.qualityGate.automatedDecision !== 'PASSED') {
-    await recordBlockedReview(client, draft, reviewer.id, input.reviewNote, 'AUTOMATED_GATE_NOT_PASSED');
+    await recordBlockedReview(client, draft, reviewer.id, input.reviewNote, 'AUTOMATED_GATE_NOT_PASSED', draft.currentRevision.id);
     throw new EditorialReviewBlockedError('EDITORIAL_GATE_NOT_PASSED', 'Editorial quality gate must pass before human approval can create an Article DRAFT');
   }
   if (draft.qualityGate.gateVersion !== EDITORIAL_QUALITY_GATE_VERSION) {
-    await recordBlockedReview(client, draft, reviewer.id, input.reviewNote, 'GATE_VERSION_STALE');
+    await recordBlockedReview(client, draft, reviewer.id, input.reviewNote, 'GATE_VERSION_STALE', draft.currentRevision.id);
     throw new EditorialReviewBlockedError('EDITORIAL_GATE_VERSION_STALE', 'Editorial quality gate must be recalculated with the current policy');
   }
   if (draft.qualityGate.evaluatedContentHash !== draft.contentHash) {
-    await recordBlockedReview(client, draft, reviewer.id, input.reviewNote, 'GATE_CONTENT_HASH_MISMATCH');
+    await recordBlockedReview(client, draft, reviewer.id, input.reviewNote, 'GATE_CONTENT_HASH_MISMATCH', draft.currentRevision.id);
     throw new EditorialReviewBlockedError('EDITORIAL_GATE_STALE', 'Editorial quality gate does not match the current draft');
   }
   const title = draft.title;
@@ -135,7 +162,7 @@ export async function reviewControlledEditorialDraft(
   try {
     validatedSources = collectValidatedArticleSources(draft);
   } catch (error) {
-    await recordBlockedReview(client, draft, reviewer.id, input.reviewNote, error instanceof Error ? error.message : 'SOURCE_MATERIALIZATION_BLOCKED');
+    await recordBlockedReview(client, draft, reviewer.id, input.reviewNote, error instanceof Error ? error.message : 'SOURCE_MATERIALIZATION_BLOCKED', draft.currentRevision.id);
     throw error;
   }
   const categoryId = draft.brief.dossier.candidate.topic.dominantCategoryId;
@@ -157,12 +184,37 @@ export async function reviewControlledEditorialDraft(
       },
     });
     if (claimed.count !== 1) {
-      const current = await transaction.editorialDraft.findUnique({ where: { id: draft.id }, select: { articleId: true } });
-      if (current?.articleId) return { draftId: draft.id, outcome: 'ALREADY_CREATED' as const, articleId: current.articleId };
+      const current = await transaction.editorialDraft.findUnique({
+        where: { id: draft.id },
+        select: {
+          articleId: true,
+          contentHash: true,
+          currentRevisionId: true,
+          currentRevision: {
+            select: {
+              reviewDecisions: {
+                where: { active: true, decisionType: 'APPROVE_DRAFT' },
+                select: { contentHash: true },
+              },
+            },
+          },
+        },
+      });
+      const concurrentApproval = current?.currentRevision?.reviewDecisions.some((decision) => decision.contentHash === contentHash);
+      if (
+        current?.articleId
+        && current.contentHash === contentHash
+        && current.currentRevisionId === draft.currentRevision!.id
+        && concurrentApproval
+      ) {
+        return { draftId: draft.id, outcome: 'ALREADY_CREATED' as const, articleId: current.articleId };
+      }
       throw new Error('Editorial draft human review was decided concurrently');
     }
-    const article = await transaction.article.create({
-      data: {
+    if (draft.article && draft.article.status !== 'DRAFT') {
+      throw new EditorialReviewBlockedError('EDITORIAL_ARTICLE_NOT_DRAFT', 'Only an Article DRAFT may be refreshed from an editorial revision');
+    }
+    const articleData: Prisma.ArticleUncheckedCreateInput = {
         slug: buildAutomaticDraftSlug(title, draft.id),
         title: sanitizeArticleHtml(title),
         summary: sanitizeArticleHtml(summary),
@@ -170,6 +222,8 @@ export async function reviewControlledEditorialDraft(
         structuredContent: {
           origin: 'EPION_AUTOMATIC_EDITORIAL',
           editorialDraftId: draft.id,
+          editorialRevisionId: draft.currentRevision!.id,
+          editorialRevisionVersion: draft.currentRevision!.version,
           editorialBriefId: draft.briefId,
           contentHash,
           artifact: draft.structuredContent,
@@ -182,13 +236,32 @@ export async function reviewControlledEditorialDraft(
         generationConfig: {
           origin: 'EPION_AUTOMATIC_EDITORIAL',
           editorialDraftId: draft.id,
+          editorialRevisionId: draft.currentRevision!.id,
           editorialBriefId: draft.briefId,
-          humanReviewerId: reviewer.id,
+          draftApproverId: reviewer.id,
           automaticPublicationAllowed: false,
+          publicationAuthorized: false,
         },
-      },
-      select: { id: true },
-    });
+      };
+    const article = draft.articleId
+      ? await transaction.article.update({
+        where: { id: draft.articleId },
+        data: {
+          title: articleData.title,
+          summary: articleData.summary,
+          content: articleData.content,
+          structuredContent: articleData.structuredContent,
+          status: 'DRAFT',
+          authorId: null,
+          categoryId: articleData.categoryId,
+          generatedAt: articleData.generatedAt,
+          generationVersion: { increment: 1 },
+          generationConfig: articleData.generationConfig,
+        },
+        select: { id: true },
+      })
+      : await transaction.article.create({ data: articleData, select: { id: true } });
+    if (draft.articleId) await transaction.articleSource.deleteMany({ where: { articleId: article.id } });
     for (const source of validatedSources) {
       const upsert = buildArticleSourceUpsertInput({
         articleId: article.id,
@@ -214,18 +287,34 @@ export async function reviewControlledEditorialDraft(
       where: { id: draft.qualityGate!.id },
       data: { articleCreatedAt: now },
     });
+    await transaction.editorialDraftRevision.update({
+      where: { id: draft.currentRevision!.id },
+      data: { status: 'APPROVED', approvedAt: now },
+    });
+    await transaction.editorialReviewDecision.create({
+      data: {
+        draftId: draft.id,
+        revisionId: draft.currentRevision!.id,
+        adminUserId: reviewer.id,
+        decisionType: 'APPROVE_DRAFT',
+        contentHash,
+        note: input.reviewNote.trim(),
+      },
+    });
     await transaction.editorialReviewAuditLog.create({
       data: {
         draftId: draft.id,
+        revisionId: draft.currentRevision!.id,
         actorUserId: reviewer.id,
-        action: 'APPROVED',
+        action: 'DRAFT_APPROVED',
         contentHash,
         previousStatus: draft.status,
         resultingStatus: 'ARTICLE_DRAFT_CREATED',
         articleId: article.id,
         reviewNote: input.reviewNote.trim(),
         details: {
-          reviewPolicy: 'single-admin-v1',
+          decision: 'APPROVE_DRAFT',
+          reviewPolicy: 'versioned-four-eyes-v1',
           materializedArticleSources: validatedSources.length,
           automaticPublicationAllowed: false,
         },
@@ -321,11 +410,13 @@ async function recordBlockedReview(
   actorUserId: string,
   reviewNote: string,
   reason: string,
+  revisionId?: string,
 ): Promise<void> {
   if (!draft.contentHash) return;
   await client.editorialReviewAuditLog.create({
     data: {
       draftId: draft.id,
+      revisionId,
       actorUserId,
       action: 'APPROVAL_BLOCKED',
       contentHash: draft.contentHash,

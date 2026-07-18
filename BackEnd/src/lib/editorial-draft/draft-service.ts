@@ -180,6 +180,8 @@ export async function generateControlledEditorialDraft(
         criticEvidenceKeys: review.evidenceKeys,
       };
     });
+    const revisionId = randomUUID();
+    const completedAt = new Date();
     await client.$transaction(async (transaction) => {
       await transaction.editorialDraftClaim.deleteMany({ where: { draftId: draft.id } });
       await transaction.editorialDraftClaim.createMany({
@@ -202,6 +204,26 @@ export async function generateControlledEditorialDraft(
         create: qualityGateData(draft.id, contentHash, gate),
         update: qualityGateUpdate(contentHash, gate),
       });
+      await transaction.editorialDraftRevision.create({
+        data: {
+          id: revisionId,
+          draftId: draft.id,
+          version: 1,
+          origin: 'GENERATED',
+          status: gate.automatedDecision === 'PASSED' ? 'GATE_PASSED' : 'GATE_FAILED',
+          title: artifact.title,
+          summary: artifact.summary,
+          contentHtml,
+          structuredContent: artifact as unknown as Prisma.InputJsonValue,
+          contentHash,
+          criticModel: critic.model,
+          criticPromptVersion: EDITORIAL_CRITIC_PROMPT_VERSION,
+          criticReviews: reviews as unknown as Prisma.InputJsonValue,
+          gateSnapshot: gate as unknown as Prisma.InputJsonValue,
+          gateEvaluatedAt: completedAt,
+          createdAt: completedAt,
+        },
+      });
       await transaction.editorialDraft.update({
         where: { id: draft.id },
         data: {
@@ -211,8 +233,9 @@ export async function generateControlledEditorialDraft(
           contentHtml,
           structuredContent: artifact as unknown as Prisma.InputJsonValue,
           contentHash,
-          generatedAt: new Date(),
-          completedAt: new Date(),
+          currentRevisionId: revisionId,
+          generatedAt: completedAt,
+          completedAt,
           leaseExpiresAt: null,
           metrics: { inputTokens, outputTokens, estimatedCostMicros, claims: artifact.claims.length },
         },

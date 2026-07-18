@@ -152,6 +152,7 @@ enum EditorialEvidenceRole {
 enum EditorialDraftStatus {
   PENDING
   GENERATING
+  REVISION_PENDING_GATE
   READY_FOR_REVIEW
   QUALITY_FAILED
   HUMAN_REJECTED
@@ -187,6 +188,40 @@ enum EditorialReviewAuditAction {
   APPROVED
   REJECTED
   APPROVAL_BLOCKED
+  CORRECTION_CREATED
+  GATE_RECALCULATED
+  DRAFT_APPROVED
+  DRAFT_REJECTED
+  PUBLICATION_AUTHORIZED
+  DECISIONS_INVALIDATED
+}
+
+enum EditorialRevisionOrigin {
+  GENERATED
+  ADMIN_CORRECTION
+}
+
+enum EditorialRevisionStatus {
+  PENDING_CRITIC
+  GATE_PASSED
+  GATE_FAILED
+  APPROVED
+  REJECTED
+  SUPERSEDED
+}
+
+enum EditorialReviewDecisionType {
+  APPROVE_DRAFT
+  REJECT_DRAFT
+}
+
+enum EditorialPublicationAuthorizationStatus {
+  AUTHORIZED
+  INVALIDATED
+}
+
+enum EditorialPublicationDecisionType {
+  AUTHORIZE_PUBLICATION
 }
 
 model User {
@@ -217,6 +252,10 @@ model User {
   reviewedContributionReports ArticleContributionReport[] @relation("UserReviewedArticleContributionReports")
   editorialGateReviews EditorialQualityGate[] @relation("EditorialQualityGateReviewer")
   editorialReviewAuditLogs EditorialReviewAuditLog[] @relation("EditorialReviewAuditActor")
+  editorialDraftCorrections EditorialDraftRevision[] @relation("EditorialDraftRevisionCorrector")
+  editorialReviewDecisions EditorialReviewDecision[] @relation("EditorialReviewDecisionActor")
+  editorialDraftApprovals EditorialPublicationAuthorization[] @relation("EditorialPublicationDraftApprover")
+  editorialPublicationAuthorizations EditorialPublicationAuthorization[] @relation("EditorialPublicationAuthorizer")
   ArticleView ArticleView[]
   ChatFolder  ChatFolder[]
 
@@ -420,6 +459,7 @@ model Article {
   chunks          KnowledgeChunk[]
   editorialDraft  EditorialDraft?
   editorialReviewAuditLogs EditorialReviewAuditLog[]
+  editorialPublicationAuthorizations EditorialPublicationAuthorization[]
 
   @@index([authorId])
   @@index([categoryId])
@@ -1195,15 +1235,107 @@ model EditorialDraft {
   completedAt           DateTime?
   articleId             String?              @unique
   article               Article?             @relation(fields: [articleId], references: [id], onDelete: Restrict)
+  currentRevisionId     String?              @unique
+  currentRevision       EditorialDraftRevision? @relation("EditorialDraftCurrentRevision", fields: [currentRevisionId], references: [id], onDelete: Restrict)
   createdAt             DateTime              @default(now())
   updatedAt             DateTime              @updatedAt
 
   claims      EditorialDraftClaim[]
   qualityGate EditorialQualityGate?
   auditLogs    EditorialReviewAuditLog[]
+  revisions    EditorialDraftRevision[] @relation("EditorialDraftRevisions")
+  reviewDecisions EditorialReviewDecision[]
+  publicationAuthorizations EditorialPublicationAuthorization[]
 
   @@index([briefId, createdAt])
   @@index([status, createdAt])
+}
+
+model EditorialDraftRevision {
+  id                 String                  @id @default(cuid())
+  draftId            String
+  draft              EditorialDraft          @relation("EditorialDraftRevisions", fields: [draftId], references: [id], onDelete: Cascade)
+  version            Int
+  parentRevisionId   String?
+  parentRevision     EditorialDraftRevision?  @relation("EditorialDraftRevisionHistory", fields: [parentRevisionId], references: [id], onDelete: Restrict)
+  childRevisions     EditorialDraftRevision[] @relation("EditorialDraftRevisionHistory")
+  origin             EditorialRevisionOrigin
+  status             EditorialRevisionStatus @default(PENDING_CRITIC)
+  title              String
+  summary            String                  @db.Text
+  contentHtml        String                  @db.Text
+  structuredContent  Json
+  contentHash        String
+  correctedById      String?
+  correctedBy        User?                   @relation("EditorialDraftRevisionCorrector", fields: [correctedById], references: [id], onDelete: Restrict)
+  correctionNote     String?                 @db.Text
+  criticModel        String?
+  criticPromptVersion String?
+  criticReviews      Json?
+  gateSnapshot       Json?
+  gateEvaluatedAt    DateTime?
+  approvedAt         DateTime?
+  createdAt          DateTime                @default(now())
+
+  currentForDraft    EditorialDraft? @relation("EditorialDraftCurrentRevision")
+  reviewDecisions    EditorialReviewDecision[]
+  publicationAuthorization EditorialPublicationAuthorization?
+  auditLogs          EditorialReviewAuditLog[]
+
+  @@unique([draftId, version])
+  @@index([draftId, createdAt])
+  @@index([status, createdAt])
+  @@index([contentHash])
+  @@index([correctedById, createdAt])
+}
+
+model EditorialReviewDecision {
+  id                String                      @id @default(cuid())
+  draftId           String
+  draft             EditorialDraft              @relation(fields: [draftId], references: [id], onDelete: Restrict)
+  revisionId        String
+  revision          EditorialDraftRevision      @relation(fields: [revisionId], references: [id], onDelete: Restrict)
+  adminUserId       String
+  adminUser         User                        @relation("EditorialReviewDecisionActor", fields: [adminUserId], references: [id], onDelete: Restrict)
+  decisionType      EditorialReviewDecisionType
+  contentHash       String
+  note              String?                     @db.Text
+  active            Boolean                     @default(true)
+  invalidatedAt     DateTime?
+  invalidationReason String?                    @db.Text
+  createdAt         DateTime                    @default(now())
+
+  @@unique([revisionId, decisionType, adminUserId])
+  @@index([draftId, active, createdAt])
+  @@index([adminUserId, createdAt])
+}
+
+model EditorialPublicationAuthorization {
+  id                String                                  @id @default(cuid())
+  draftId           String
+  draft             EditorialDraft                          @relation(fields: [draftId], references: [id], onDelete: Restrict)
+  revisionId        String                                  @unique
+  revision          EditorialDraftRevision                  @relation(fields: [revisionId], references: [id], onDelete: Restrict)
+  articleId         String
+  article           Article                                 @relation(fields: [articleId], references: [id], onDelete: Restrict)
+  draftApproverId   String
+  draftApprover     User                                    @relation("EditorialPublicationDraftApprover", fields: [draftApproverId], references: [id], onDelete: Restrict)
+  authorizedById    String
+  authorizedBy      User                                    @relation("EditorialPublicationAuthorizer", fields: [authorizedById], references: [id], onDelete: Restrict)
+  contentHash       String
+  decisionType      EditorialPublicationDecisionType        @default(AUTHORIZE_PUBLICATION)
+  status            EditorialPublicationAuthorizationStatus @default(AUTHORIZED)
+  note              String?                                 @db.Text
+  authorizedAt      DateTime                                @default(now())
+  invalidatedAt     DateTime?
+  invalidationReason String?                                @db.Text
+  createdAt         DateTime                                @default(now())
+  updatedAt         DateTime                                @updatedAt
+
+  @@index([draftId, status, createdAt])
+  @@index([articleId, status])
+  @@index([draftApproverId, createdAt])
+  @@index([authorizedById, createdAt])
 }
 
 model EditorialDraftClaim {
@@ -1285,6 +1417,8 @@ model EditorialReviewAuditLog {
   resultingStatus EditorialDraftStatus
   articleId      String?
   article        Article?                   @relation(fields: [articleId], references: [id], onDelete: Restrict)
+  revisionId     String?
+  revision       EditorialDraftRevision?    @relation(fields: [revisionId], references: [id], onDelete: Restrict)
   reviewNote     String?                    @db.Text
   details        Json?
   createdAt      DateTime                   @default(now())
@@ -1293,6 +1427,7 @@ model EditorialReviewAuditLog {
   @@index([actorUserId, createdAt])
   @@index([action, createdAt])
   @@index([articleId])
+  @@index([revisionId, createdAt])
 }
 
 enum PoliticalBias {
