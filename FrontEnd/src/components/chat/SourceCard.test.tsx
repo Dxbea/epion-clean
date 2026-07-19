@@ -24,6 +24,10 @@ vi.mock('@/i18n/I18nContext', () => ({
             source_technical_status_compatibility: 'Compatibilité uniquement',
             source_technical_claim_reference_counts: '{claims} champs étayés · {links} liens vers des références',
             source_technical_consensus_plain_description: 'Ce mécanisme existe, mais les données de cette source ne permettent pas de dire qu’il a contribué à cette évaluation.',
+            source_technical_article_analysis_plain_title: 'Analyse de l’article',
+            source_technical_article_analysis_used: 'Cette source a été utilisée pour l’analyse de l’article.',
+            source_technical_article_analysis_global: 'Aucune métadonnée d’analyse propre à l’article.',
+            source_limit_fact_check_failures: 'Des signaux de vérification sont associés à cette source.',
         }[key] ?? key),
     }),
 }));
@@ -304,7 +308,7 @@ describe('SourceCard section layout and borders', () => {
         ]);
         expect(technicalDetails?.querySelector('[data-technical-system="profile-data"]')?.textContent).toContain('Actif pour cette source');
         expect(technicalDetails?.querySelector('[data-technical-system="cold-profiler"]')?.textContent).toContain('Actif globalement, non confirmé ici');
-        expect(technicalDetails?.querySelector('[data-live-analysis-status="observed"]')).not.toBeNull();
+        expect(technicalDetails?.querySelector('[data-article-analysis-status="observed"]')).not.toBeNull();
         expect(technicalDetails?.querySelector('[data-technical-system="claim-references"]')?.textContent).toContain('1 champs étayés · 1 liens vers des références');
         expect(technicalDetails?.querySelector('[data-technical-system="external-consensus"]')?.textContent).toContain('Ce mécanisme existe, mais les données de cette source ne permettent pas de dire qu’il a contribué à cette évaluation.');
         expect(technicalDetails?.querySelector('[data-technical-system="source-corpus-alias"]')?.textContent).toContain('Compatibilité uniquement');
@@ -312,7 +316,7 @@ describe('SourceCard section layout and borders', () => {
         expect(technicalDetails?.querySelector('[data-technical-system="score-aliases"]')?.textContent).toContain('metadata.dbScore');
     });
 
-    it('does not claim a Live Analysis pass for an imported legacy relation', async () => {
+    it('keeps a legacy source compatible without claiming article-specific analysis metadata', async () => {
         container = document.createElement('div');
         document.body.appendChild(container);
         root = createRoot(container);
@@ -336,10 +340,80 @@ describe('SourceCard section layout and borders', () => {
         });
 
         const articleSourceSystem = container.querySelector('[data-technical-system="article-source"]');
-        const liveAnalysisSystem = container.querySelector('[data-technical-system="live-analysis"]');
+        const articleAnalysisSystem = container.querySelector('[data-technical-system="article-analysis"]');
         expect(articleSourceSystem?.textContent).toContain('Ancien format encore lu');
-        expect(liveAnalysisSystem?.getAttribute('data-live-analysis-status')).toBe('not-attributable');
-        expect(liveAnalysisSystem?.textContent).toContain('Actif globalement, non confirmé ici');
+        expect(articleAnalysisSystem?.getAttribute('data-article-analysis-status')).toBe('not-attributable');
+        expect(articleAnalysisSystem?.textContent).toContain('Aucune métadonnée d’analyse propre à l’article.');
+    });
+
+    it.each([
+        {
+            name: 'une source éditoriale issue du corpus',
+            source: { provenance: 'EDITORIAL', provider: 'rag', searchLane: 'CONTEXTUAL' },
+        },
+        {
+            name: 'une source éditoriale enrichie par Serper',
+            source: { provenance: 'WEB_SEARCH', provider: 'web', searchLane: 'FACTUAL' },
+        },
+    ])('uses generic article analysis wording for $name', async ({ source }) => {
+        container = document.createElement('div');
+        document.body.appendChild(container);
+        root = createRoot(container);
+
+        await act(async () => {
+            root?.render(
+                <MemoryRouter>
+                    <SourceCard source={{ ...completeSource, ...source }} />
+                </MemoryRouter>,
+            );
+        });
+        await act(async () => {
+            container?.querySelector<HTMLButtonElement>('[aria-label="Ouvrir la fiche source"]')?.click();
+        });
+
+        const articleAnalysisSystem = container.querySelector('[data-technical-system="article-analysis"]');
+        expect(articleAnalysisSystem?.textContent).toContain('Analyse de l’article');
+        expect(articleAnalysisSystem?.textContent).toContain('Cette source a été utilisée pour l’analyse de l’article.');
+        expect(articleAnalysisSystem?.textContent).not.toContain('Live Analysis');
+    });
+
+    it('keeps community article metadata in the generic article-analysis display', async () => {
+        container = document.createElement('div');
+        document.body.appendChild(container);
+        root = createRoot(container);
+
+        await act(async () => {
+            root?.render(
+                <MemoryRouter>
+                    <SourceCard source={{ ...completeSource, provenance: 'WEB_SEARCH', provider: 'web', searchLane: 'CRITICAL' }} />
+                </MemoryRouter>,
+            );
+        });
+        await act(async () => {
+            container?.querySelector<HTMLButtonElement>('[aria-label="Ouvrir la fiche source"]')?.click();
+        });
+
+        expect(container.querySelector('[data-article-analysis-status="observed"]')).not.toBeNull();
+        expect(container.textContent).toContain('Qualité source');
+    });
+
+    it('shows fact-check failure signals in points to watch', async () => {
+        container = document.createElement('div');
+        document.body.appendChild(container);
+        root = createRoot(container);
+
+        await act(async () => {
+            root?.render(
+                <MemoryRouter>
+                    <SourceCard source={{ ...completeSource, flags: { hasFactCheckFailures: true } }} />
+                </MemoryRouter>,
+            );
+        });
+        await act(async () => {
+            container?.querySelector<HTMLButtonElement>('[aria-label="Ouvrir la fiche source"]')?.click();
+        });
+
+        expect(container.querySelector('[data-source-section="vigilance"]')?.textContent).toContain('Des signaux de vérification sont associés à cette source.');
     });
 
     it('does not present deprecated reputation, analysis or live score fields as active source-score aliases', async () => {

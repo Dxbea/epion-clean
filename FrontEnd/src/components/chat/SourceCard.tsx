@@ -96,7 +96,7 @@ type TechnicalTransparency = {
     provider?: string;
     hasArticleSourceRelation: boolean;
     isImportedLegacy: boolean;
-    hasLiveAnalysisEvidence: boolean;
+    hasArticleAnalysisEvidence: boolean;
     hasLegacyCompatibility: boolean;
     legacyAliases: string[];
 };
@@ -137,7 +137,9 @@ function getTechnicalTransparency(source: SourceData): TechnicalTransparency {
     const provider = typeof source.provider === 'string' ? source.provider.toUpperCase() : undefined;
     const hasArticleSourceRelation = Boolean(source.durableSourceId);
     const isImportedLegacy = provenance === 'IMPORTED_LEGACY';
-    const hasLiveAnalysisEvidence = !isImportedLegacy && Boolean(
+    // provider/searchLane identify article-scoped metadata, not the worker that produced it.
+    // Editorial verification also supplies these fields, so they must never imply Live Analysis.
+    const hasArticleAnalysisEvidence = !isImportedLegacy && Boolean(
         searchLane
         || provider
         || source.officialStatement !== undefined
@@ -165,7 +167,7 @@ function getTechnicalTransparency(source: SourceData): TechnicalTransparency {
         provider,
         hasArticleSourceRelation,
         isImportedLegacy,
-        hasLiveAnalysisEvidence,
+        hasArticleAnalysisEvidence,
         hasLegacyCompatibility: isImportedLegacy
             || !hasArticleSourceRelation
             || legacyAliases.length > 0,
@@ -274,6 +276,7 @@ export default function SourceCard({ source, isFocused }: SourceCardProps) {
     const knownLimits = [
         analysisStatus === 'METADATA_ONLY' ? t('source_limit_metadata_only') : null,
         analysisStatus === 'UNAVAILABLE' ? t('source_limit_unavailable') : null,
+        source.flags?.hasFactCheckFailures ? t('source_limit_fact_check_failures') : null,
         !hasProfileData ? t('source_limit_no_profile') : null,
     ].filter((item): item is string => Boolean(item));
     const vigilanceItems = Array.from(new Set([...profile.warnings, ...knownLimits]));
@@ -584,14 +587,14 @@ export default function SourceCard({ source, isFocused }: SourceCardProps) {
                                             description={t('source_technical_group_article_description')}
                                         >
                                             <TechnicalSystemRow
-                                                id="live-analysis"
-                                                title={t('source_technical_live_plain_title')}
-                                                technicalName="Live Analysis"
-                                                status={technical.hasLiveAnalysisEvidence ? 'used' : 'global'}
-                                                description={t(technical.hasLiveAnalysisEvidence
-                                                    ? technical.hasArticleSourceRelation ? 'source_technical_live_plain_used' : 'source_technical_live_plain_used_legacy'
-                                                    : 'source_technical_live_plain_global')}
-                                                dataStatus={technical.hasLiveAnalysisEvidence ? 'observed' : 'not-attributable'}
+                                                id="article-analysis"
+                                                title={t('source_technical_article_analysis_plain_title')}
+                                                technicalName="provider / searchLane / officialStatement"
+                                                status={technical.hasArticleAnalysisEvidence ? 'used' : 'global'}
+                                                description={t(technical.hasArticleAnalysisEvidence
+                                                    ? 'source_technical_article_analysis_used'
+                                                    : 'source_technical_article_analysis_global')}
+                                                articleAnalysisStatus={technical.hasArticleAnalysisEvidence ? 'observed' : 'not-attributable'}
                                             >
                                                 {technical.searchLane && <TechnicalRow label={t('source_technical_search_lane')} value={<TechnicalCode code={technical.searchLane} label={technicalEnumLabel(t, 'source_search_lane', technical.searchLane)} />} />}
                                                 {technical.provider && <TechnicalRow label={t('source_technical_provider')} value={<TechnicalCode code={technical.provider} label={technicalEnumLabel(t, 'source_provider', technical.provider)} />} />}
@@ -790,19 +793,19 @@ function TechnicalFunctionGroup({ id, title, description, children }: {
     );
 }
 
-function TechnicalSystemRow({ id, title, technicalName, status, description, dataStatus, children }: {
+function TechnicalSystemRow({ id, title, technicalName, status, description, articleAnalysisStatus, children }: {
     id: string;
     title: string;
     technicalName: string;
     status: TechnicalStatus;
     description: string;
-    dataStatus?: string;
+    articleAnalysisStatus?: string;
     children?: React.ReactNode;
 }) {
     const { t } = useI18n();
 
     return (
-        <div data-technical-system={id} data-technical-status={status} {...(dataStatus ? { 'data-live-analysis-status': dataStatus } : {})} className="px-4 py-3.5">
+        <div data-technical-system={id} data-technical-status={status} {...(articleAnalysisStatus ? { 'data-article-analysis-status': articleAnalysisStatus } : {})} className="px-4 py-3.5">
             <div className="flex flex-col gap-2 sm:flex-row sm:items-start sm:justify-between">
                 <div className="min-w-0">
                     <div className="text-sm font-medium text-gray-900 dark:text-white">{title}</div>
