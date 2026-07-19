@@ -2,10 +2,6 @@ ALTER TYPE "EditorialReviewAuditAction" ADD VALUE 'ARTICLE_PUBLISHED';
 ALTER TYPE "EditorialReviewAuditAction" ADD VALUE 'PUBLICATION_REVOKED';
 ALTER TYPE "EditorialReviewAuditAction" ADD VALUE 'PUBLICATION_EXPIRED';
 
-ALTER TYPE "EditorialPublicationAuthorizationStatus" ADD VALUE 'REVOKED';
-ALTER TYPE "EditorialPublicationAuthorizationStatus" ADD VALUE 'EXPIRED';
-ALTER TYPE "EditorialPublicationAuthorizationStatus" ADD VALUE 'CONSUMED';
-
 ALTER TABLE "Article" ADD COLUMN "publishedAt" TIMESTAMP(3);
 
 ALTER TABLE "EditorialPublicationAuthorization"

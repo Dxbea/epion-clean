@@ -9,7 +9,9 @@ export const EDITORIAL_MIGRATION_SEQUENCE = [
   '20260718210000_add_editorial_source_dossiers',
   '20260718230000_add_controlled_editorial_drafts',
   '20260719010000_add_editorial_review_audit',
+  '20260719025000_add_editorial_draft_revision_status_values',
   '20260719030000_add_editorial_draft_revisions',
+  '20260719045000_add_editorial_publication_status_values',
   '20260719050000_add_manual_editorial_publication',
   '20260719100000_add_editorial_verification_runs',
   '20260719120000_add_editorial_verification_async_shadow',
@@ -44,10 +46,10 @@ export function auditEditorialMigrationFiles(migrationsRoot: string): EditorialM
   checks.push(dependencyCheck(migrationsRoot, 4, 'EditorialCandidate', 'CANDIDATES_BEFORE_DOSSIERS'));
   checks.push(dependencyCheck(migrationsRoot, 5, 'EditorialBrief', 'BRIEFS_BEFORE_DRAFTS'));
   checks.push(dependencyCheck(migrationsRoot, 6, 'EditorialDraft', 'DRAFTS_BEFORE_REVIEW_AUDIT'));
-  checks.push(dependencyCheck(migrationsRoot, 7, 'EditorialReviewAuditLog', 'AUDIT_BEFORE_REVISIONS'));
-  checks.push(dependencyCheck(migrationsRoot, 9, 'EditorialDraftRevision', 'REVISIONS_BEFORE_VERIFICATION'));
-  checks.push(dependencyCheck(migrationsRoot, 10, 'EditorialVerificationRun', 'VERIFICATION_BEFORE_ASYNC_SHADOW'));
-  checks.push(dependencyCheck(migrationsRoot, 11, 'EditorialReviewAuditAction', 'AUDIT_ENUM_BEFORE_OPS_ACTIONS'));
+  checks.push(dependencyCheck(migrationsRoot, 8, 'EditorialReviewAuditLog', 'AUDIT_BEFORE_REVISIONS'));
+  checks.push(dependencyCheck(migrationsRoot, 11, 'EditorialDraftRevision', 'REVISIONS_BEFORE_VERIFICATION'));
+  checks.push(dependencyCheck(migrationsRoot, 12, 'EditorialVerificationRun', 'VERIFICATION_BEFORE_ASYNC_SHADOW'));
+  checks.push(dependencyCheck(migrationsRoot, 13, 'EditorialReviewAuditAction', 'AUDIT_ENUM_BEFORE_OPS_ACTIONS'));
   return { valid: checks.every((check) => check.passed), sequence: [...EDITORIAL_MIGRATION_SEQUENCE], checks };
 }
 
