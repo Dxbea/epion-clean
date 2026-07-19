@@ -1,0 +1,14 @@
+# Dedicated staging edge only. Do not merge this file into the production
+# Caddyfile without an explicit infrastructure change review.
+api-staging.epion.app {
+    encode zstd gzip
+
+    reverse_proxy epion-staging-api:5175
+
+    header {
+        X-Content-Type-Options "nosniff"
+        X-Frame-Options "DENY"
+        Referrer-Policy "strict-origin-when-cross-origin"
+        -Server
+    }
+}

@@ -1,0 +1,161 @@
+name: epion-staging
+
+services:
+  postgres:
+    image: pgvector/pgvector:pg16
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: ${POSTGRES_DB}
+      POSTGRES_USER: ${POSTGRES_USER}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
+      POSTGRES_INITDB_ARGS: --encoding=UTF8
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER} -d ${POSTGRES_DB}"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+      start_period: 15s
+    networks:
+      - staging-internal
+
+  redis:
+    image: redis:7-alpine
+    restart: unless-stopped
+    command: ["redis-server", "--appendonly", "yes", "--requirepass", "${REDIS_PASSWORD}", "--maxmemory", "256mb", "--maxmemory-policy", "noeviction"]
+    volumes:
+      - redis_data:/data
+    healthcheck:
+      test: ["CMD-SHELL", "redis-cli -a \"$$REDIS_PASSWORD\" ping | grep -q PONG"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+      start_period: 10s
+    environment:
+      REDIS_PASSWORD: ${REDIS_PASSWORD}
+    networks:
+      - staging-internal
+
+  epion-api:
+    build:
+      context: ./BackEnd
+      dockerfile: Dockerfile
+    image: epion-staging-api:${EPION_STAGING_IMAGE_TAG:-local}
+    command: ["npm", "run", "start:api"]
+    restart: unless-stopped
+    init: true
+    env_file:
+      - .env.staging
+    environment:
+      NODE_ENV: staging
+    healthcheck:
+      test: ["CMD", "node", "-e", "fetch('http://localhost:5175/api/healthz').then(r => { if (!r.ok) process.exit(1) }).catch(() => process.exit(1))"]
+      interval: 20s
+      timeout: 10s
+      retries: 5
+      start_period: 20s
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    networks:
+      staging-internal:
+        aliases:
+          - epion-staging-api
+
+  worker-document-corpus:
+    <<: &worker
+      image: epion-staging-api:${EPION_STAGING_IMAGE_TAG:-local}
+      restart: unless-stopped
+      init: true
+      env_file:
+        - .env.staging
+      environment:
+        NODE_ENV: staging
+      depends_on:
+        postgres:
+          condition: service_healthy
+        redis:
+          condition: service_healthy
+      networks:
+        - staging-internal
+    command: ["npm", "run", "worker:document-corpus"]
+
+  worker-discovery:
+    <<: *worker
+    command: ["npm", "run", "worker:discovery"]
+
+  worker-editorial-shadow:
+    <<: *worker
+    command: ["npm", "run", "worker:editorial-shadow"]
+
+  worker-editorial-brief:
+    <<: *worker
+    command: ["npm", "run", "worker:editorial-brief"]
+
+  worker-editorial-draft:
+    <<: *worker
+    command: ["npm", "run", "worker:editorial-draft"]
+
+  worker-editorial-verification:
+    <<: *worker
+    command: ["npm", "run", "worker:editorial-verification"]
+
+  # One-shot administrative commands only. This target contains Prisma, tsx and src/.
+  # It is intentionally excluded from normal `up` calls.
+  epion-tooling:
+    build:
+      context: ./BackEnd
+      dockerfile: Dockerfile
+      target: builder
+    image: epion-staging-tooling:${EPION_STAGING_IMAGE_TAG:-local}
+    profiles: ["tools"]
+    env_file:
+      - .env.staging
+    environment:
+      NODE_ENV: staging
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    networks:
+      - staging-internal
+
+  # Use only on a dedicated staging VPS where ports 80/443 are free.
+  # On a VPS already serving production, keep this profile off and use
+  # infra/caddy/Caddyfile.staging in the existing edge proxy instead.
+  caddy:
+    image: caddy:2-alpine
+    profiles: ["standalone-edge"]
+    restart: unless-stopped
+    ports:
+      - "80:80"
+      - "443:443"
+      - "443:443/udp"
+    volumes:
+      - ./infra/caddy/Caddyfile.staging:/etc/caddy/Caddyfile:ro
+      - caddy_data:/data
+      - caddy_config:/config
+    depends_on:
+      epion-api:
+        condition: service_healthy
+    networks:
+      - staging-internal
+
+volumes:
+  postgres_data:
+    name: epion-staging-postgres-data
+  redis_data:
+    name: epion-staging-redis-data
+  caddy_data:
+    name: epion-staging-caddy-data
+  caddy_config:
+    name: epion-staging-caddy-config
+
+networks:
+  staging-internal:
+    name: epion-staging-internal
+    internal: true
