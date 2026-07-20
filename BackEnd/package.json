@@ -40,7 +40,10 @@
     "refresh:source-profiles:dry-run": "node --import tsx src/scripts/refresh-source-profiles.ts --dry-run",
     "refresh:source-profiles:write": "node --import tsx src/scripts/refresh-source-profiles.ts --write",
     "report:source-pipeline": "node --import tsx src/scripts/report-source-pipeline.ts",
-    "discovery:dry-run": "node --import tsx src/scripts/discovery-dry-run.ts"
+    "discovery:dry-run": "node --import tsx src/scripts/discovery-dry-run.ts",
+    "audit:rss-institutional": "node --import tsx src/scripts/audit-rss-institutional-sources.ts --write",
+    "audit:rss-institutional:check": "node --import tsx src/scripts/audit-rss-institutional-sources.ts",
+    "seed:rss-institutional": "node --import tsx src/scripts/seed-institutional-rss-sources.ts"
   },
   "dependencies": {
     "@aws-sdk/client-sesv2": "^3.893.0",

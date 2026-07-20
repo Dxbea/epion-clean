@@ -1,0 +1,50 @@
+{
+  "schemaVersion": 1,
+  "generatedAt": "2026-07-20T20:09:35.016Z",
+  "sources": [
+    {
+      "key": "institution-ecb-press",
+      "name": "Banque centrale européenne - Communiqués",
+      "domain": "ecb.europa.eu",
+      "rssUrl": "https://www.ecb.europa.eu/rss/press.html",
+      "category": "ECONOMY",
+      "country": "EU",
+      "institutionType": "CENTRAL_BANK",
+      "priority": 1,
+      "language": "en",
+      "licenseNote": "Source institutionnelle officielle ; vérifier les conditions de réutilisation avant usage public massif.",
+      "validation": {
+        "rssStatus": "OK",
+        "robotsStatus": "ALLOWED",
+        "fetchStatus": "OK",
+        "extractStatus": "OK",
+        "sampleExtractedCharacters": 9233,
+        "checkedAt": "2026-07-20T20:09:27.788Z",
+        "sampleUrl": "https://www.ecb.europa.eu//press/pr/date/2026/html/ecb.pr260720~cafc3874a7.en.html"
+      },
+      "validated": true
+    },
+    {
+      "key": "institution-inserm-actualites",
+      "name": "Inserm - Actualités",
+      "domain": "inserm.fr",
+      "rssUrl": "https://www.inserm.fr/actualite/feed/",
+      "category": "HEALTH",
+      "country": "FR",
+      "institutionType": "PUBLIC_RESEARCH",
+      "priority": 1,
+      "language": "fr",
+      "licenseNote": "Source institutionnelle officielle ; vérifier les conditions de réutilisation avant usage public massif.",
+      "validation": {
+        "rssStatus": "OK",
+        "robotsStatus": "ALLOWED",
+        "fetchStatus": "OK",
+        "extractStatus": "OK",
+        "sampleExtractedCharacters": 6795,
+        "checkedAt": "2026-07-20T20:09:34.205Z",
+        "sampleUrl": "https://www.inserm.fr/actualite/polluants-eternels-lexposition-in-utero-favorise-la-prise-de-poids-au-cours-de-lenfance/"
+      },
+      "validated": true
+    }
+  ]
+}
