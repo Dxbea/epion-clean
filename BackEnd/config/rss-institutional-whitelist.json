@@ -1,6 +1,6 @@
 {
   "schemaVersion": 1,
-  "generatedAt": "2026-07-20T20:09:35.016Z",
+  "generatedAt": "2026-07-20T20:19:25.399Z",
   "sources": [
     {
       "key": "institution-ecb-press",
@@ -19,7 +19,7 @@
         "fetchStatus": "OK",
         "extractStatus": "OK",
         "sampleExtractedCharacters": 9233,
-        "checkedAt": "2026-07-20T20:09:27.788Z",
+        "checkedAt": "2026-07-20T20:19:02.241Z",
         "sampleUrl": "https://www.ecb.europa.eu//press/pr/date/2026/html/ecb.pr260720~cafc3874a7.en.html"
       },
       "validated": true
@@ -41,7 +41,7 @@
         "fetchStatus": "OK",
         "extractStatus": "OK",
         "sampleExtractedCharacters": 6795,
-        "checkedAt": "2026-07-20T20:09:34.205Z",
+        "checkedAt": "2026-07-20T20:19:09.835Z",
         "sampleUrl": "https://www.inserm.fr/actualite/polluants-eternels-lexposition-in-utero-favorise-la-prise-de-poids-au-cours-de-lenfance/"
       },
       "validated": true

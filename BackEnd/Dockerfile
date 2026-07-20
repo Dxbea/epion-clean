@@ -56,6 +56,8 @@ COPY --from=deps /app/prisma ./prisma
 
 # Copy built files from builder stage
 COPY --from=builder /app/dist ./dist
+# Institutional RSS audit and seed scripts read these at runtime.
+COPY --from=builder /app/config ./config
 
 # Create a non-root user (optional but recommended for security)
 RUN groupadd -r epion && useradd -r -g epion epion

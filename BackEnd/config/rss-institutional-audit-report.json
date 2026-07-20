@@ -1,6 +1,6 @@
 {
   "schemaVersion": 1,
-  "generatedAt": "2026-07-20T20:09:35.016Z",
+  "generatedAt": "2026-07-20T20:19:25.399Z",
   "minimumExtractedCharacters": 1500,
   "results": [
     {
@@ -20,7 +20,7 @@
         "fetchStatus": "OK",
         "extractStatus": "OK",
         "sampleExtractedCharacters": 9233,
-        "checkedAt": "2026-07-20T20:09:27.788Z",
+        "checkedAt": "2026-07-20T20:19:02.241Z",
         "sampleUrl": "https://www.ecb.europa.eu//press/pr/date/2026/html/ecb.pr260720~cafc3874a7.en.html"
       },
       "status": "VALIDATED_FULL_FETCH"
@@ -42,7 +42,7 @@
         "fetchStatus": "OK",
         "extractStatus": "FAILED",
         "sampleExtractedCharacters": 0,
-        "checkedAt": "2026-07-20T20:09:28.560Z",
+        "checkedAt": "2026-07-20T20:19:03.118Z",
         "sampleUrl": "https://ec.europa.eu/commission/presscorner/detail/en/mex_26_1656",
         "detail": "No readable text extracted."
       },
@@ -65,7 +65,7 @@
         "fetchStatus": "NOT_CHECKED",
         "extractStatus": "NOT_CHECKED",
         "sampleExtractedCharacters": 0,
-        "checkedAt": "2026-07-20T20:09:30.057Z",
+        "checkedAt": "2026-07-20T20:19:04.375Z",
         "detail": "RSS endpoint returned HTTP 200 or non-feed content."
       },
       "status": "RSS_ONLY"
@@ -87,7 +87,7 @@
         "fetchStatus": "NOT_CHECKED",
         "extractStatus": "NOT_CHECKED",
         "sampleExtractedCharacters": 0,
-        "checkedAt": "2026-07-20T20:09:30.216Z",
+        "checkedAt": "2026-07-20T20:19:04.677Z",
         "detail": "RSS endpoint returned HTTP 200 or non-feed content."
       },
       "status": "RSS_ONLY"
@@ -109,7 +109,7 @@
         "fetchStatus": "NOT_CHECKED",
         "extractStatus": "NOT_CHECKED",
         "sampleExtractedCharacters": 0,
-        "checkedAt": "2026-07-20T20:09:30.719Z",
+        "checkedAt": "2026-07-20T20:19:05.244Z",
         "detail": "Unable to parse XML: Entity expansion limit exceeded: 1060 > 1000"
       },
       "status": "RSS_ONLY"
@@ -131,7 +131,7 @@
         "fetchStatus": "NOT_CHECKED",
         "extractStatus": "NOT_CHECKED",
         "sampleExtractedCharacters": 0,
-        "checkedAt": "2026-07-20T20:09:30.907Z",
+        "checkedAt": "2026-07-20T20:19:05.476Z",
         "detail": "RSS endpoint returned HTTP 403 or non-feed content."
       },
       "status": "RSS_ONLY"
@@ -153,7 +153,7 @@
         "fetchStatus": "NOT_CHECKED",
         "extractStatus": "NOT_CHECKED",
         "sampleExtractedCharacters": 0,
-        "checkedAt": "2026-07-20T20:09:31.073Z",
+        "checkedAt": "2026-07-20T20:19:05.675Z",
         "detail": "RSS endpoint returned HTTP 500 or non-feed content."
       },
       "status": "RSS_ONLY"
@@ -175,7 +175,7 @@
         "fetchStatus": "NOT_CHECKED",
         "extractStatus": "NOT_CHECKED",
         "sampleExtractedCharacters": 0,
-        "checkedAt": "2026-07-20T20:09:31.254Z",
+        "checkedAt": "2026-07-20T20:19:05.909Z",
         "detail": "RSS endpoint returned HTTP 200 or non-feed content."
       },
       "status": "RSS_ONLY"
@@ -197,7 +197,7 @@
         "fetchStatus": "OK",
         "extractStatus": "NOT_CHECKED",
         "sampleExtractedCharacters": 0,
-        "checkedAt": "2026-07-20T20:09:31.472Z",
+        "checkedAt": "2026-07-20T20:19:06.124Z",
         "sampleUrl": "https://www.cnil.fr/fr/cepd-base-juridique-interreglementaire",
         "detail": "Page appears to be a paywall, challenge, or JavaScript shell."
       },
@@ -220,7 +220,7 @@
         "fetchStatus": "NOT_CHECKED",
         "extractStatus": "NOT_CHECKED",
         "sampleExtractedCharacters": 0,
-        "checkedAt": "2026-07-20T20:09:32.207Z",
+        "checkedAt": "2026-07-20T20:19:07.220Z",
         "detail": "RSS endpoint returned HTTP 404 or non-feed content."
       },
       "status": "RSS_ONLY"
@@ -242,7 +242,7 @@
         "fetchStatus": "NOT_CHECKED",
         "extractStatus": "NOT_CHECKED",
         "sampleExtractedCharacters": 0,
-        "checkedAt": "2026-07-20T20:09:32.393Z",
+        "checkedAt": "2026-07-20T20:19:07.464Z",
         "detail": "RSS endpoint returned HTTP 404 or non-feed content."
       },
       "status": "RSS_ONLY"
@@ -264,7 +264,7 @@
         "fetchStatus": "OK",
         "extractStatus": "NOT_CHECKED",
         "sampleExtractedCharacters": 0,
-        "checkedAt": "2026-07-20T20:09:32.607Z",
+        "checkedAt": "2026-07-20T20:19:07.897Z",
         "sampleUrl": "https://www.anses.fr/fr/content/AIR-2023-SA-0154-RA",
         "detail": "Page appears to be a paywall, challenge, or JavaScript shell."
       },
@@ -287,7 +287,7 @@
         "fetchStatus": "NOT_CHECKED",
         "extractStatus": "NOT_CHECKED",
         "sampleExtractedCharacters": 0,
-        "checkedAt": "2026-07-20T20:09:33.004Z",
+        "checkedAt": "2026-07-20T20:19:08.355Z",
         "detail": "No usable article URL in feed."
       },
       "status": "RSS_ONLY"
@@ -309,7 +309,7 @@
         "fetchStatus": "NOT_CHECKED",
         "extractStatus": "NOT_CHECKED",
         "sampleExtractedCharacters": 0,
-        "checkedAt": "2026-07-20T20:09:33.764Z",
+        "checkedAt": "2026-07-20T20:19:09.284Z",
         "detail": "RSS endpoint returned HTTP 404 or non-feed content."
       },
       "status": "RSS_ONLY"
@@ -331,7 +331,7 @@
         "fetchStatus": "FAILED",
         "extractStatus": "NOT_CHECKED",
         "sampleExtractedCharacters": 0,
-        "checkedAt": "2026-07-20T20:09:33.952Z",
+        "checkedAt": "2026-07-20T20:19:09.534Z",
         "sampleUrl": "https://www.cnrs.fr/fr/test-seb",
         "detail": "Article returned HTTP 403."
       },
@@ -354,7 +354,7 @@
         "fetchStatus": "OK",
         "extractStatus": "OK",
         "sampleExtractedCharacters": 6795,
-        "checkedAt": "2026-07-20T20:09:34.205Z",
+        "checkedAt": "2026-07-20T20:19:09.835Z",
         "sampleUrl": "https://www.inserm.fr/actualite/polluants-eternels-lexposition-in-utero-favorise-la-prise-de-poids-au-cours-de-lenfance/"
       },
       "status": "VALIDATED_FULL_FETCH"
@@ -376,8 +376,8 @@
         "fetchStatus": "NOT_CHECKED",
         "extractStatus": "NOT_CHECKED",
         "sampleExtractedCharacters": 0,
-        "checkedAt": "2026-07-20T20:09:34.655Z",
-        "detail": "RSS endpoint returned HTTP 403 or non-feed content."
+        "checkedAt": "2026-07-20T20:19:10.381Z",
+        "detail": "timeout of 15000ms exceeded"
       },
       "status": "RSS_ONLY"
     }
