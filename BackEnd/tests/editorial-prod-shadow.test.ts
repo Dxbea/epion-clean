@@ -64,7 +64,7 @@ describe('production-shadow editorial safety', () => {
     expect(determineProdShadowE2ENextStage(complete)).toBe('COMPLETE');
     expect(() => determineProdShadowE2ENextStage({ ...complete, draft: { ...complete.draft!, articleStatus: 'PUBLISHED' } })).toThrow('was published');
     expect(() => determineProdShadowE2ENextStage({ ...complete, draft: { ...complete.draft!, publishedAt: new Date() } })).toThrow('was published');
-    expect(() => determineProdShadowE2ENextStage({ ...complete, discoveredDocuments: 2 })).toThrow('at most one controlled document');
+    expect(() => determineProdShadowE2ENextStage({ ...complete, discoveredDocuments: 2, actionableUnindexedDocuments: ['doc-2'] })).toThrow('at most one actionable controlled document');
     expect(() => determineProdShadowE2ENextStage({ ...complete, run: { ...complete.run!, topicCount: 2 } })).toThrow('at most one topic');
   });
 
@@ -83,6 +83,34 @@ describe('production-shadow editorial safety', () => {
     };
     expect(blockedState.unindexedDocumentIds).not.toContain('blocked-document');
     expect(determineProdShadowE2ENextStage(blockedState)).toBe('DISCOVERY');
+  });
+
+  it('excludes terminal blocked documents from the one-document actionable limit', () => {
+    const documents = classifyProdShadowDocuments([
+      { id: 'service-public-blocked', isIndexed: false, status: 'BLOCKED', fetchError: 'robots_disallowed', robotsAllowed: false },
+      { id: 'inserm-actionable', isIndexed: false, status: 'DISCOVERED', fetchError: null, robotsAllowed: true },
+    ]);
+    expect(documents.terminalBlockedDocuments.map((document) => document.id)).toEqual(['service-public-blocked']);
+    expect(documents.actionableUnindexedDocuments).toEqual(['inserm-actionable']);
+    expect(determineProdShadowE2ENextStage({
+      ...complete, discoveredDocuments: 2, indexedDocuments: documents.indexedDocuments,
+      actionableUnindexedDocuments: documents.actionableUnindexedDocuments,
+      terminalBlockedDocuments: documents.terminalBlockedDocuments,
+      unindexedDocumentIds: documents.actionableUnindexedDocuments, run: null, brief: null, draft: null, verification: null,
+    })).toBe('DOCUMENT_INDEXING');
+  });
+
+  it('rejects two actionable documents even when the configured limit is one', () => {
+    const documents = classifyProdShadowDocuments([
+      { id: 'document-one', isIndexed: false, status: 'DISCOVERED', fetchError: null, robotsAllowed: true },
+      { id: 'document-two', isIndexed: false, status: 'DISCOVERED', fetchError: null, robotsAllowed: true },
+    ]);
+    expect(() => determineProdShadowE2ENextStage({
+      ...complete, discoveredDocuments: 2, indexedDocuments: documents.indexedDocuments,
+      actionableUnindexedDocuments: documents.actionableUnindexedDocuments,
+      terminalBlockedDocuments: documents.terminalBlockedDocuments,
+      unindexedDocumentIds: documents.actionableUnindexedDocuments, run: null, brief: null, draft: null, verification: null,
+    })).toThrow('at most one actionable controlled document');
   });
 
   it('does not write during seed dry-run and limits its source to the dedicated key', async () => {

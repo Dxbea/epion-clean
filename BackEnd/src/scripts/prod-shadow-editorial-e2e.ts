@@ -56,7 +56,8 @@ export function classifyProdShadowDocuments(documents: ProdShadowDocumentStateIn
 
 export function determineProdShadowE2ENextStage(state: ProdShadowE2EState): ProdShadowE2EStage {
   if (!state.sourceExists || state.discoveredDocuments === 0) return 'DISCOVERY';
-  if (state.discoveredDocuments > 1) throw new Error('Production shadow may process at most one controlled document');
+  const actionableDocumentCount = state.indexedDocuments.length + state.actionableUnindexedDocuments.length;
+  if (actionableDocumentCount > 1) throw new Error('Production shadow may process at most one actionable controlled document');
   if (state.actionableUnindexedDocuments.length > 0) return 'DOCUMENT_INDEXING';
   if (state.sourceEnabled && state.terminalBlockedDocuments.length === state.discoveredDocuments) return 'DISCOVERY';
   if (!state.run) return 'CLUSTERING';
