@@ -7,6 +7,7 @@ import {
 } from '../src/lib/editorial-prod-shadow/safety.js';
 import {
   determineProdShadowE2ENextStage,
+  classifyProdShadowDocuments,
   parseProdShadowE2EOptions,
   PROD_SHADOW_FORBIDDEN_ACTIONS,
   type ProdShadowE2EState,
@@ -29,7 +30,11 @@ const safeProductionEnv = {
 
 const complete: ProdShadowE2EState = {
   sourceExists: true,
+  sourceEnabled: true,
   discoveredDocuments: 1,
+  indexedDocuments: ['doc-1'],
+  actionableUnindexedDocuments: [],
+  terminalBlockedDocuments: [],
   unindexedDocumentIds: [],
   run: { id: 'run-1', status: 'COMPLETED', topicCount: 1 },
   brief: { id: 'brief-1' },
@@ -61,6 +66,23 @@ describe('production-shadow editorial safety', () => {
     expect(() => determineProdShadowE2ENextStage({ ...complete, draft: { ...complete.draft!, publishedAt: new Date() } })).toThrow('was published');
     expect(() => determineProdShadowE2ENextStage({ ...complete, discoveredDocuments: 2 })).toThrow('at most one controlled document');
     expect(() => determineProdShadowE2ENextStage({ ...complete, run: { ...complete.run!, topicCount: 2 } })).toThrow('at most one topic');
+  });
+
+  it('reports a robots-blocked document without re-queueing it for indexing', () => {
+    const documentState = classifyProdShadowDocuments([{
+      id: 'blocked-document', isIndexed: false, status: 'BLOCKED', fetchError: 'robots_disallowed', robotsAllowed: false,
+    }]);
+    expect(documentState.indexedDocuments).toEqual([]);
+    expect(documentState.actionableUnindexedDocuments).toEqual([]);
+    expect(documentState.terminalBlockedDocuments).toEqual([{
+      id: 'blocked-document', status: 'BLOCKED', fetchError: 'robots_disallowed', robotsAllowed: false,
+    }]);
+    const blockedState: ProdShadowE2EState = {
+      ...complete, discoveredDocuments: 1, indexedDocuments: [], terminalBlockedDocuments: documentState.terminalBlockedDocuments,
+      actionableUnindexedDocuments: [], unindexedDocumentIds: [], run: null, brief: null, draft: null, verification: null,
+    };
+    expect(blockedState.unindexedDocumentIds).not.toContain('blocked-document');
+    expect(determineProdShadowE2ENextStage(blockedState)).toBe('DISCOVERY');
   });
 
   it('does not write during seed dry-run and limits its source to the dedicated key', async () => {

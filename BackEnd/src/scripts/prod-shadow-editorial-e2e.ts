@@ -15,7 +15,11 @@ export type ProdShadowE2EStage = 'DISCOVERY' | 'DOCUMENT_INDEXING' | 'CLUSTERING
 
 export interface ProdShadowE2EState {
   sourceExists: boolean;
+  sourceEnabled: boolean;
   discoveredDocuments: number;
+  indexedDocuments: string[];
+  actionableUnindexedDocuments: string[];
+  terminalBlockedDocuments: ProdShadowTerminalBlockedDocument[];
   unindexedDocumentIds: string[];
   run: { id: string; status: string; topicCount: number } | null;
   brief: { id: string } | null;
@@ -23,10 +27,38 @@ export interface ProdShadowE2EState {
   verification: { id: string; status: string; shadowDecision: string | null } | null;
 }
 
+export interface ProdShadowTerminalBlockedDocument {
+  id: string;
+  status: string;
+  fetchError: string | null;
+  robotsAllowed: boolean | null;
+}
+
+export interface ProdShadowDocumentStateInput {
+  id: string;
+  isIndexed: boolean;
+  status: string;
+  fetchError: string | null;
+  robotsAllowed: boolean | null;
+}
+
+export function classifyProdShadowDocuments(documents: ProdShadowDocumentStateInput[]) {
+  const indexedDocuments = documents.filter((document) => document.isIndexed || document.status === 'INDEXED').map((document) => document.id);
+  const terminalBlockedDocuments = documents
+    .filter(isTerminalBlockedDocument)
+    .map(({ id, status, fetchError, robotsAllowed }) => ({ id, status, fetchError, robotsAllowed }));
+  const terminalIds = new Set(terminalBlockedDocuments.map((document) => document.id));
+  const actionableUnindexedDocuments = documents
+    .filter((document) => !indexedDocuments.includes(document.id) && !terminalIds.has(document.id))
+    .map((document) => document.id);
+  return { indexedDocuments, actionableUnindexedDocuments, terminalBlockedDocuments };
+}
+
 export function determineProdShadowE2ENextStage(state: ProdShadowE2EState): ProdShadowE2EStage {
   if (!state.sourceExists || state.discoveredDocuments === 0) return 'DISCOVERY';
   if (state.discoveredDocuments > 1) throw new Error('Production shadow may process at most one controlled document');
-  if (state.unindexedDocumentIds.length > 0) return 'DOCUMENT_INDEXING';
+  if (state.actionableUnindexedDocuments.length > 0) return 'DOCUMENT_INDEXING';
+  if (state.sourceEnabled && state.terminalBlockedDocuments.length === state.discoveredDocuments) return 'DISCOVERY';
   if (!state.run) return 'CLUSTERING';
   if (state.run.topicCount > 1) throw new Error('Production shadow may create at most one topic');
   if (state.run.status !== 'COMPLETED') return 'WAITING_PIPELINE';
@@ -45,8 +77,9 @@ export function parseProdShadowE2EOptions(argv: string[]) {
 }
 
 export async function inspectProdShadowE2EState(options: ReturnType<typeof parseProdShadowE2EOptions>): Promise<ProdShadowE2EState> {
-  const source = await prisma.discoverySource.findUnique({ where: { key: options.sourceKey }, select: { id: true } });
-  const documents = source ? await prisma.ingestedDocument.findMany({ where: { discoveries: { some: { discoverySourceId: source.id } } }, select: { id: true, isIndexed: true, status: true }, take: 2 }) : [];
+  const source = await prisma.discoverySource.findUnique({ where: { key: options.sourceKey }, select: { id: true, enabled: true } });
+  const documents = source ? await prisma.ingestedDocument.findMany({ where: { discoveries: { some: { discoverySourceId: source.id } } }, select: { id: true, isIndexed: true, status: true, fetchError: true, robotsAllowed: true }, take: 2 }) : [];
+  const documentState = classifyProdShadowDocuments(documents);
   const runBase = options.runId ? await prisma.editorialRun.findUnique({ where: { id: options.runId }, select: { id: true, status: true } }) : null;
   const run = runBase ? { ...runBase, topicCount: await prisma.editorialTopic.count({ where: { runId: runBase.id } }) } : null;
   const brief = options.briefId ? await prisma.editorialBrief.findUnique({ where: { id: options.briefId }, select: { id: true } }) : null;
@@ -56,8 +89,11 @@ export async function inspectProdShadowE2EState(options: ReturnType<typeof parse
   }) : null;
   const verification = draft ? await prisma.editorialVerificationRun.findFirst({ where: { draftId: draft.id }, orderBy: { createdAt: 'desc' }, select: { id: true, status: true, shadowDecision: true } }) : null;
   return {
-    sourceExists: Boolean(source), discoveredDocuments: documents.length,
-    unindexedDocumentIds: documents.filter((document) => !document.isIndexed || document.status !== 'INDEXED').map((document) => document.id),
+    sourceExists: Boolean(source), sourceEnabled: source?.enabled ?? false, discoveredDocuments: documents.length,
+    ...documentState,
+    // Compatibility field for existing operators: it now intentionally contains
+    // only documents that can still be submitted to document-corpus.
+    unindexedDocumentIds: documentState.actionableUnindexedDocuments,
     run, brief,
     draft: draft ? { id: draft.id, status: draft.status, contentHash: draft.contentHash, articleStatus: draft.article?.status ?? null, publishedAt: draft.article?.publishedAt ?? null, humanReviewStatus: draft.qualityGate?.humanReviewStatus ?? null, publicationAuditCount: draft.auditLogs.length } : null,
     verification,
@@ -87,8 +123,8 @@ export async function advanceProdShadowE2E(stage: ProdShadowE2EStage, state: Pro
       return { mode: 'ENQUEUED', stage, jobId, maxDocuments: 1 };
     }
     if (stage === 'DOCUMENT_INDEXING') {
-      if (state.unindexedDocumentIds.length !== 1) throw new Error('Production shadow may enqueue exactly one controlled document');
-      await enqueueDocumentJob(document.documentQueue, { documentId: state.unindexedDocumentIds[0]!, revision: 'prod-shadow-v1', requestedAt: new Date().toISOString(), trigger: 'MANUAL' });
+      if (state.actionableUnindexedDocuments.length !== 1) throw new Error('Production shadow may enqueue exactly one actionable controlled document');
+      await enqueueDocumentJob(document.documentQueue, { documentId: state.actionableUnindexedDocuments[0]!, revision: 'prod-shadow-v1', requestedAt: new Date().toISOString(), trigger: 'MANUAL' });
       return { mode: 'ENQUEUED', stage, documents: 1 };
     }
     if (stage === 'CLUSTERING') {
@@ -124,6 +160,11 @@ function assertDraftRemainsUnpublished(draft: NonNullable<ProdShadowE2EState['dr
   if (draft.articleStatus === 'PUBLISHED' || draft.publishedAt || draft.publicationAuditCount > 0) {
     throw new Error('Production shadow safety violation: editorial article was published or has a publication audit');
   }
+}
+function isTerminalBlockedDocument(document: ProdShadowDocumentStateInput): boolean {
+  return document.status === 'BLOCKED'
+    || document.fetchError?.trim().toLowerCase() === 'robots_disallowed'
+    || document.robotsAllowed === false;
 }
 function value(argv: string[], name: string): string | null { const prefix = `${name}=`; return argv.find((argument) => argument.startsWith(prefix))?.slice(prefix.length).trim() || null; }
 
