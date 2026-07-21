@@ -17,6 +17,8 @@ interface FetchHtmlResult {
   finalUrl: string;
   status: number;
   headers: Record<string, string | string[] | undefined>;
+  fetcher: 'axios' | 'curl-impersonate';
+  userAgent: string;
 }
 
 interface CircuitBreakerState {
@@ -33,6 +35,7 @@ const CIRCUIT_BREAKER_COOLDOWN_MS = 60 * 60 * 1000;
 const CIRCUIT_BREAKER_KEY_PREFIX = 'news:extractor:circuit';
 const CIRCUIT_BREAKER_STATUS_CODES = new Set([401, 402, 403, 429]);
 const inMemoryCircuitBreaker = new Map<string, CircuitBreakerState>();
+const BROWSER_USER_AGENT = 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/126.0 Safari/537.36';
 
 export interface ExtractLogContext {
   jobId?: string;
@@ -121,7 +124,7 @@ export function isOperationalExtractionError(error: unknown): boolean {
   }
 
   return error instanceof Error && (
-    error.message === 'Extraction returned empty HTML' ||
+    error.message.startsWith('Extraction returned empty HTML') ||
     error.message === 'Extracted content is too short'
   );
 }
@@ -379,6 +382,8 @@ async function fetchWithAxios(url: string, headers: Record<string, string>): Pro
     finalUrl: response.request?.res?.responseUrl || url,
     status: response.status,
     headers: normalizeAxiosHeaders(response.headers),
+    fetcher: 'axios',
+    userAgent: headers['User-Agent'] ?? BROWSER_USER_AGENT,
   };
 }
 
@@ -416,7 +421,7 @@ async function fetchWithCurlImpersonate(
       impersonate: 'chrome-116',
       verbose: false,
       headers: {
-        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/126.0 Safari/537.36',
+        'User-Agent': BROWSER_USER_AGENT,
         'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8',
         'Accept-Language': 'fr-FR,fr;q=0.9,en-US;q=0.8,en;q=0.7',
         'Upgrade-Insecure-Requests': '1',
@@ -435,11 +440,28 @@ async function fetchWithCurlImpersonate(
       responseHeaders?: Record<string, string | string[] | undefined>;
     };
 
+    const html = typeof response.response === 'string' ? response.response : '';
+    if (!html) {
+      const responseHeaders = response.responseHeaders ?? {};
+      log.warn('curl-impersonate returned no response body; falling back to axios', {
+        ...buildExtractorMeta(url, context),
+        status: response.statusCode ?? null,
+        finalUrl: url,
+        contentType: getHeaderValue(responseHeaders, 'content-type') ?? null,
+        contentLength: getHeaderValue(responseHeaders, 'content-length') ?? null,
+        bodyLength: 0,
+        userAgent: BROWSER_USER_AGENT,
+      });
+      return null;
+    }
+
     return {
-      html: typeof response.response === 'string' ? response.response : '',
+      html,
       finalUrl: url,
       status: response.statusCode ?? 200,
       headers: response.responseHeaders ?? {},
+      fetcher: 'curl-impersonate',
+      userAgent: BROWSER_USER_AGENT,
     };
   } catch (error: any) {
     log.warn('curl-impersonate unavailable, falling back to axios', {
@@ -461,7 +483,7 @@ async function fetchHtmlWithCascade(
   context: ExtractLogContext = {},
 ): Promise<FetchHtmlResult> {
   const primaryHeaders = {
-    'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/126.0 Safari/537.36',
+    'User-Agent': BROWSER_USER_AGENT,
     'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8',
     'Accept-Language': 'fr-FR,fr;q=0.9,en-US;q=0.8,en;q=0.7',
     'Upgrade-Insecure-Requests': '1',
@@ -570,6 +592,11 @@ async function parseWithReadability(
   });
 }
 
+/** Parse a previously fetched HTML document through the production readability path. */
+export async function extractReadableHtml(html: string, url: string): Promise<ExtractedDocument> {
+  return parseWithReadability(html, url);
+}
+
 export async function extractArticle(
   url: string,
   context: ExtractLogContext = {},
@@ -608,6 +635,9 @@ export async function extractArticle(
       contentType,
       contentLength,
       htmlBytes,
+      bodyLength: response.html.length,
+      fetcher: response.fetcher,
+      userAgent: response.userAgent,
       elapsedMs: Date.now() - startedAt,
     }));
 
@@ -618,7 +648,7 @@ export async function extractArticle(
       throw new ExtractorUnsupportedContentTypeError(contentType || 'unknown', response.finalUrl || url);
     }
     if (!response.html) {
-      throw new Error('Extraction returned empty HTML');
+      throw new Error(`Extraction returned empty HTML (fetcher=${response.fetcher}, status=${response.status}, finalUrl=${response.finalUrl}, contentType=${contentType ?? 'unknown'}, contentLength=${contentLength ?? 'unknown'}, bodyLength=${response.html.length}, userAgent=${response.userAgent})`);
     }
     const extracted = await parseWithReadability(response.html, response.finalUrl || url, context);
     if (!extracted.content || extracted.content.length < 200) {

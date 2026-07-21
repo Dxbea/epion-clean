@@ -4,6 +4,7 @@ import {
   processIngestedDocument,
   type DocumentCorpusDependencies,
 } from '../src/lib/document-corpus/document-corpus-service.js';
+import { extractReadableHtml } from '../src/lib/extractor.js';
 import type { indexDocumentCorpus } from '../src/lib/document-corpus/document-rag-service.js';
 
 function document(overrides: Record<string, unknown> = {}) {
@@ -97,7 +98,7 @@ describe('document fetch, extraction and exact deduplication service', () => {
     });
   });
 
-  it('extracts, hashes, persists and indexes an allowed full-text document', async () => {
+  it('extracts, hashes, persists and indexes an Inserm-like allowed HTML document', async () => {
     const { client, transaction } = clientFor(document());
     const indexDocument = successfulIndex();
     const dependencies: DocumentCorpusDependencies = {
@@ -111,11 +112,10 @@ describe('document fetch, extraction and exact deduplication service', () => {
           robotsUrl: 'https://example.com/robots.txt',
         })),
       },
-      extractor: vi.fn(async () => ({
-        title: 'Titre extrait',
-        content: 'Un contenu documentaire complet et vérifiable. '.repeat(20),
-        metaDescription: 'Description',
-      })),
+      extractor: vi.fn(async () => extractReadableHtml(`
+        <html><head><title>Inserm - Recherche</title><meta name="description" content="Description Inserm" /></head>
+        <body><article><h1>Titre extrait</h1><p>${'Un contenu documentaire complet et vérifiable sur une étude Inserm. '.repeat(30)}</p></article></body></html>
+      `, 'https://www.inserm.fr/actualite/test/')),
       indexDocument,
       now: () => new Date('2026-07-18T12:00:00Z'),
     };
@@ -123,6 +123,7 @@ describe('document fetch, extraction and exact deduplication service', () => {
     const result = await processIngestedDocument(dependencies, 'document-1');
 
     expect(result).toMatchObject({ outcome: 'INDEXED', chunks: 3, inputTokens: 120 });
+    expect(result.extractedCharacters).toBeGreaterThan(1_500);
     expect(result.contentHash).toMatch(/^[a-f0-9]{64}$/);
     expect(transaction.documentContentIdentity.createMany).toHaveBeenCalledWith({
       data: [{ contentHash: result.contentHash, canonicalDocumentId: 'document-1' }],
@@ -140,6 +141,22 @@ describe('document fetch, extraction and exact deduplication service', () => {
       }),
     }));
     expect(indexDocument).toHaveBeenCalledOnce();
+  });
+
+  it('persists an explicit FAILED diagnostic when extraction receives an empty HTTP body', async () => {
+    const { client } = clientFor(document({ canonicalUrl: 'https://www.inserm.fr/actualite/test/' }));
+    const extractor = vi.fn(async () => {
+      throw new Error('Extraction returned empty HTML (fetcher=axios, status=200, finalUrl=https://www.inserm.fr/actualite/test/, contentType=text/html, contentLength=0, bodyLength=0, userAgent=EpionBot/1.0)');
+    });
+    await expect(processIngestedDocument({
+      client,
+      robotsChecker: { check: vi.fn(async () => ({ allowed: true, retryable: false, checkedAt: new Date(), reason: 'robots_allowed', robotsUrl: 'https://www.inserm.fr/robots.txt' })) },
+      extractor,
+    }, 'document-1')).rejects.toThrow('Extraction returned empty HTML');
+    expect(client.ingestedDocument.update).toHaveBeenLastCalledWith({
+      where: { id: 'document-1' },
+      data: expect.objectContaining({ status: 'FAILED', fetchError: expect.stringContaining('status=200') }),
+    });
   });
 
   it('marks a concurrent exact-content identity winner as canonical and skips embeddings', async () => {
