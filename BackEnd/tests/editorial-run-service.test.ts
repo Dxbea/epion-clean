@@ -167,6 +167,21 @@ describe('editorial shadow run persistence', () => {
     expect(client.$transaction).not.toHaveBeenCalled();
   });
 
+  it('selects an explicitly controlled indexed document without widening normal event-window selection', async () => {
+    const { client } = materializingClient();
+    await runEditorialShadow(client, {
+      windowStart,
+      windowEnd,
+      config,
+      documentIds: ['inserm-document'],
+      now,
+    });
+    const corpusQuery = vi.mocked(client.$queryRaw).mock.calls[0][0] as unknown as { strings: string[] };
+    const queryText = corpusQuery.strings.join(' ');
+    expect(queryText).toContain('d.id IN');
+    expect(queryText).not.toContain('COALESCE(d."publishedAt", d."discoveredAt") >=');
+  });
+
   it('rejects a concurrent run while its database lease is active', async () => {
     const running = runRecord({
       status: 'RUNNING',

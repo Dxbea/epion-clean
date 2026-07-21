@@ -87,6 +87,7 @@ export function createEditorialShadowJobProcessor(
       windowEnd,
       embeddingModel: job.data.embeddingModel,
       config,
+      documentIds: job.data.documentIds,
     });
     if (expectedKey !== job.data.idempotencyKey) {
       throw new UnrecoverableError(
@@ -113,6 +114,7 @@ export function createEditorialShadowJobProcessor(
         windowEnd,
         embeddingModel: job.data.embeddingModel,
         config,
+        documentIds: job.data.documentIds,
       });
       dependencies.metrics.increment('jobsSucceeded');
       dependencies.metrics.recordRun(result);

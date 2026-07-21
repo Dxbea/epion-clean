@@ -32,6 +32,8 @@ export interface EditorialShadowRunOptions {
   windowEnd: Date;
   embeddingModel?: string;
   config?: Partial<EditorialClusteringConfig>;
+  /** Controlled shadow-only input. Normal runs continue to select by event window. */
+  documentIds?: string[];
   now?: Date;
 }
 
@@ -73,9 +75,13 @@ export function resolveEditorialClusteringConfig(
   return config;
 }
 
-export function buildEditorialRunIdempotencyKey(
-  options: Omit<Required<EditorialShadowRunOptions>, 'now'>,
-): string {
+export function buildEditorialRunIdempotencyKey(options: {
+  windowStart: Date;
+  windowEnd: Date;
+  embeddingModel: string;
+  config: EditorialClusteringConfig;
+  documentIds?: string[];
+}): string {
   const payload = JSON.stringify({
     mode: 'SHADOW',
     algorithmVersion: EDITORIAL_CLUSTERING_ALGORITHM_VERSION,
@@ -83,6 +89,7 @@ export function buildEditorialRunIdempotencyKey(
     windowStart: options.windowStart.toISOString(),
     windowEnd: options.windowEnd.toISOString(),
     config: options.config,
+    documentIds: options.documentIds ? [...options.documentIds].sort() : undefined,
   });
   return createHash('sha256').update(payload).digest('hex');
 }
@@ -94,8 +101,19 @@ export async function loadIndexedEditorialDocuments(
     windowEnd: Date;
     embeddingModel: string;
     maxDocuments: number;
+    documentIds?: string[];
   },
 ): Promise<EditorialDocumentVector[]> {
+  const documentIds = options.documentIds?.map((id) => id.trim()).filter(Boolean) ?? [];
+  const controlledDocumentFilter = documentIds.length > 0
+    ? Prisma.sql`AND d.id IN (${Prisma.join(documentIds)})`
+    : Prisma.empty;
+  const eventWindowFilter = documentIds.length === 0
+    ? Prisma.sql`
+      AND COALESCE(d."publishedAt", d."discoveredAt") >= ${options.windowStart}
+      AND COALESCE(d."publishedAt", d."discoveredAt") < ${options.windowEnd}
+    `
+    : Prisma.empty;
   const rows = await client.$queryRaw<EditorialDocumentRow[]>(Prisma.sql`
     SELECT
       d.id,
@@ -119,8 +137,8 @@ export async function loadIndexedEditorialDocuments(
       AND d."duplicateOfId" IS NULL
       AND dc.embedding IS NOT NULL
       AND dc."embeddingModel" = ${options.embeddingModel}
-      AND COALESCE(d."publishedAt", d."discoveredAt") >= ${options.windowStart}
-      AND COALESCE(d."publishedAt", d."discoveredAt") < ${options.windowEnd}
+      ${eventWindowFilter}
+      ${controlledDocumentFilter}
     GROUP BY d.id
     ORDER BY "eventAt" DESC, d.id ASC
     LIMIT ${options.maxDocuments}
@@ -145,6 +163,12 @@ export async function runEditorialShadow(
   const startedAtMs = Date.now();
   const now = options.now ?? new Date();
   const config = resolveEditorialClusteringConfig(options.config);
+  const controlledDocumentIds = options.documentIds
+    ? [...new Set(options.documentIds.map((id) => id.trim()).filter(Boolean))].sort()
+    : [];
+  if (controlledDocumentIds.length > config.maxDocuments) {
+    throw new Error('Controlled editorial shadow document count exceeds maxDocuments');
+  }
   const embeddingModel = options.embeddingModel ?? DOCUMENT_EMBEDDING_MODEL;
   validateEditorialWindow(options.windowStart, options.windowEnd);
   const idempotencyKey = buildEditorialRunIdempotencyKey({
@@ -152,6 +176,7 @@ export async function runEditorialShadow(
     windowEnd: options.windowEnd,
     embeddingModel,
     config,
+    documentIds: controlledDocumentIds.length > 0 ? controlledDocumentIds : undefined,
   });
 
   await client.editorialRun.createMany({
@@ -201,6 +226,7 @@ export async function runEditorialShadow(
       windowEnd: options.windowEnd,
       embeddingModel,
       maxDocuments: config.maxDocuments,
+      documentIds: controlledDocumentIds.length > 0 ? controlledDocumentIds : undefined,
     });
     const clusters = clusterEditorialDocuments(documents, config);
     const scored = clusters.map((cluster) => ({

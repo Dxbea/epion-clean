@@ -9,6 +9,7 @@ import {
   determineProdShadowE2ENextStage,
   classifyProdShadowDocuments,
   enqueueProdShadowDocumentIndexing,
+  prepareProdShadowClusteringRetry,
   parseProdShadowE2EOptions,
   PROD_SHADOW_FORBIDDEN_ACTIONS,
   type ProdShadowE2EState,
@@ -36,8 +37,9 @@ const complete: ProdShadowE2EState = {
   indexedDocuments: ['doc-1'],
   actionableUnindexedDocuments: [],
   terminalBlockedDocuments: [],
+  recentEmptyRuns: [],
   unindexedDocumentIds: [],
-  run: { id: 'run-1', status: 'COMPLETED', topicCount: 1 },
+  run: { id: 'run-1', status: 'COMPLETED', topicCount: 1, documentsConsidered: 1 },
   brief: { id: 'brief-1' },
   draft: {
     id: 'draft-1', status: 'ARTICLE_DRAFT_CREATED', contentHash: 'hash-1',
@@ -128,6 +130,17 @@ describe('production-shadow editorial safety', () => {
     expect(queue.add).toHaveBeenCalledWith(expect.any(String), expect.objectContaining({
       documentId: 'inserm-document', revision: 'prod-shadow-retry-1784635200000', trigger: 'RETRY',
     }), expect.objectContaining({ jobId: retry.jobId }));
+  });
+
+  it('retries a completed empty shadow run with a controlled indexed document', () => {
+    const emptyRunState: ProdShadowE2EState = {
+      ...complete,
+      run: { id: 'empty-run', status: 'COMPLETED', topicCount: 0, documentsConsidered: 0 },
+      recentEmptyRuns: [{ id: 'empty-run', status: 'COMPLETED', windowStart: new Date('2026-07-20T21:15:27Z'), windowEnd: new Date('2026-07-21T21:15:27Z'), documentsConsidered: 0, reason: 'window_miss' }],
+    };
+    expect(determineProdShadowE2ENextStage(emptyRunState)).toBe('CLUSTERING');
+    const retry = prepareProdShadowClusteringRetry('inserm-document', new Date('2026-07-21T21:20:00Z'));
+    expect(retry).toMatchObject({ trigger: 'PROD_SHADOW', documentIds: ['inserm-document'], config: expect.objectContaining({ maxDocuments: 1 }) });
   });
 
   it('does not write during seed dry-run and limits its source to the dedicated key', async () => {

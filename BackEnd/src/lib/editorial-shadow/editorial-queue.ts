@@ -20,8 +20,9 @@ export interface EditorialShadowJobData {
   windowEnd: string;
   embeddingModel: string;
   config: EditorialClusteringConfig;
+  documentIds?: string[];
   requestedAt: string;
-  trigger: 'MANUAL' | 'SCHEDULED';
+  trigger: 'MANUAL' | 'SCHEDULED' | 'PROD_SHADOW';
 }
 
 export interface EditorialShadowDeadLetterJobData extends EditorialShadowJobData {
@@ -41,6 +42,7 @@ export interface PrepareEditorialShadowJobOptions {
   windowEnd: Date;
   embeddingModel: string;
   config?: Partial<EditorialClusteringConfig>;
+  documentIds?: string[];
   requestedAt?: Date;
   trigger: EditorialShadowJobData['trigger'];
 }
@@ -62,6 +64,7 @@ export function prepareEditorialShadowJob(
     windowEnd: options.windowEnd.toISOString(),
     embeddingModel: options.embeddingModel,
     config,
+    documentIds: options.documentIds?.map((id) => id.trim()).filter(Boolean).sort(),
     requestedAt: (options.requestedAt ?? new Date()).toISOString(),
     trigger: options.trigger,
   };
