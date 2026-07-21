@@ -3,7 +3,7 @@ import type { ConnectionOptions } from 'bullmq';
 import { prisma } from '../lib/db.js';
 import { assertProdShadowSafety, PROD_SHADOW_DISCOVERY_SOURCE_KEY, requireProdShadowWriteConfirmation } from '../lib/editorial-prod-shadow/safety.js';
 import { buildDiscoveryJobId, createDiscoveryQueues, createDiscoveryRedisConnection, DISCOVERY_JOB_NAME } from '../lib/discovery/discovery-queue.js';
-import { createDocumentQueues, enqueueDocumentJob } from '../lib/document-corpus/document-queue.js';
+import { buildDocumentJobId, createDocumentQueues, enqueueDocumentJob, type DocumentQueues } from '../lib/document-corpus/document-queue.js';
 import { buildEditorialShadowJobId, createEditorialShadowQueues, enqueueEditorialShadowJob, prepareEditorialShadowJob } from '../lib/editorial-shadow/editorial-queue.js';
 import { createEditorialBriefQueues, enqueueEditorialBriefJob, prepareEditorialBriefJob } from '../lib/editorial-brief/brief-queue.js';
 import { createEditorialDraftQueues, enqueueEditorialDraftJob, prepareEditorialDraftJob } from '../lib/editorial-draft/draft-queue.js';
@@ -40,6 +40,50 @@ export interface ProdShadowDocumentStateInput {
   status: string;
   fetchError: string | null;
   robotsAllowed: boolean | null;
+}
+
+export interface ProdShadowDocumentEnqueueReport {
+  documentId: string;
+  oldJobId: string | null;
+  oldJobState: string | null;
+  action: 'enqueued' | 'enqueued-new-retry-job' | 'existing-job-retained';
+  jobId: string;
+}
+
+const PROD_SHADOW_DOCUMENT_REVISION = 'prod-shadow-v1';
+
+export async function enqueueProdShadowDocumentIndexing(
+  queue: Pick<DocumentQueues['documentQueue'], 'add' | 'getJob'>,
+  documentId: string,
+  now = new Date(),
+): Promise<ProdShadowDocumentEnqueueReport> {
+  const oldJobId = buildDocumentJobId(documentId, PROD_SHADOW_DOCUMENT_REVISION);
+  const oldJob = await queue.getJob(oldJobId);
+  const oldJobState = oldJob ? await oldJob.getState() : null;
+  const foundOldJobId = oldJob?.id ? String(oldJob.id) : null;
+
+  if (oldJob && oldJobState !== 'failed') {
+    return { documentId, oldJobId: foundOldJobId ?? oldJobId, oldJobState, action: 'existing-job-retained', jobId: oldJobId };
+  }
+
+  const retryingFailedJob = oldJobState === 'failed';
+  const revision = retryingFailedJob
+    ? `prod-shadow-retry-${now.getTime()}`
+    : PROD_SHADOW_DOCUMENT_REVISION;
+  const jobId = buildDocumentJobId(documentId, revision);
+  await enqueueDocumentJob(queue, {
+    documentId,
+    revision,
+    requestedAt: now.toISOString(),
+    trigger: retryingFailedJob ? 'RETRY' : 'MANUAL',
+  });
+  return {
+    documentId,
+    oldJobId: foundOldJobId,
+    oldJobState,
+    action: retryingFailedJob ? 'enqueued-new-retry-job' : 'enqueued',
+    jobId,
+  };
 }
 
 export function classifyProdShadowDocuments(documents: ProdShadowDocumentStateInput[]) {
@@ -125,8 +169,8 @@ export async function advanceProdShadowE2E(stage: ProdShadowE2EStage, state: Pro
     }
     if (stage === 'DOCUMENT_INDEXING') {
       if (state.actionableUnindexedDocuments.length !== 1) throw new Error('Production shadow may enqueue exactly one actionable controlled document');
-      await enqueueDocumentJob(document.documentQueue, { documentId: state.actionableUnindexedDocuments[0]!, revision: 'prod-shadow-v1', requestedAt: new Date().toISOString(), trigger: 'MANUAL' });
-      return { mode: 'ENQUEUED', stage, documents: 1 };
+      const retry = await enqueueProdShadowDocumentIndexing(document.documentQueue, state.actionableUnindexedDocuments[0]!);
+      return { mode: 'ENQUEUED', stage, documents: 1, retry };
     }
     if (stage === 'CLUSTERING') {
       const windowEnd = new Date(); const windowStart = new Date(windowEnd.getTime() - 24 * 60 * 60_000);

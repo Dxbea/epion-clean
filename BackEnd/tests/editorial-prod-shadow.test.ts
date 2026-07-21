@@ -8,6 +8,7 @@ import {
 import {
   determineProdShadowE2ENextStage,
   classifyProdShadowDocuments,
+  enqueueProdShadowDocumentIndexing,
   parseProdShadowE2EOptions,
   PROD_SHADOW_FORBIDDEN_ACTIONS,
   type ProdShadowE2EState,
@@ -111,6 +112,22 @@ describe('production-shadow editorial safety', () => {
       terminalBlockedDocuments: documents.terminalBlockedDocuments,
       unindexedDocumentIds: documents.actionableUnindexedDocuments, run: null, brief: null, draft: null, verification: null,
     })).toThrow('at most one actionable controlled document');
+  });
+
+  it('enqueues a unique retry for the controlled document when its original job is failed', async () => {
+    const oldJobId = 'document-old-failed-job';
+    const queue = {
+      getJob: vi.fn(async () => ({ id: oldJobId, getState: vi.fn(async () => 'failed') })),
+      add: vi.fn(async () => ({})),
+    } as any;
+    const retry = await enqueueProdShadowDocumentIndexing(queue, 'inserm-document', new Date('2026-07-21T12:00:00.000Z'));
+    expect(retry).toMatchObject({
+      documentId: 'inserm-document', oldJobState: 'failed', action: 'enqueued-new-retry-job',
+    });
+    expect(retry.jobId).not.toBe(retry.oldJobId);
+    expect(queue.add).toHaveBeenCalledWith(expect.any(String), expect.objectContaining({
+      documentId: 'inserm-document', revision: 'prod-shadow-retry-1784635200000', trigger: 'RETRY',
+    }), expect.objectContaining({ jobId: retry.jobId }));
   });
 
   it('does not write during seed dry-run and limits its source to the dedicated key', async () => {
