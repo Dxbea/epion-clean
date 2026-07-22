@@ -4,6 +4,7 @@ import logger from '../logger.js';
 import { OpenAIEditorialBriefGenerator } from './brief-generator.js';
 import { buildAuditableBriefContent, validateEditorialBriefDraft } from './brief-validation.js';
 import { loadEditorialEvidenceRows, selectEditorialEvidence } from './evidence-selection.js';
+import { enrichEditorialTopicSources } from '../editorial-source-enrichment/source-enrichment-service.js';
 import {
   DEFAULT_EDITORIAL_BRIEF_CONFIG,
   EDITORIAL_BRIEF_PROMPT_VERSION,
@@ -94,7 +95,9 @@ export async function selectEditorialCandidates(
   const candidates = await client.editorialCandidate.findMany({
     where: {
       shadowOnly: true,
-      status: 'SHADOW_PROPOSED',
+      // A source-poor topic is a candidate for enrichment, not a publishable brief.
+      // The strict domain threshold is enforced again after enrichment.
+      status: { in: ['SHADOW_PROPOSED', 'SHADOW_SUPPRESSED'] },
       editorialScore: controlled ? undefined : { gte: config.minimumEditorialScore },
       topic: { runId: editorialRunId },
     },
@@ -120,7 +123,6 @@ export async function selectEditorialCandidates(
       requiredDomains: controlled ? 1 : requiredDomains(candidate.riskLevel, config),
       availableDomains: candidate.topic.independentDomainCount,
     }))
-    .filter((candidate) => controlled || candidate.availableDomains >= candidate.requiredDomains)
     .slice(0, controlled ? 1 : config.maximumCandidates)
     .map(({ availableDomains: _availableDomains, ...candidate }, index) => ({
       ...candidate,
@@ -154,7 +156,6 @@ export async function buildEditorialSourceDossier(
   const candidate = await loadCandidate(client, candidateId);
   const controlled = options.prodShadowControlled === true;
   const config = resolveEditorialBriefConfig({ ...options.config, prodShadowControlled: controlled });
-  assertEligibleCandidate(candidate, config, controlled);
   const minimumDomains = controlled ? 1 : requiredDomains(candidate.riskLevel, config);
   const idempotencyKey = buildEditorialDossierIdempotencyKey({
     candidateId,
@@ -211,6 +212,30 @@ export async function buildEditorialSourceDossier(
   if (claimed.count !== 1) throw new EditorialDossierInProgressError(idempotencyKey);
 
   try {
+    const enrichment = await enrichEditorialTopicSources(client, candidateId, {
+      requiredDomains: minimumDomains,
+      maximumDocuments: config.maximumDocuments,
+      now,
+    });
+    if (enrichment.enrichmentStatus !== 'SUFFICIENT') {
+      const reason = 'SOURCE_ENRICHMENT_INSUFFICIENT';
+      const blocked = await client.editorialSourceDossier.update({
+        where: { id: dossier.id },
+        data: {
+          status: 'BLOCKED',
+          error: reason,
+          sourceDomains: enrichment.independentDomains,
+          selectedDomainCount: enrichment.independentDomains.length,
+          leaseExpiresAt: null,
+          completedAt: new Date(),
+          metrics: { enrichment } as unknown as Prisma.InputJsonValue,
+        },
+        include: { evidence: true, brief: true },
+      });
+      return { ...persistedResult(blocked, 'BLOCKED'), reason };
+    }
+    const enrichedCandidate = await loadCandidate(client, candidateId);
+    assertEligibleCandidate(enrichedCandidate, config, controlled);
     let evidence = dossier.evidence.map(toEvidenceSnapshot);
     let evidenceHash = dossier.evidenceHash;
     if (!evidence.length || !evidenceHash) {
@@ -226,6 +251,7 @@ export async function buildEditorialSourceDossier(
             selectedDomainCount: selection.domains.length,
             leaseExpiresAt: null,
             completedAt: new Date(),
+            metrics: { enrichment } as unknown as Prisma.InputJsonValue,
           },
           include: { evidence: true, brief: true },
         });
@@ -254,8 +280,8 @@ export async function buildEditorialSourceDossier(
     }
 
     const generated = await generator.generate({
-      topicLabel: candidate.topic.label,
-      riskLevel: candidate.riskLevel,
+      topicLabel: enrichedCandidate.topic.label,
+      riskLevel: enrichedCandidate.riskLevel,
       evidence,
     });
     const draft = validateEditorialBriefDraft(
@@ -265,7 +291,7 @@ export async function buildEditorialSourceDossier(
     );
     const structuredContent = buildAuditableBriefContent({
       draft,
-      topicLabel: candidate.topic.label,
+      topicLabel: enrichedCandidate.topic.label,
       dossierId: dossier.id,
       candidateId,
       evidenceHash,
@@ -309,7 +335,8 @@ export async function buildEditorialSourceDossier(
             inputTokens: generated.inputTokens,
             outputTokens: generated.outputTokens,
             estimatedCostMicros: generated.estimatedCostMicros,
-          },
+            enrichment,
+          } as unknown as Prisma.InputJsonValue,
         },
       });
     });

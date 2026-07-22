@@ -26,6 +26,12 @@ export interface ProdShadowE2EState {
   unindexedDocumentIds: string[];
   run: { id: string; status: string; topicCount: number; documentsConsidered: number } | null;
   brief: { id: string } | null;
+  enrichment: {
+    enrichmentStatus: string | null;
+    independentDomains: string[];
+    sourcesAccepted: number | null;
+    sourcesRejected: number | null;
+  } | null;
   draft: { id: string; briefId: string; status: string; contentHash: string | null; articleStatus: string | null; publishedAt: Date | null; humanReviewStatus: string | null; qualityGateDecision: string | null; qualityGateReasons: string[]; publicationAuditCount: number } | null;
   verification: { id: string; status: string; shadowDecision: string | null } | null;
 }
@@ -177,7 +183,10 @@ export async function inspectProdShadowE2EState(options: ReturnType<typeof parse
   const recentEmptyRuns = recentRuns
     .filter((candidate) => documentsConsidered(candidate.metrics) === 0)
     .map((candidate) => ({ ...candidate, documentsConsidered: 0, reason: emptyRunReason }));
-  const brief = options.briefId ? await prisma.editorialBrief.findUnique({ where: { id: options.briefId }, select: { id: true } }) : null;
+  const brief = options.briefId ? await prisma.editorialBrief.findUnique({
+    where: { id: options.briefId },
+    select: { id: true, dossier: { select: { metrics: true, sourceDomains: true } } },
+  }) : null;
   const draft = options.draftId
     ? await prisma.editorialDraft.findUnique({
       where: { id: options.draftId },
@@ -198,7 +207,9 @@ export async function inspectProdShadowE2EState(options: ReturnType<typeof parse
     // Compatibility field for existing operators: it now intentionally contains
     // only documents that can still be submitted to document-corpus.
     unindexedDocumentIds: documentState.actionableUnindexedDocuments,
-    run, brief,
+    run,
+    brief: brief ? { id: brief.id } : null,
+    enrichment: brief ? enrichmentDiagnostic(brief.dossier.metrics, jsonStringArray(brief.dossier.sourceDomains)) : null,
     draft: draft ? { id: draft.id, briefId: draft.briefId, status: draft.status, contentHash: draft.contentHash, articleStatus: draft.article?.status ?? null, publishedAt: draft.article?.publishedAt ?? null, humanReviewStatus: draft.qualityGate?.humanReviewStatus ?? null, qualityGateDecision: draft.qualityGate?.automatedDecision ?? null, qualityGateReasons: jsonStringArray(draft.qualityGate?.automatedReasons), publicationAuditCount: draft.auditLogs.length } : null,
     verification,
   };
@@ -284,6 +295,23 @@ function documentsConsidered(metrics: unknown): number {
   return typeof value === 'number' && Number.isFinite(value) ? value : 0;
 }
 function jsonStringArray(value: unknown): string[] { return Array.isArray(value) ? value.filter((item): item is string => typeof item === 'string') : []; }
+function enrichmentDiagnostic(metrics: unknown, sourceDomains: string[]): NonNullable<ProdShadowE2EState['enrichment']> {
+  const value = metrics && typeof metrics === 'object' && !Array.isArray(metrics)
+    ? (metrics as Record<string, unknown>).enrichment
+    : null;
+  const enrichment = value && typeof value === 'object' && !Array.isArray(value)
+    ? value as Record<string, unknown>
+    : {};
+  return {
+    enrichmentStatus: typeof enrichment.enrichmentStatus === 'string' ? enrichment.enrichmentStatus : null,
+    independentDomains: jsonStringArray(enrichment.independentDomains).length
+      ? jsonStringArray(enrichment.independentDomains)
+      : sourceDomains,
+    sourcesAccepted: numberValue(enrichment.sourcesAccepted),
+    sourcesRejected: numberValue(enrichment.sourcesRejected),
+  };
+}
+function numberValue(value: unknown): number | null { return typeof value === 'number' && Number.isFinite(value) ? value : null; }
 function emptyRunDiagnostic(input: { sourceExists: boolean; indexedDocuments: string[] }): ProdShadowEmptyRun['reason'] {
   if (!input.sourceExists) return 'source_mismatch';
   if (input.indexedDocuments.length === 0) return 'no_indexed_docs';
@@ -298,7 +326,18 @@ if (process.argv[1] === fileURLToPath(import.meta.url)) {
     inspectProdShadowE2EState(options).then(async (state) => {
       const nextStage = determineProdShadowE2ENextStage(state, options);
       const action = await advanceProdShadowE2E(nextStage, state, options);
-      console.log(JSON.stringify({ productionShadowOnly: true, validationMode: options.validationMode, qualityGateDecision: state.draft?.qualityGateDecision ?? null, qualityGateReasons: state.draft?.qualityGateReasons ?? [], draftStatus: state.draft?.status ?? null, state, nextStage, action, forbiddenActions: PROD_SHADOW_FORBIDDEN_ACTIONS }, null, 2));
+      console.log(JSON.stringify({
+        productionShadowOnly: true,
+        validationMode: options.validationMode,
+        enrichmentStatus: state.enrichment?.enrichmentStatus ?? null,
+        independentDomains: state.enrichment?.independentDomains ?? [],
+        sourcesAccepted: state.enrichment?.sourcesAccepted ?? null,
+        sourcesRejected: state.enrichment?.sourcesRejected ?? null,
+        qualityGateDecision: state.draft?.qualityGateDecision ?? null,
+        qualityGateReasons: state.draft?.qualityGateReasons ?? [],
+        draftStatus: state.draft?.status ?? null,
+        state, nextStage, action, forbiddenActions: PROD_SHADOW_FORBIDDEN_ACTIONS,
+      }, null, 2));
     }).catch((error) => { console.error(error instanceof Error ? error.message : String(error)); process.exitCode = 1; })
       .finally(() => prisma.$disconnect());
   } catch (error) {
