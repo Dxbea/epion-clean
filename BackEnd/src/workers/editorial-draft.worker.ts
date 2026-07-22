@@ -40,6 +40,8 @@ export function createEditorialDraftProcessor(dependencies: EditorialDraftProces
     try {
       if (!job.data.briefId.trim()) throw new Error('briefId is required');
       if (job.data.draftVersion !== EDITORIAL_DRAFT_VERSION || job.data.promptVersion !== EDITORIAL_DRAFT_PROMPT_VERSION || job.data.criticPromptVersion !== EDITORIAL_CRITIC_PROMPT_VERSION) throw new Error('Unsupported editorial draft version');
+      if (!['MANUAL', 'PROD_SHADOW_RETRY'].includes(job.data.trigger)) throw new Error('Unsupported editorial draft trigger');
+      if (job.data.trigger === 'PROD_SHADOW_RETRY' && !job.data.retryKey?.trim()) throw new Error('Production-shadow retry requires retryKey');
       if (!job.data.generatorModel.trim() || !job.data.criticModel.trim()) throw new Error('Editorial draft models are required');
       if (Number.isNaN(new Date(job.data.requestedAt).getTime())) throw new Error('requestedAt must be a valid ISO date');
       resolveEditorialDraftConfig(job.data.config);
@@ -58,6 +60,7 @@ export function createEditorialDraftProcessor(dependencies: EditorialDraftProces
       const generateDraft = dependencies.generateDraft ?? generateControlledEditorialDraft;
       const result = await generateDraft(dependencies.client, job.data.briefId, {
         config: job.data.config,
+        retryKey: job.data.retryKey,
         generator: new OpenAIEditorialDraftGenerator(job.data.generatorModel),
         critic: new OpenAIEditorialClaimCritic(job.data.criticModel),
       });

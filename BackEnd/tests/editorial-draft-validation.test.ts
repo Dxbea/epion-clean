@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { validateEditorialClaimReviews, validateEditorialDraftArtifact } from '../src/lib/editorial-draft/draft-validation.js';
+import { describeEditorialDraftValidationError, normalizeEditorialDraftArtifact, validateEditorialClaimReviews, validateEditorialDraftArtifact } from '../src/lib/editorial-draft/draft-validation.js';
 import { renderEditorialDraftHtml } from '../src/lib/editorial-draft/draft-service.js';
 import { draftEvidence, validArtifact } from './fixtures/editorial/draft.js';
 
@@ -21,6 +21,19 @@ describe('controlled editorial draft validation', () => {
       ...validArtifact,
       sections: [{ heading: 'One', claimKeys: ['unknown_claim'] }, validArtifact.sections[1]],
     }, draftEvidence, 10)).toThrow('unknown claim');
+  });
+
+  it('normalizes only case-equivalent importance values and rejects other values', () => {
+    const normalized = normalizeEditorialDraftArtifact({
+      ...validArtifact,
+      claims: validArtifact.claims.map((claim) => ({ ...claim, importance: claim.importance.toLowerCase() })),
+    });
+    expect((normalized as typeof validArtifact).claims.map((claim) => claim.importance)).toEqual(['CORE', 'SUPPORTING']);
+    expect(() => validateEditorialDraftArtifact({
+      ...validArtifact,
+      claims: [{ ...validArtifact.claims[0], importance: 'MAIN' }, validArtifact.claims[1]],
+    }, draftEvidence, 10)).toThrow('Invalid option');
+    expect(describeEditorialDraftValidationError(new Error('diagnostic'))).toBe('diagnostic');
   });
 
   it('requires exactly one critic verdict per claim and forbids evidence expansion', () => {

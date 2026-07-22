@@ -67,6 +67,42 @@ describe('controlled editorial draft service', () => {
     expect(review).not.toHaveBeenCalled();
   });
 
+  it('repairs a structurally invalid model artifact once before validating and persisting it', async () => {
+    const generator: EditorialDraftGenerator = {
+      model: 'generator-test',
+      generate: vi.fn(async () => ({ artifact: { ...validArtifact, sections: [validArtifact.sections[0]], claims: [validArtifact.claims[0]] }, inputTokens: 100, outputTokens: 50, estimatedCostMicros: 3 })),
+      repair: vi.fn(async () => ({ artifact: validArtifact, inputTokens: 40, outputTokens: 20, estimatedCostMicros: 1 })),
+    };
+    const critic: EditorialClaimCritic = { model: 'critic-test', review: vi.fn(async () => ({ reviews, inputTokens: 50, outputTokens: 20, estimatedCostMicros: 2 })) };
+    const transaction = {
+      editorialDraftClaim: { deleteMany: vi.fn(async () => ({ count: 0 })), createMany: vi.fn(async () => ({ count: 2 })) },
+      editorialDraftClaimEvidence: { createMany: vi.fn(async () => ({ count: 3 })) },
+      editorialQualityGate: { upsert: vi.fn(async () => ({})) },
+      editorialDraftRevision: { create: vi.fn(async () => ({})) },
+      editorialDraft: { update: vi.fn(async () => ({})) },
+    };
+    const client = {
+      editorialBrief: { findUnique: vi.fn(async () => briefSource()) },
+      editorialDraft: {
+        createMany: vi.fn(async () => ({ count: 1 })),
+        findUnique: vi.fn(async () => ({ id: 'draft-repair-1', briefId: 'brief-1', status: 'PENDING', claims: [], qualityGate: null, metrics: null })),
+        updateMany: vi.fn(async () => ({ count: 1 })),
+        update: vi.fn(async () => ({})),
+      },
+      $transaction: vi.fn(async (callback: any) => callback(transaction)),
+    } as unknown as PrismaClient;
+
+    const result = await generateControlledEditorialDraft(client, 'brief-1', { generator, critic });
+    expect(result).toMatchObject({ outcome: 'READY_FOR_REVIEW', claims: 2, inputTokens: 190, outputTokens: 90, estimatedCostMicros: 6 });
+    expect(generator.repair).toHaveBeenCalledOnce();
+    expect(transaction.editorialDraftRevision.create).toHaveBeenCalledOnce();
+  });
+
+  it('keeps a failed draft identity separate when a controlled retry key is used', async () => {
+    const base = { briefId: 'brief-1', briefContentHash: 'brief-hash', evidenceHash: 'evidence-hash', generatorModel: 'g', criticModel: 'c', config: resolveEditorialDraftConfig() };
+    expect(buildEditorialDraftIdempotencyKey({ ...base, retryKey: null })).not.toBe(buildEditorialDraftIdempotencyKey({ ...base, retryKey: 'prod-shadow-retry-test' }));
+  });
+
   it('includes frozen brief and evidence hashes in the deterministic identity', () => {
     const config = resolveEditorialDraftConfig();
     const base = { briefId: 'brief-1', briefContentHash: 'brief-hash', evidenceHash: 'evidence-hash', generatorModel: 'g', criticModel: 'c', config };

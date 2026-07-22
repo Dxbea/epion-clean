@@ -2,7 +2,7 @@ import type { EditorialClaimImportance, EditorialClaimVerdict, EditorialRiskLeve
 import type { EditorialBriefContent, EditorialEvidenceSnapshot } from '../editorial-brief/types.js';
 
 export const EDITORIAL_DRAFT_VERSION = 'controlled-draft-v1';
-export const EDITORIAL_DRAFT_PROMPT_VERSION = 'editorial-draft-v1';
+export const EDITORIAL_DRAFT_PROMPT_VERSION = 'editorial-draft-v2';
 export const EDITORIAL_CRITIC_PROMPT_VERSION = 'claim-critic-v1';
 export const EDITORIAL_QUALITY_GATE_VERSION = 'quality-gate-v2';
 
@@ -71,6 +71,13 @@ export interface EditorialDraftGenerator {
     brief: EditorialBriefContent;
     riskLevel: EditorialRiskLevel;
     evidence: EditorialEvidenceSnapshot[];
+  }): Promise<EditorialDraftGenerationResult>;
+  repair?(input: {
+    brief: EditorialBriefContent;
+    riskLevel: EditorialRiskLevel;
+    evidence: EditorialEvidenceSnapshot[];
+    artifact: unknown;
+    validationError: string;
   }): Promise<EditorialDraftGenerationResult>;
 }
 

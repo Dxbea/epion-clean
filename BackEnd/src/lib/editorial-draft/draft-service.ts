@@ -3,7 +3,7 @@ import { Prisma, type PrismaClient } from '@prisma/client';
 import logger from '../logger.js';
 import type { EditorialBriefContent, EditorialEvidenceSnapshot } from '../editorial-brief/types.js';
 import { OpenAIEditorialClaimCritic, OpenAIEditorialDraftGenerator } from './draft-generator.js';
-import { validateEditorialClaimReviews, validateEditorialDraftArtifact } from './draft-validation.js';
+import { describeEditorialDraftValidationError, normalizeEditorialDraftArtifact, validateEditorialClaimReviews, validateEditorialDraftArtifact } from './draft-validation.js';
 import { calculateEditorialQualityGate } from './quality-gate.js';
 import {
   DEFAULT_EDITORIAL_DRAFT_CONFIG,
@@ -12,7 +12,9 @@ import {
   EDITORIAL_DRAFT_VERSION,
   EDITORIAL_QUALITY_GATE_VERSION,
   type EditorialClaimCritic,
+  type EditorialDraftArtifact,
   type EditorialDraftConfig,
+  type EditorialDraftGenerationResult,
   type EditorialDraftGenerator,
   type EditorialQualityGateResult,
 } from './types.js';
@@ -59,6 +61,7 @@ export function buildEditorialDraftIdempotencyKey(input: {
   generatorModel: string;
   criticModel: string;
   config: EditorialDraftConfig;
+  retryKey?: string | null;
 }): string {
   return createHash('sha256').update(JSON.stringify({
     ...input,
@@ -66,6 +69,7 @@ export function buildEditorialDraftIdempotencyKey(input: {
     draftPromptVersion: EDITORIAL_DRAFT_PROMPT_VERSION,
     criticPromptVersion: EDITORIAL_CRITIC_PROMPT_VERSION,
     gateVersion: EDITORIAL_QUALITY_GATE_VERSION,
+    retryKey: input.retryKey ?? null,
   })).digest('hex');
 }
 
@@ -76,6 +80,7 @@ export async function generateControlledEditorialDraft(
     config?: Partial<EditorialDraftConfig>;
     generator?: EditorialDraftGenerator;
     critic?: EditorialClaimCritic;
+    retryKey?: string | null;
     now?: Date;
   } = {},
 ): Promise<ControlledEditorialDraftResult> {
@@ -94,6 +99,7 @@ export async function generateControlledEditorialDraft(
     generatorModel: generator.model,
     criticModel: critic.model,
     config,
+    retryKey: options.retryKey,
   });
   await client.editorialDraft.createMany({
     data: [{
@@ -142,7 +148,12 @@ export async function generateControlledEditorialDraft(
       riskLevel: source.dossier.candidate.riskLevel,
       evidence,
     });
-    const artifact = validateEditorialDraftArtifact(generated.artifact, evidence, config.maximumClaims);
+    const validated = await validateGeneratedArtifact(generator, generated.artifact, {
+      brief,
+      riskLevel: source.dossier.candidate.riskLevel,
+      evidence,
+    }, config.maximumClaims, draft.id, briefId);
+    const artifact = validated.artifact;
     const criticized = await critic.review({ claims: artifact.claims, evidence });
     const reviews = validateEditorialClaimReviews(criticized.reviews, artifact);
     const gate = calculateEditorialQualityGate({
@@ -154,9 +165,9 @@ export async function generateControlledEditorialDraft(
     });
     const contentHash = hashEditorialDraftArtifact(artifact);
     const contentHtml = renderEditorialDraftHtml(artifact);
-    const inputTokens = nullableSum(generated.inputTokens, criticized.inputTokens);
-    const outputTokens = nullableSum(generated.outputTokens, criticized.outputTokens);
-    const estimatedCostMicros = nullableSum(generated.estimatedCostMicros, criticized.estimatedCostMicros);
+    const inputTokens = nullableSum(generated.inputTokens, validated.repair?.inputTokens ?? null, criticized.inputTokens);
+    const outputTokens = nullableSum(generated.outputTokens, validated.repair?.outputTokens ?? null, criticized.outputTokens);
+    const estimatedCostMicros = nullableSum(generated.estimatedCostMicros, validated.repair?.estimatedCostMicros ?? null, criticized.estimatedCostMicros);
     const status = gate.automatedDecision === 'PASSED' ? 'READY_FOR_REVIEW' : 'QUALITY_FAILED';
     const evidenceByKey = new Map(evidence.map((item) => [item.evidenceKey, item]));
     const databaseEvidenceByKey = new Map(source.dossier.evidence.map((item) => [item.evidenceKey, item.id]));
@@ -270,6 +281,53 @@ export async function generateControlledEditorialDraft(
   }
 }
 
+async function validateGeneratedArtifact(
+  generator: EditorialDraftGenerator,
+  rawArtifact: unknown,
+  input: { brief: EditorialBriefContent; riskLevel: 'LOW' | 'MEDIUM' | 'HIGH'; evidence: EditorialEvidenceSnapshot[] },
+  maximumClaims: number,
+  draftId: string,
+  briefId: string,
+): Promise<{ artifact: EditorialDraftArtifact; repair: EditorialDraftGenerationResult | null }> {
+  const normalizedArtifact = normalizeEditorialDraftArtifact(rawArtifact);
+  try {
+    return { artifact: validateEditorialDraftArtifact(normalizedArtifact, input.evidence, maximumClaims), repair: null };
+  } catch (initialError) {
+    const validationError = describeEditorialDraftValidationError(initialError);
+    draftLog.warn('Controlled editorial draft artifact validation failed; considering one repair', {
+      draftId,
+      briefId,
+      validationError,
+      repairAvailable: Boolean(generator.repair),
+    });
+    if (!generator.repair) {
+      throw new Error(`Editorial draft artifact validation failed: ${validationError}`);
+    }
+    let repaired: EditorialDraftGenerationResult;
+    try {
+      repaired = await generator.repair({ ...input, artifact: normalizedArtifact, validationError });
+    } catch (repairError) {
+      throw new Error(`Editorial draft repair failed after validation error (${validationError}): ${describeEditorialDraftValidationError(repairError)}`);
+    }
+    try {
+      return {
+        artifact: validateEditorialDraftArtifact(normalizeEditorialDraftArtifact(repaired.artifact), input.evidence, maximumClaims),
+        repair: repaired,
+      };
+    } catch (repairError) {
+      const repairedValidationError = describeEditorialDraftValidationError(repairError);
+      draftLog.error('Controlled editorial draft artifact repair failed validation', {
+        draftId,
+        briefId,
+        repairAttempts: 1,
+        initialValidationError: validationError,
+        repairedValidationError,
+      });
+      throw new Error(`Editorial draft artifact validation failed after one repair: initial=${validationError}; repaired=${repairedValidationError}`);
+    }
+  }
+}
+
 async function loadValidatedBrief(client: PrismaClient, briefId: string) {
   const brief = await client.editorialBrief.findUnique({
     where: { id: briefId },
@@ -362,7 +420,7 @@ function storedResult(draft: { id: string; briefId: string; claims: unknown[]; q
 }
 
 function unique(values: string[]): string[] { return [...new Set(values)].sort(); }
-function nullableSum(left: number | null, right: number | null): number | null { return left === null && right === null ? null : (left ?? 0) + (right ?? 0); }
+function nullableSum(...values: Array<number | null>): number | null { return values.every((value) => value === null) ? null : values.reduce<number>((sum, value) => sum + (value ?? 0), 0); }
 function jsonRecord(value: Prisma.JsonValue | null): Record<string, unknown> { return value && typeof value === 'object' && !Array.isArray(value) ? value as Record<string, unknown> : {}; }
 function numberOrNull(value: unknown): number | null { return typeof value === 'number' && Number.isFinite(value) ? value : null; }
 function boundedNumber(value: number, min: number, max: number, name: string): void { if (!Number.isFinite(value) || value < min || value > max) throw new Error(`${name} must be between ${min} and ${max}`); }

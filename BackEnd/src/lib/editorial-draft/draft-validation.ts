@@ -29,6 +29,31 @@ const reviewsSchema = z.array(z.object({
   evidenceKeys: z.array(key).max(12),
 }).strict()).min(1).max(50);
 
+const CLAIM_IMPORTANCES = new Set(['CORE', 'SUPPORTING', 'CONTEXT']);
+
+export function normalizeEditorialDraftArtifact(input: unknown): unknown {
+  if (!input || typeof input !== 'object' || Array.isArray(input)) return input;
+  const record = input as Record<string, unknown>;
+  if (!Array.isArray(record.claims)) return input;
+  return {
+    ...record,
+    claims: record.claims.map((claim) => {
+      if (!claim || typeof claim !== 'object' || Array.isArray(claim)) return claim;
+      const claimRecord = claim as Record<string, unknown>;
+      if (typeof claimRecord.importance !== 'string') return claim;
+      const normalized = claimRecord.importance.trim().toUpperCase();
+      return CLAIM_IMPORTANCES.has(normalized) ? { ...claimRecord, importance: normalized } : claim;
+    }),
+  };
+}
+
+export function describeEditorialDraftValidationError(error: unknown): string {
+  if (error instanceof z.ZodError) {
+    return error.issues.map((issue) => `${issue.path.length ? issue.path.join('.') : '<root>'}: ${issue.message}`).join('; ');
+  }
+  return error instanceof Error ? error.message : String(error);
+}
+
 export function validateEditorialDraftArtifact(
   input: unknown,
   evidence: EditorialEvidenceSnapshot[],

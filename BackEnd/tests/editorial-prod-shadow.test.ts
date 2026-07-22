@@ -10,11 +10,13 @@ import {
   classifyProdShadowDocuments,
   enqueueProdShadowDocumentIndexing,
   prepareProdShadowClusteringRetry,
+  prepareProdShadowDraftRetry,
   parseProdShadowE2EOptions,
   PROD_SHADOW_FORBIDDEN_ACTIONS,
   type ProdShadowE2EState,
 } from '../src/scripts/prod-shadow-editorial-e2e.js';
 import { parseProdShadowSeedOptions, seedProdShadowEditorial } from '../src/scripts/seed-prod-shadow-editorial.js';
+import { buildEditorialDraftJobId } from '../src/lib/editorial-draft/draft-queue.js';
 
 const safeProductionEnv = {
   NODE_ENV: 'production',
@@ -42,7 +44,7 @@ const complete: ProdShadowE2EState = {
   run: { id: 'run-1', status: 'COMPLETED', topicCount: 1, documentsConsidered: 1 },
   brief: { id: 'brief-1' },
   draft: {
-    id: 'draft-1', status: 'ARTICLE_DRAFT_CREATED', contentHash: 'hash-1',
+    id: 'draft-1', briefId: 'brief-1', status: 'ARTICLE_DRAFT_CREATED', contentHash: 'hash-1',
     articleStatus: 'DRAFT', publishedAt: null, humanReviewStatus: 'APPROVED', publicationAuditCount: 0,
   },
   verification: { id: 'verification-1', status: 'PASSED', shadowDecision: 'WOULD_AUTO_PUBLISH' },
@@ -69,6 +71,16 @@ describe('production-shadow editorial safety', () => {
     expect(() => determineProdShadowE2ENextStage({ ...complete, draft: { ...complete.draft!, publishedAt: new Date() } })).toThrow('was published');
     expect(() => determineProdShadowE2ENextStage({ ...complete, discoveredDocuments: 2, actionableUnindexedDocuments: ['doc-2'] })).toThrow('at most one actionable controlled document');
     expect(() => determineProdShadowE2ENextStage({ ...complete, run: { ...complete.run!, topicCount: 2 } })).toThrow('at most one topic');
+  });
+
+  it('allows only an explicit controlled retry for a failed draft and changes its BullMQ identity', () => {
+    const failed = { ...complete, draft: { ...complete.draft!, id: 'failed-draft-1', status: 'FAILED', articleStatus: null, humanReviewStatus: null, contentHash: null } };
+    expect(determineProdShadowE2ENextStage(failed)).toBe('WAITING_HUMAN_APPROVAL');
+    expect(determineProdShadowE2ENextStage(failed, { retryDraft: true })).toBe('DRAFT');
+    const retry = prepareProdShadowDraftRetry('brief-1', new Date('2026-07-22T12:00:00.000Z'));
+    expect(retry).toMatchObject({ briefId: 'brief-1', trigger: 'PROD_SHADOW_RETRY' });
+    expect(retry.retryKey).toMatch(/^prod-shadow-retry-/);
+    expect(buildEditorialDraftJobId(retry)).not.toBe(buildEditorialDraftJobId({ ...retry, retryKey: null, trigger: 'MANUAL' }));
   });
 
   it('reports a robots-blocked document without re-queueing it for indexing', () => {

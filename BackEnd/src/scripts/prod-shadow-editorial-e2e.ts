@@ -1,4 +1,5 @@
 import { fileURLToPath } from 'node:url';
+import { randomUUID } from 'node:crypto';
 import type { ConnectionOptions } from 'bullmq';
 import { prisma } from '../lib/db.js';
 import { assertProdShadowSafety, PROD_SHADOW_DISCOVERY_SOURCE_KEY, requireProdShadowWriteConfirmation } from '../lib/editorial-prod-shadow/safety.js';
@@ -6,7 +7,7 @@ import { buildDiscoveryJobId, createDiscoveryQueues, createDiscoveryRedisConnect
 import { buildDocumentJobId, createDocumentQueues, enqueueDocumentJob, type DocumentQueues } from '../lib/document-corpus/document-queue.js';
 import { buildEditorialShadowJobId, createEditorialShadowQueues, enqueueEditorialShadowJob, prepareEditorialShadowJob } from '../lib/editorial-shadow/editorial-queue.js';
 import { createEditorialBriefQueues, enqueueEditorialBriefJob, prepareEditorialBriefJob } from '../lib/editorial-brief/brief-queue.js';
-import { createEditorialDraftQueues, enqueueEditorialDraftJob, prepareEditorialDraftJob } from '../lib/editorial-draft/draft-queue.js';
+import { buildEditorialDraftJobId, createEditorialDraftQueues, enqueueEditorialDraftJob, prepareEditorialDraftJob } from '../lib/editorial-draft/draft-queue.js';
 import { createEditorialVerificationQueues } from '../lib/editorial-verification/verification-queue.js';
 import { enqueueEditorialVerificationForDraft } from '../lib/editorial-verification/enqueue-service.js';
 
@@ -24,7 +25,7 @@ export interface ProdShadowE2EState {
   unindexedDocumentIds: string[];
   run: { id: string; status: string; topicCount: number; documentsConsidered: number } | null;
   brief: { id: string } | null;
-  draft: { id: string; status: string; contentHash: string | null; articleStatus: string | null; publishedAt: Date | null; humanReviewStatus: string | null; publicationAuditCount: number } | null;
+  draft: { id: string; briefId: string; status: string; contentHash: string | null; articleStatus: string | null; publishedAt: Date | null; humanReviewStatus: string | null; publicationAuditCount: number } | null;
   verification: { id: string; status: string; shadowDecision: string | null } | null;
 }
 
@@ -107,6 +108,15 @@ export function prepareProdShadowClusteringRetry(documentId: string, now = new D
   });
 }
 
+export function prepareProdShadowDraftRetry(briefId: string, now = new Date()) {
+  return prepareEditorialDraftJob({
+    briefId,
+    requestedAt: now,
+    trigger: 'PROD_SHADOW_RETRY',
+    retryKey: `prod-shadow-retry-${randomUUID()}`,
+  });
+}
+
 export function classifyProdShadowDocuments(documents: ProdShadowDocumentStateInput[]) {
   const indexedDocuments = documents.filter((document) => document.isIndexed || document.status === 'INDEXED').map((document) => document.id);
   const terminalBlockedDocuments = documents
@@ -119,7 +129,7 @@ export function classifyProdShadowDocuments(documents: ProdShadowDocumentStateIn
   return { indexedDocuments, actionableUnindexedDocuments, terminalBlockedDocuments };
 }
 
-export function determineProdShadowE2ENextStage(state: ProdShadowE2EState): ProdShadowE2EStage {
+export function determineProdShadowE2ENextStage(state: ProdShadowE2EState, options: { retryDraft?: boolean } = {}): ProdShadowE2EStage {
   if (!state.sourceExists || state.discoveredDocuments === 0) return 'DISCOVERY';
   const actionableDocumentCount = state.indexedDocuments.length + state.actionableUnindexedDocuments.length;
   if (actionableDocumentCount > 1) throw new Error('Production shadow may process at most one actionable controlled document');
@@ -132,6 +142,7 @@ export function determineProdShadowE2ENextStage(state: ProdShadowE2EState): Prod
   if (!state.brief) return 'BRIEF';
   if (!state.draft) return 'DRAFT';
   assertDraftRemainsUnpublished(state.draft);
+  if (options.retryDraft && state.draft.status === 'FAILED') return 'DRAFT';
   if (state.draft.status !== 'ARTICLE_DRAFT_CREATED' || state.draft.articleStatus !== 'DRAFT' || state.draft.humanReviewStatus !== 'APPROVED') return 'WAITING_HUMAN_APPROVAL';
   if (!state.verification?.shadowDecision) return 'VERIFICATION';
   return 'COMPLETE';
@@ -139,8 +150,9 @@ export function determineProdShadowE2ENextStage(state: ProdShadowE2EState): Prod
 
 export function parseProdShadowE2EOptions(argv: string[]) {
   const advance = argv.includes('--advance');
+  const retryDraft = argv.includes('--retry-draft');
   if (advance) requireProdShadowWriteConfirmation(argv);
-  return { advance, sourceKey: PROD_SHADOW_DISCOVERY_SOURCE_KEY, runId: value(argv, '--run-id'), briefId: value(argv, '--brief-id'), draftId: value(argv, '--draft-id') };
+  return { advance, retryDraft, sourceKey: PROD_SHADOW_DISCOVERY_SOURCE_KEY, runId: value(argv, '--run-id'), briefId: value(argv, '--brief-id'), draftId: value(argv, '--draft-id') };
 }
 
 export async function inspectProdShadowE2EState(options: ReturnType<typeof parseProdShadowE2EOptions>): Promise<ProdShadowE2EState> {
@@ -160,10 +172,18 @@ export async function inspectProdShadowE2EState(options: ReturnType<typeof parse
     .filter((candidate) => documentsConsidered(candidate.metrics) === 0)
     .map((candidate) => ({ ...candidate, documentsConsidered: 0, reason: emptyRunReason }));
   const brief = options.briefId ? await prisma.editorialBrief.findUnique({ where: { id: options.briefId }, select: { id: true } }) : null;
-  const draft = options.draftId ? await prisma.editorialDraft.findUnique({
-    where: { id: options.draftId },
-    select: { id: true, status: true, contentHash: true, article: { select: { status: true, publishedAt: true } }, qualityGate: { select: { humanReviewStatus: true } }, auditLogs: { where: { action: 'ARTICLE_PUBLISHED' }, select: { id: true } } },
-  }) : null;
+  const draft = options.draftId
+    ? await prisma.editorialDraft.findUnique({
+      where: { id: options.draftId },
+      select: { id: true, briefId: true, status: true, contentHash: true, article: { select: { status: true, publishedAt: true } }, qualityGate: { select: { humanReviewStatus: true } }, auditLogs: { where: { action: 'ARTICLE_PUBLISHED' }, select: { id: true } } },
+    })
+    : options.retryDraft && options.briefId
+      ? await prisma.editorialDraft.findFirst({
+        where: { briefId: options.briefId, status: 'FAILED' },
+        orderBy: { createdAt: 'desc' },
+        select: { id: true, briefId: true, status: true, contentHash: true, article: { select: { status: true, publishedAt: true } }, qualityGate: { select: { humanReviewStatus: true } }, auditLogs: { where: { action: 'ARTICLE_PUBLISHED' }, select: { id: true } } },
+      })
+      : null;
   const verification = draft ? await prisma.editorialVerificationRun.findFirst({ where: { draftId: draft.id }, orderBy: { createdAt: 'desc' }, select: { id: true, status: true, shadowDecision: true } }) : null;
   return {
     sourceExists: Boolean(source), sourceEnabled: source?.enabled ?? false, discoveredDocuments: documents.length,
@@ -173,7 +193,7 @@ export async function inspectProdShadowE2EState(options: ReturnType<typeof parse
     // only documents that can still be submitted to document-corpus.
     unindexedDocumentIds: documentState.actionableUnindexedDocuments,
     run, brief,
-    draft: draft ? { id: draft.id, status: draft.status, contentHash: draft.contentHash, articleStatus: draft.article?.status ?? null, publishedAt: draft.article?.publishedAt ?? null, humanReviewStatus: draft.qualityGate?.humanReviewStatus ?? null, publicationAuditCount: draft.auditLogs.length } : null,
+    draft: draft ? { id: draft.id, briefId: draft.briefId, status: draft.status, contentHash: draft.contentHash, articleStatus: draft.article?.status ?? null, publishedAt: draft.article?.publishedAt ?? null, humanReviewStatus: draft.qualityGate?.humanReviewStatus ?? null, publicationAuditCount: draft.auditLogs.length } : null,
     verification,
   };
 }
@@ -219,7 +239,15 @@ export async function advanceProdShadowE2E(stage: ProdShadowE2EStage, state: Pro
     }
     if (stage === 'DRAFT') {
       if (!state.brief) throw new Error('--brief-id is required for draft generation');
-      await enqueueEditorialDraftJob(draft.draftQueue, prepareEditorialDraftJob({ briefId: state.brief.id }));
+      if (options.retryDraft) {
+        if (!state.draft || state.draft.status !== 'FAILED') throw new Error('Production-shadow draft retry requires an existing FAILED EditorialDraft');
+        if (state.draft.briefId !== state.brief.id) throw new Error('Production-shadow draft retry brief mismatch');
+        const retryData = prepareProdShadowDraftRetry(state.brief.id);
+        await enqueueEditorialDraftJob(draft.draftQueue, retryData);
+        return { mode: 'ENQUEUED', stage, jobId: buildEditorialDraftJobId(retryData), trigger: retryData.trigger, retryKey: retryData.retryKey, previousDraftId: state.draft.id, nextArgument: '--draft-id=<new EditorialDraft.id>', humanApprovalRequired: true };
+      }
+      const data = prepareEditorialDraftJob({ briefId: state.brief.id });
+      await enqueueEditorialDraftJob(draft.draftQueue, data);
       return { mode: 'ENQUEUED', stage, nextArgument: '--draft-id=<EditorialDraft.id>', humanApprovalRequired: true };
     }
     if (stage === 'VERIFICATION') {
@@ -261,7 +289,7 @@ if (process.argv[1] === fileURLToPath(import.meta.url)) {
     assertProdShadowSafety(process.env);
     const options = parseProdShadowE2EOptions(process.argv.slice(2));
     inspectProdShadowE2EState(options).then(async (state) => {
-      const nextStage = determineProdShadowE2ENextStage(state);
+      const nextStage = determineProdShadowE2ENextStage(state, options);
       const action = await advanceProdShadowE2E(nextStage, state, options);
       console.log(JSON.stringify({ productionShadowOnly: true, state, nextStage, action, forbiddenActions: PROD_SHADOW_FORBIDDEN_ACTIONS }, null, 2));
     }).catch((error) => { console.error(error instanceof Error ? error.message : String(error)); process.exitCode = 1; })

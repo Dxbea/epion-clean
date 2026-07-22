@@ -10,6 +10,8 @@ export const EDITORIAL_DRAFT_JOB_NAME = 'generate-controlled-editorial-draft';
 export const EDITORIAL_DRAFT_DLQ_JOB_NAME = 'editorial-draft-failed';
 export const EDITORIAL_DRAFT_JOB_ATTEMPTS = 3;
 
+export type EditorialDraftJobTrigger = 'MANUAL' | 'PROD_SHADOW_RETRY';
+
 export interface EditorialDraftJobData {
   briefId: string;
   draftVersion: string;
@@ -18,8 +20,9 @@ export interface EditorialDraftJobData {
   generatorModel: string;
   criticModel: string;
   config: EditorialDraftConfig;
+  retryKey: string | null;
   requestedAt: string;
-  trigger: 'MANUAL';
+  trigger: EditorialDraftJobTrigger;
 }
 
 export interface EditorialDraftDeadLetterData extends EditorialDraftJobData {
@@ -34,9 +37,13 @@ export function prepareEditorialDraftJob(options: {
   generatorModel?: string;
   criticModel?: string;
   config?: Partial<EditorialDraftConfig>;
+  retryKey?: string | null;
+  trigger?: EditorialDraftJobTrigger;
   requestedAt?: Date;
 }): EditorialDraftJobData {
   if (!options.briefId.trim()) throw new Error('briefId is required');
+  const trigger = options.trigger ?? 'MANUAL';
+  if (trigger === 'PROD_SHADOW_RETRY' && !options.retryKey?.trim()) throw new Error('retryKey is required for a production-shadow draft retry');
   return {
     briefId: options.briefId,
     draftVersion: EDITORIAL_DRAFT_VERSION,
@@ -45,8 +52,9 @@ export function prepareEditorialDraftJob(options: {
     generatorModel: options.generatorModel?.trim() || process.env.EDITORIAL_DRAFT_MODEL || 'gpt-4o-mini',
     criticModel: options.criticModel?.trim() || process.env.EDITORIAL_CRITIC_MODEL || 'gpt-4o-mini',
     config: resolveEditorialDraftConfig(options.config),
+    retryKey: options.retryKey?.trim() || null,
     requestedAt: (options.requestedAt ?? new Date()).toISOString(),
-    trigger: 'MANUAL',
+    trigger,
   };
 }
 
@@ -54,7 +62,7 @@ export function buildEditorialDraftJobId(data: EditorialDraftJobData): string {
   return `editorial-draft-${createHash('sha256').update(JSON.stringify({
     briefId: data.briefId, draftVersion: data.draftVersion, promptVersion: data.promptVersion,
     criticPromptVersion: data.criticPromptVersion, generatorModel: data.generatorModel,
-    criticModel: data.criticModel, config: data.config,
+    criticModel: data.criticModel, config: data.config, retryKey: data.retryKey, trigger: data.trigger,
   })).digest('hex').slice(0, 32)}`;
 }
 
