@@ -53,18 +53,20 @@ export function prepareEditorialShadowJob(
   validateEditorialWindow(options.windowStart, options.windowEnd);
   if (!options.embeddingModel.trim()) throw new Error('embeddingModel is required');
   const config = resolveEditorialClusteringConfig(options.config);
+  const documentIds = options.documentIds?.map((id) => id.trim()).filter(Boolean).sort();
   return {
     idempotencyKey: buildEditorialRunIdempotencyKey({
       windowStart: options.windowStart,
       windowEnd: options.windowEnd,
       embeddingModel: options.embeddingModel,
       config,
+      documentIds,
     }),
     windowStart: options.windowStart.toISOString(),
     windowEnd: options.windowEnd.toISOString(),
     embeddingModel: options.embeddingModel,
     config,
-    documentIds: options.documentIds?.map((id) => id.trim()).filter(Boolean).sort(),
+    documentIds,
     requestedAt: (options.requestedAt ?? new Date()).toISOString(),
     trigger: options.trigger,
   };

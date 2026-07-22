@@ -93,6 +93,27 @@ describe('dedicated editorial shadow worker', () => {
     expect(queue.add.mock.calls[0][2].jobId).toBe(buildEditorialShadowJobId(payload.idempotencyKey));
   });
 
+  it('uses one canonical identity for a controlled prod-shadow payload', async () => {
+    const payload = prepareEditorialShadowJob({
+      windowStart,
+      windowEnd,
+      embeddingModel: 'text-embedding-3-small',
+      config,
+      documentIds: ['controlled-document'],
+      trigger: 'PROD_SHADOW',
+    });
+    const processor = createEditorialShadowJobProcessor({
+      client: {} as PrismaClient,
+      redis: new WorkerRedis(),
+      flags: flags(),
+      metrics: new EditorialShadowMetrics(),
+      runShadow: vi.fn(async () => ({ runId: 'run', idempotencyKey: payload.idempotencyKey, outcome: 'COMPLETED' as const, documentsConsidered: 1, topicsCreated: 1, candidatesCreated: 1, proposedCandidates: 1, suppressedCandidates: 0, quasiDuplicates: 0, durationMs: 1 })),
+    });
+    await expect(processor(job({ data: payload }), 'token')).resolves.toMatchObject({ documentsConsidered: 1 });
+    expect(buildEditorialShadowJobId(payload.idempotencyKey)).toMatch(/^editorial-shadow-/);
+    expect(payload.documentIds).toEqual(['controlled-document']);
+  });
+
   it('delays work while the kill switch is active', async () => {
     const redis = new WorkerRedis();
     const runShadow = vi.fn();
