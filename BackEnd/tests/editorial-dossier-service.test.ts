@@ -31,6 +31,26 @@ describe('editorial source dossier service', () => {
     ]);
   });
 
+  it('selects exactly one low-score, single-domain candidate only for its controlled prod-shadow run', async () => {
+    const client = {
+      editorialCandidate: { findMany: vi.fn(async () => [
+        { id: 'controlled-candidate', editorialScore: 25.28, riskLevel: 'MEDIUM', topic: { independentDomainCount: 1 } },
+      ]) },
+    } as unknown as PrismaClient;
+    await expect(selectEditorialCandidates(client, 'run-1')).resolves.toEqual([]);
+    await expect(selectEditorialCandidates(client, 'run-1', { prodShadowControlled: true })).resolves.toEqual([
+      { candidateId: 'controlled-candidate', editorialScore: 25.28, riskLevel: 'MEDIUM', requiredDomains: 1, rank: 1 },
+    ]);
+    expect(vi.mocked(client.editorialCandidate.findMany).mock.calls[1][0]).toMatchObject({
+      where: { shadowOnly: true, status: 'SHADOW_PROPOSED', topic: { runId: 'run-1' } }, take: 1,
+    });
+  });
+
+  it('permits a one-document evidence cap only for the controlled prod-shadow path', () => {
+    expect(() => resolveEditorialBriefConfig({ maximumDocuments: 1 })).toThrow('maximumDocuments');
+    expect(resolveEditorialBriefConfig({ maximumDocuments: 1, prodShadowControlled: true })).toMatchObject({ maximumDocuments: 1 });
+  });
+
   it('returns an already-completed dossier without regenerating the brief', async () => {
     const generate = vi.fn();
     const generator: EditorialBriefGenerator = { model: 'test-model', generate };

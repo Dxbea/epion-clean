@@ -42,6 +42,23 @@ describe('dedicated editorial brief worker', () => {
     expect(queue.add.mock.calls[1][2].jobId).toBe(queue.add.mock.calls[0][2].jobId);
   });
 
+  it('keeps a controlled prod-shadow brief job distinct and forwards its strict flag', async () => {
+    const normal = prepareEditorialBriefJob({ editorialRunId: 'run-1', generatorModel: 'test-model', requestedAt: new Date('2026-07-18T12:00:00Z') });
+    const controlled = prepareEditorialBriefJob({
+      editorialRunId: 'run-1',
+      generatorModel: 'test-model',
+      requestedAt: new Date('2026-07-18T12:00:00Z'),
+      prodShadowControlled: true,
+      config: { maximumDocuments: 1, maximumCandidates: 1 },
+    });
+    expect(buildEditorialBriefJobId(controlled)).not.toBe(buildEditorialBriefJobId(normal));
+
+    const runBatch = vi.fn(async () => ({ editorialRunId: 'run-1', selectedCandidates: 1, completed: 1, alreadyCompleted: 0, blocked: 0, evidenceChunks: 1, durationMs: 1, results: [], selectionDiagnostics: [] }));
+    const processor = createEditorialBriefJobProcessor({ client: {} as PrismaClient, redis: new WorkerRedis(), flags: flags(), metrics: new EditorialBriefMetrics(), runBatch });
+    await processor({ id: buildEditorialBriefJobId(controlled), data: controlled, attemptsMade: 0, opts: { attempts: 3 }, token: 'token', moveToDelayed: vi.fn(async () => undefined) } as Job<EditorialBriefJobData>, 'token');
+    expect(runBatch).toHaveBeenCalledWith(expect.anything(), 'run-1', expect.objectContaining({ prodShadowControlled: true, config: expect.objectContaining({ maximumDocuments: 1 }) }));
+  });
+
   it('delays work while the local kill switch is active', async () => {
     const queuedJob = job();
     const runBatch = vi.fn();

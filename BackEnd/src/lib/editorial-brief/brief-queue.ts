@@ -16,6 +16,7 @@ export interface EditorialBriefJobData {
   promptVersion: string;
   generatorModel: string;
   config: EditorialBriefConfig;
+  prodShadowControlled?: boolean;
   requestedAt: string;
   trigger: 'MANUAL';
 }
@@ -31,6 +32,7 @@ export function prepareEditorialBriefJob(options: {
   editorialRunId: string;
   generatorModel?: string;
   config?: Partial<EditorialBriefConfig>;
+  prodShadowControlled?: boolean;
   requestedAt?: Date;
 }): EditorialBriefJobData {
   if (!options.editorialRunId.trim()) throw new Error('editorialRunId is required');
@@ -40,7 +42,8 @@ export function prepareEditorialBriefJob(options: {
     dossierVersion: EDITORIAL_DOSSIER_VERSION,
     promptVersion: EDITORIAL_BRIEF_PROMPT_VERSION,
     generatorModel,
-    config: resolveEditorialBriefConfig(options.config),
+    config: resolveEditorialBriefConfig({ ...options.config, prodShadowControlled: options.prodShadowControlled === true }),
+    prodShadowControlled: options.prodShadowControlled === true ? true : undefined,
     requestedAt: (options.requestedAt ?? new Date()).toISOString(),
     trigger: 'MANUAL',
   };
@@ -53,6 +56,7 @@ export function buildEditorialBriefJobId(data: EditorialBriefJobData): string {
     promptVersion: data.promptVersion,
     generatorModel: data.generatorModel,
     config: data.config,
+    prodShadowControlled: data.prodShadowControlled === true,
   })).digest('hex').slice(0, 32)}`;
 }
 

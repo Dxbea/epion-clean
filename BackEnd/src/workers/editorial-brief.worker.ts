@@ -52,7 +52,7 @@ export function createEditorialBriefJobProcessor(
       if (job.data.promptVersion !== EDITORIAL_BRIEF_PROMPT_VERSION) throw new Error('Unsupported prompt version');
       if (!job.data.generatorModel.trim()) throw new Error('generatorModel is required');
       validDate(job.data.requestedAt, 'requestedAt');
-      resolveEditorialBriefConfig(job.data.config);
+      resolveEditorialBriefConfig({ ...job.data.config, prodShadowControlled: job.data.prodShadowControlled === true });
       if (job.id !== buildEditorialBriefJobId(job.data)) throw new Error('Editorial brief job identity does not match its payload');
     } catch (error) {
       throw new UnrecoverableError(errorMessage(error));
@@ -73,6 +73,7 @@ export function createEditorialBriefJobProcessor(
       const runBatch = dependencies.runBatch ?? runEditorialBriefBatch;
       const result = await runBatch(dependencies.client, job.data.editorialRunId, {
         config: job.data.config,
+        prodShadowControlled: job.data.prodShadowControlled === true,
         generator: new OpenAIEditorialBriefGenerator(job.data.generatorModel),
       });
       dependencies.metrics.increment('jobsSucceeded');

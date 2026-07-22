@@ -44,6 +44,7 @@ export interface EditorialDossierResult {
   inputTokens: number | null;
   outputTokens: number | null;
   estimatedCostMicros: number | null;
+  reason?: string | null;
 }
 
 export interface EditorialBriefBatchResult {
@@ -55,6 +56,7 @@ export interface EditorialBriefBatchResult {
   evidenceChunks: number;
   durationMs: number;
   results: EditorialDossierResult[];
+  selectionDiagnostics: string[];
 }
 
 export class EditorialDossierInProgressError extends Error {
@@ -65,14 +67,17 @@ export class EditorialDossierInProgressError extends Error {
 }
 
 export function resolveEditorialBriefConfig(
-  input: Partial<EditorialBriefConfig> = {},
+  input: Partial<EditorialBriefConfig> & { prodShadowControlled?: boolean } = {},
 ): EditorialBriefConfig {
-  const config = { ...DEFAULT_EDITORIAL_BRIEF_CONFIG, ...input };
+  const { prodShadowControlled, ...overrides } = input;
+  const config = { ...DEFAULT_EDITORIAL_BRIEF_CONFIG, ...overrides };
   boundedNumber(config.minimumEditorialScore, 0, 100, 'minimumEditorialScore');
   boundedInteger(config.minimumDomains, 2, 10, 'minimumDomains');
   boundedInteger(config.highRiskMinimumDomains, config.minimumDomains, 10, 'highRiskMinimumDomains');
   boundedInteger(config.maximumCandidates, 1, 20, 'maximumCandidates');
-  boundedInteger(config.maximumDocuments, config.highRiskMinimumDomains, 20, 'maximumDocuments');
+  // A controlled prod-shadow run may intentionally use its one known document.
+  // Normal briefs retain the high-risk diversity invariant.
+  boundedInteger(config.maximumDocuments, prodShadowControlled === true ? 1 : config.highRiskMinimumDomains, 20, 'maximumDocuments');
   boundedInteger(config.maximumChunksPerDocument, 1, 5, 'maximumChunksPerDocument');
   boundedInteger(config.maximumEvidenceChunks, config.maximumDocuments, 50, 'maximumEvidenceChunks');
   boundedNumber(config.minimumChunkSimilarity, -1, 1, 'minimumChunkSimilarity');
@@ -82,14 +87,15 @@ export function resolveEditorialBriefConfig(
 export async function selectEditorialCandidates(
   client: PrismaClient,
   editorialRunId: string,
-  input: Partial<EditorialBriefConfig> = {},
+  input: Partial<EditorialBriefConfig> & { prodShadowControlled?: boolean } = {},
 ): Promise<SelectedEditorialCandidate[]> {
   const config = resolveEditorialBriefConfig(input);
+  const controlled = input.prodShadowControlled === true;
   const candidates = await client.editorialCandidate.findMany({
     where: {
       shadowOnly: true,
       status: 'SHADOW_PROPOSED',
-      editorialScore: { gte: config.minimumEditorialScore },
+      editorialScore: controlled ? undefined : { gte: config.minimumEditorialScore },
       topic: { runId: editorialRunId },
     },
     select: {
@@ -104,18 +110,18 @@ export async function selectEditorialCandidates(
       { topic: { latestEventAt: 'desc' } },
       { id: 'asc' },
     ],
-    take: config.maximumCandidates * 3,
+    take: controlled ? 1 : config.maximumCandidates * 3,
   });
   return candidates
     .map((candidate) => ({
       candidateId: candidate.id,
       editorialScore: candidate.editorialScore,
       riskLevel: candidate.riskLevel,
-      requiredDomains: requiredDomains(candidate.riskLevel, config),
+      requiredDomains: controlled ? 1 : requiredDomains(candidate.riskLevel, config),
       availableDomains: candidate.topic.independentDomainCount,
     }))
-    .filter((candidate) => candidate.availableDomains >= candidate.requiredDomains)
-    .slice(0, config.maximumCandidates)
+    .filter((candidate) => controlled || candidate.availableDomains >= candidate.requiredDomains)
+    .slice(0, controlled ? 1 : config.maximumCandidates)
     .map(({ availableDomains: _availableDomains, ...candidate }, index) => ({
       ...candidate,
       rank: index + 1,
@@ -140,14 +146,16 @@ export async function buildEditorialSourceDossier(
     config?: Partial<EditorialBriefConfig>;
     generator?: EditorialBriefGenerator;
     now?: Date;
+    prodShadowControlled?: boolean;
   } = {},
 ): Promise<EditorialDossierResult> {
-  const config = resolveEditorialBriefConfig(options.config);
   const generator = options.generator ?? new OpenAIEditorialBriefGenerator();
   const now = options.now ?? new Date();
   const candidate = await loadCandidate(client, candidateId);
-  assertEligibleCandidate(candidate, config);
-  const minimumDomains = requiredDomains(candidate.riskLevel, config);
+  const controlled = options.prodShadowControlled === true;
+  const config = resolveEditorialBriefConfig({ ...options.config, prodShadowControlled: controlled });
+  assertEligibleCandidate(candidate, config, controlled);
+  const minimumDomains = controlled ? 1 : requiredDomains(candidate.riskLevel, config);
   const idempotencyKey = buildEditorialDossierIdempotencyKey({
     candidateId,
     dossierVersion: EDITORIAL_DOSSIER_VERSION,
@@ -221,7 +229,7 @@ export async function buildEditorialSourceDossier(
           },
           include: { evidence: true, brief: true },
         });
-        return persistedResult(blocked, 'BLOCKED');
+        return { ...persistedResult(blocked, 'BLOCKED'), reason: selection.blockedReason };
       }
       evidence = selection.evidence;
       evidenceHash = selection.evidenceHash;
@@ -334,11 +342,12 @@ export async function buildEditorialSourceDossier(
 export async function runEditorialBriefBatch(
   client: PrismaClient,
   editorialRunId: string,
-  options: { config?: Partial<EditorialBriefConfig>; generator?: EditorialBriefGenerator } = {},
+  options: { config?: Partial<EditorialBriefConfig>; generator?: EditorialBriefGenerator; prodShadowControlled?: boolean } = {},
 ): Promise<EditorialBriefBatchResult> {
   const startedAt = Date.now();
-  const config = resolveEditorialBriefConfig(options.config);
-  const selected = await selectEditorialCandidates(client, editorialRunId, config);
+  const controlled = options.prodShadowControlled === true;
+  const config = resolveEditorialBriefConfig({ ...options.config, prodShadowControlled: controlled });
+  const selected = await selectEditorialCandidates(client, editorialRunId, { ...config, prodShadowControlled: controlled });
   const results: EditorialDossierResult[] = [];
   const errors: Error[] = [];
   for (const candidate of selected) {
@@ -346,6 +355,7 @@ export async function runEditorialBriefBatch(
       results.push(await buildEditorialSourceDossier(client, candidate.candidateId, candidate.rank, {
         config,
         generator: options.generator,
+        prodShadowControlled: controlled,
       }));
     } catch (error) {
       errors.push(error instanceof Error ? error : new Error(String(error)));
@@ -363,6 +373,13 @@ export async function runEditorialBriefBatch(
     evidenceChunks: results.reduce((sum, result) => sum + result.evidenceCount, 0),
     durationMs: Date.now() - startedAt,
     results,
+    selectionDiagnostics: selected.length === 0
+      ? [controlled ? 'join_mismatch' : 'unknown']
+      : results.flatMap((result) => {
+        if (result.reason === 'No eligible evidence chunks') return ['no_chunks'];
+        if (result.outcome === 'ALREADY_COMPLETED') return ['already_completed', 'source_dossier_exists'];
+        return [];
+      }),
   };
 }
 
@@ -390,11 +407,11 @@ async function loadCandidate(client: PrismaClient, candidateId: string): Promise
   return candidate;
 }
 
-function assertEligibleCandidate(candidate: CandidateRecord, config: EditorialBriefConfig): void {
+function assertEligibleCandidate(candidate: CandidateRecord, config: EditorialBriefConfig, controlled = false): void {
   if (!candidate.shadowOnly || candidate.status !== 'SHADOW_PROPOSED') {
     throw new Error('Only shadow-proposed editorial candidates can produce a source dossier');
   }
-  if (candidate.editorialScore < config.minimumEditorialScore) {
+  if (!controlled && candidate.editorialScore < config.minimumEditorialScore) {
     throw new Error('Editorial candidate score is below the configured minimum');
   }
 }

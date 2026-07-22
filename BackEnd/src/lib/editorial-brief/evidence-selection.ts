@@ -82,6 +82,9 @@ export function selectEditorialEvidence(
     .map((row) => ({ ...row, domain: row.domain.trim().toLowerCase() }))
     .filter((row) => row.domain && row.content.trim());
   const documents = groupDocuments(eligible, config.maximumChunksPerDocument);
+  if (documents.length === 0) {
+    return { evidence: [], domains: [], evidenceHash: null, blockedReason: 'No eligible evidence chunks' };
+  }
   const selectedDocumentIds: string[] = [];
   const seenDomains = new Set<string>();
 

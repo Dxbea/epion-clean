@@ -214,7 +214,7 @@ export async function advanceProdShadowE2E(stage: ProdShadowE2EStage, state: Pro
     if (stage === 'BRIEF') {
       if (!state.run) throw new Error('--run-id is required for brief generation');
       if (state.run.topicCount !== 1) throw new Error('Production shadow requires exactly one topic before brief generation');
-      await enqueueEditorialBriefJob(brief.briefQueue, prepareEditorialBriefJob({ editorialRunId: state.run.id }));
+      await enqueueEditorialBriefJob(brief.briefQueue, prepareEditorialBriefJob({ editorialRunId: state.run.id, prodShadowControlled: true, config: { maximumCandidates: 1, maximumDocuments: 1, maximumChunksPerDocument: 5, maximumEvidenceChunks: 5 } }));
       return { mode: 'ENQUEUED', stage, nextArgument: '--brief-id=<EditorialBrief.id>' };
     }
     if (stage === 'DRAFT') {

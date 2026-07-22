@@ -19,6 +19,11 @@ function row(document: string, domain: string, similarity: number, topicRole: Ed
 }
 
 describe('editorial evidence selection', () => {
+  it('reports no_chunks when the controlled candidate has no usable chunks', () => {
+    const result = selectEditorialEvidence([], resolveEditorialBriefConfig(), 1);
+    expect(result).toMatchObject({ evidence: [], domains: [], evidenceHash: null, blockedReason: 'No eligible evidence chunks' });
+  });
+
   it('selects independent domains first and separates primary from context evidence', () => {
     const config = resolveEditorialBriefConfig({ maximumDocuments: 4, maximumEvidenceChunks: 6 });
     const result = selectEditorialEvidence([
