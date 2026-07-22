@@ -1,6 +1,8 @@
 import type { PrismaClient } from '@prisma/client';
 import type { Queue } from 'bullmq';
 import type { ConnectionOptions } from 'bullmq';
+import { materializeQualityGateArticleDraft } from '../editorial-draft/quality-gate-materializer.js';
+import { resolveEditorialValidationMode } from '../editorial-draft/validation-mode.js';
 import {
   createEditorialVerificationQueues,
   createEditorialVerificationRedisConnection,
@@ -22,6 +24,10 @@ export async function enqueueEditorialVerificationForDraft(
   input: { draftId: string; expectedContentHash: string },
   options: { queue?: Pick<Queue<EditorialVerificationJobData>, 'add'>; now?: Date } = {},
 ): Promise<EnqueueEditorialVerificationResult> {
+  const validationMode = resolveEditorialValidationMode();
+  if (validationMode === 'quality_gate') {
+    await materializeQualityGateArticleDraft(client, input.draftId);
+  }
   const draft = await client.editorialDraft.findUnique({
     where: { id: input.draftId },
     select: {
@@ -38,8 +44,10 @@ export async function enqueueEditorialVerificationForDraft(
   if (draft.contentHash !== input.expectedContentHash || draft.currentRevision.contentHash !== input.expectedContentHash) {
     throw new Error('Editorial verification enqueue content hash mismatch');
   }
-  if (draft.qualityGate?.automatedDecision !== 'PASSED' || draft.qualityGate.humanReviewStatus !== 'APPROVED') {
-    throw new Error('Editorial verification enqueue requires automated and human approval gates');
+  if (draft.qualityGate?.automatedDecision !== 'PASSED' || (validationMode === 'human_review' && draft.qualityGate.humanReviewStatus !== 'APPROVED')) {
+    throw new Error(validationMode === 'quality_gate'
+      ? 'Editorial verification enqueue requires a passed quality gate'
+      : 'Editorial verification enqueue requires automated and human approval gates');
   }
   const data = prepareEditorialVerificationJob({
     draftId: draft.id,

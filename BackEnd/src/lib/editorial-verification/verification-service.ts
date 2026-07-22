@@ -10,6 +10,7 @@ import { getRichTrustScore } from '../trust-score.js';
 import { MistralEditorialAuditor } from './mistral-auditor.js';
 import { enrichEditorialEvidenceWithSerper, type EditorialSerperSearcher } from './serper-enrichment.js';
 import { assessEditorialCorpus } from './sufficiency.js';
+import { resolveEditorialValidationMode } from '../editorial-draft/validation-mode.js';
 import {
   EDITORIAL_MISTRAL_PROMPT_VERSION,
   EDITORIAL_VERIFICATION_VERSION,
@@ -368,8 +369,11 @@ function validateDraft(draft: Awaited<ReturnType<typeof loadVerificationDraft>>,
   if (draft.contentHash !== expectedContentHash || draft.currentRevision.contentHash !== expectedContentHash) {
     throw new Error('Editorial verification content hash mismatch');
   }
-  if (draft.qualityGate.automatedDecision !== 'PASSED' || draft.qualityGate.humanReviewStatus !== 'APPROVED') {
-    throw new Error('Editorial verification requires the existing automated and human gates');
+  const validationMode = resolveEditorialValidationMode();
+  if (draft.qualityGate.automatedDecision !== 'PASSED' || (validationMode === 'human_review' && draft.qualityGate.humanReviewStatus !== 'APPROVED')) {
+    throw new Error(validationMode === 'quality_gate'
+      ? 'Editorial verification requires the passed quality gate'
+      : 'Editorial verification requires the existing automated and human gates');
   }
   if (draft.currentRevision.publicationAuthorizations.length > 0) {
     throw new Error('Editorial verification must complete before publication authorization');

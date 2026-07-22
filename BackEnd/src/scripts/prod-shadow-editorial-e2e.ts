@@ -10,9 +10,10 @@ import { createEditorialBriefQueues, enqueueEditorialBriefJob, prepareEditorialB
 import { buildEditorialDraftJobId, createEditorialDraftQueues, enqueueEditorialDraftJob, prepareEditorialDraftJob } from '../lib/editorial-draft/draft-queue.js';
 import { createEditorialVerificationQueues } from '../lib/editorial-verification/verification-queue.js';
 import { enqueueEditorialVerificationForDraft } from '../lib/editorial-verification/enqueue-service.js';
+import { resolveEditorialValidationMode, type EditorialValidationMode } from '../lib/editorial-draft/validation-mode.js';
 
 export const PROD_SHADOW_FORBIDDEN_ACTIONS = ['authorize-publication', 'publish'] as const;
-export type ProdShadowE2EStage = 'DISCOVERY' | 'DOCUMENT_INDEXING' | 'CLUSTERING' | 'BRIEF' | 'DRAFT' | 'WAITING_PIPELINE' | 'WAITING_HUMAN_APPROVAL' | 'VERIFICATION' | 'COMPLETE';
+export type ProdShadowE2EStage = 'DISCOVERY' | 'DOCUMENT_INDEXING' | 'CLUSTERING' | 'BRIEF' | 'DRAFT' | 'QUALITY_GATE_BLOCKED' | 'WAITING_PIPELINE' | 'WAITING_HUMAN_APPROVAL' | 'VERIFICATION' | 'COMPLETE';
 
 export interface ProdShadowE2EState {
   sourceExists: boolean;
@@ -25,7 +26,7 @@ export interface ProdShadowE2EState {
   unindexedDocumentIds: string[];
   run: { id: string; status: string; topicCount: number; documentsConsidered: number } | null;
   brief: { id: string } | null;
-  draft: { id: string; briefId: string; status: string; contentHash: string | null; articleStatus: string | null; publishedAt: Date | null; humanReviewStatus: string | null; publicationAuditCount: number } | null;
+  draft: { id: string; briefId: string; status: string; contentHash: string | null; articleStatus: string | null; publishedAt: Date | null; humanReviewStatus: string | null; qualityGateDecision: string | null; qualityGateReasons: string[]; publicationAuditCount: number } | null;
   verification: { id: string; status: string; shadowDecision: string | null } | null;
 }
 
@@ -129,7 +130,7 @@ export function classifyProdShadowDocuments(documents: ProdShadowDocumentStateIn
   return { indexedDocuments, actionableUnindexedDocuments, terminalBlockedDocuments };
 }
 
-export function determineProdShadowE2ENextStage(state: ProdShadowE2EState, options: { retryDraft?: boolean } = {}): ProdShadowE2EStage {
+export function determineProdShadowE2ENextStage(state: ProdShadowE2EState, options: { retryDraft?: boolean; validationMode?: EditorialValidationMode } = {}): ProdShadowE2EStage {
   if (!state.sourceExists || state.discoveredDocuments === 0) return 'DISCOVERY';
   const actionableDocumentCount = state.indexedDocuments.length + state.actionableUnindexedDocuments.length;
   if (actionableDocumentCount > 1) throw new Error('Production shadow may process at most one actionable controlled document');
@@ -143,6 +144,11 @@ export function determineProdShadowE2ENextStage(state: ProdShadowE2EState, optio
   if (!state.draft) return 'DRAFT';
   assertDraftRemainsUnpublished(state.draft);
   if (options.retryDraft && state.draft.status === 'FAILED') return 'DRAFT';
+  if ((options.validationMode ?? resolveEditorialValidationMode()) === 'quality_gate') {
+    if (state.draft.status === 'QUALITY_FAILED' || state.draft.qualityGateDecision === 'FAILED') return 'QUALITY_GATE_BLOCKED';
+    if ((state.draft.status === 'READY_FOR_REVIEW' || state.draft.status === 'ARTICLE_DRAFT_CREATED') && state.draft.qualityGateDecision === 'PASSED') return 'VERIFICATION';
+    return 'WAITING_PIPELINE';
+  }
   if (state.draft.status !== 'ARTICLE_DRAFT_CREATED' || state.draft.articleStatus !== 'DRAFT' || state.draft.humanReviewStatus !== 'APPROVED') return 'WAITING_HUMAN_APPROVAL';
   if (!state.verification?.shadowDecision) return 'VERIFICATION';
   return 'COMPLETE';
@@ -152,7 +158,7 @@ export function parseProdShadowE2EOptions(argv: string[]) {
   const advance = argv.includes('--advance');
   const retryDraft = argv.includes('--retry-draft');
   if (advance) requireProdShadowWriteConfirmation(argv);
-  return { advance, retryDraft, sourceKey: PROD_SHADOW_DISCOVERY_SOURCE_KEY, runId: value(argv, '--run-id'), briefId: value(argv, '--brief-id'), draftId: value(argv, '--draft-id') };
+  return { advance, retryDraft, validationMode: resolveEditorialValidationMode(), sourceKey: PROD_SHADOW_DISCOVERY_SOURCE_KEY, runId: value(argv, '--run-id'), briefId: value(argv, '--brief-id'), draftId: value(argv, '--draft-id') };
 }
 
 export async function inspectProdShadowE2EState(options: ReturnType<typeof parseProdShadowE2EOptions>): Promise<ProdShadowE2EState> {
@@ -175,13 +181,13 @@ export async function inspectProdShadowE2EState(options: ReturnType<typeof parse
   const draft = options.draftId
     ? await prisma.editorialDraft.findUnique({
       where: { id: options.draftId },
-      select: { id: true, briefId: true, status: true, contentHash: true, article: { select: { status: true, publishedAt: true } }, qualityGate: { select: { humanReviewStatus: true } }, auditLogs: { where: { action: 'ARTICLE_PUBLISHED' }, select: { id: true } } },
+      select: { id: true, briefId: true, status: true, contentHash: true, article: { select: { status: true, publishedAt: true } }, qualityGate: { select: { humanReviewStatus: true, automatedDecision: true, automatedReasons: true } }, auditLogs: { where: { action: 'ARTICLE_PUBLISHED' }, select: { id: true } } },
     })
     : options.retryDraft && options.briefId
       ? await prisma.editorialDraft.findFirst({
         where: { briefId: options.briefId, status: 'FAILED' },
         orderBy: { createdAt: 'desc' },
-        select: { id: true, briefId: true, status: true, contentHash: true, article: { select: { status: true, publishedAt: true } }, qualityGate: { select: { humanReviewStatus: true } }, auditLogs: { where: { action: 'ARTICLE_PUBLISHED' }, select: { id: true } } },
+        select: { id: true, briefId: true, status: true, contentHash: true, article: { select: { status: true, publishedAt: true } }, qualityGate: { select: { humanReviewStatus: true, automatedDecision: true, automatedReasons: true } }, auditLogs: { where: { action: 'ARTICLE_PUBLISHED' }, select: { id: true } } },
       })
       : null;
   const verification = draft ? await prisma.editorialVerificationRun.findFirst({ where: { draftId: draft.id }, orderBy: { createdAt: 'desc' }, select: { id: true, status: true, shadowDecision: true } }) : null;
@@ -193,7 +199,7 @@ export async function inspectProdShadowE2EState(options: ReturnType<typeof parse
     // only documents that can still be submitted to document-corpus.
     unindexedDocumentIds: documentState.actionableUnindexedDocuments,
     run, brief,
-    draft: draft ? { id: draft.id, briefId: draft.briefId, status: draft.status, contentHash: draft.contentHash, articleStatus: draft.article?.status ?? null, publishedAt: draft.article?.publishedAt ?? null, humanReviewStatus: draft.qualityGate?.humanReviewStatus ?? null, publicationAuditCount: draft.auditLogs.length } : null,
+    draft: draft ? { id: draft.id, briefId: draft.briefId, status: draft.status, contentHash: draft.contentHash, articleStatus: draft.article?.status ?? null, publishedAt: draft.article?.publishedAt ?? null, humanReviewStatus: draft.qualityGate?.humanReviewStatus ?? null, qualityGateDecision: draft.qualityGate?.automatedDecision ?? null, qualityGateReasons: jsonStringArray(draft.qualityGate?.automatedReasons), publicationAuditCount: draft.auditLogs.length } : null,
     verification,
   };
 }
@@ -201,7 +207,7 @@ export async function inspectProdShadowE2EState(options: ReturnType<typeof parse
 export async function advanceProdShadowE2E(stage: ProdShadowE2EStage, state: ProdShadowE2EState, options: ReturnType<typeof parseProdShadowE2EOptions>) {
   assertProdShadowSafety(process.env);
   if (!options.advance) return { mode: 'DRY_RUN', nextStage: stage, forbiddenActions: PROD_SHADOW_FORBIDDEN_ACTIONS };
-  if (['WAITING_PIPELINE', 'WAITING_HUMAN_APPROVAL', 'COMPLETE'].includes(stage)) return { mode: 'NO_ACTION', nextStage: stage, forbiddenActions: PROD_SHADOW_FORBIDDEN_ACTIONS };
+  if (['QUALITY_GATE_BLOCKED', 'WAITING_PIPELINE', 'WAITING_HUMAN_APPROVAL', 'COMPLETE'].includes(stage)) return { mode: 'NO_ACTION', nextStage: stage, forbiddenActions: PROD_SHADOW_FORBIDDEN_ACTIONS };
   const connection = createDiscoveryRedisConnection();
   const connectionOptions = connection as unknown as ConnectionOptions;
   const discovery = createDiscoveryQueues(connectionOptions);
@@ -248,7 +254,7 @@ export async function advanceProdShadowE2E(stage: ProdShadowE2EStage, state: Pro
       }
       const data = prepareEditorialDraftJob({ briefId: state.brief.id });
       await enqueueEditorialDraftJob(draft.draftQueue, data);
-      return { mode: 'ENQUEUED', stage, nextArgument: '--draft-id=<EditorialDraft.id>', humanApprovalRequired: true };
+      return { mode: 'ENQUEUED', stage, nextArgument: '--draft-id=<EditorialDraft.id>', humanApprovalRequired: options.validationMode !== 'quality_gate' };
     }
     if (stage === 'VERIFICATION') {
       if (!state.draft?.contentHash) throw new Error('Current draft content hash is required');
@@ -277,6 +283,7 @@ function documentsConsidered(metrics: unknown): number {
   const value = (metrics as Record<string, unknown>).documentsConsidered;
   return typeof value === 'number' && Number.isFinite(value) ? value : 0;
 }
+function jsonStringArray(value: unknown): string[] { return Array.isArray(value) ? value.filter((item): item is string => typeof item === 'string') : []; }
 function emptyRunDiagnostic(input: { sourceExists: boolean; indexedDocuments: string[] }): ProdShadowEmptyRun['reason'] {
   if (!input.sourceExists) return 'source_mismatch';
   if (input.indexedDocuments.length === 0) return 'no_indexed_docs';
@@ -291,7 +298,7 @@ if (process.argv[1] === fileURLToPath(import.meta.url)) {
     inspectProdShadowE2EState(options).then(async (state) => {
       const nextStage = determineProdShadowE2ENextStage(state, options);
       const action = await advanceProdShadowE2E(nextStage, state, options);
-      console.log(JSON.stringify({ productionShadowOnly: true, state, nextStage, action, forbiddenActions: PROD_SHADOW_FORBIDDEN_ACTIONS }, null, 2));
+      console.log(JSON.stringify({ productionShadowOnly: true, validationMode: options.validationMode, qualityGateDecision: state.draft?.qualityGateDecision ?? null, qualityGateReasons: state.draft?.qualityGateReasons ?? [], draftStatus: state.draft?.status ?? null, state, nextStage, action, forbiddenActions: PROD_SHADOW_FORBIDDEN_ACTIONS }, null, 2));
     }).catch((error) => { console.error(error instanceof Error ? error.message : String(error)); process.exitCode = 1; })
       .finally(() => prisma.$disconnect());
   } catch (error) {

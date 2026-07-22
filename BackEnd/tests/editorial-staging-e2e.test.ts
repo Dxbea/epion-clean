@@ -4,7 +4,7 @@ import { determineStagingE2ENextStage, parseStagingE2EOptions, type StagingE2ESt
 const complete: StagingE2EState = {
   sourceExists: true, discoveredDocuments: 3, unindexedDocumentIds: [],
   run: { id: 'run-1', status: 'COMPLETED' }, brief: { id: 'brief-1' },
-  draft: { id: 'draft-1', status: 'ARTICLE_DRAFT_CREATED', contentHash: 'hash-1', articleStatus: 'DRAFT', humanReviewStatus: 'APPROVED' },
+  draft: { id: 'draft-1', status: 'ARTICLE_DRAFT_CREATED', contentHash: 'hash-1', articleStatus: 'DRAFT', humanReviewStatus: 'APPROVED', qualityGateDecision: 'PASSED', qualityGateReasons: [] },
   verification: { id: 'verification-1', status: 'PASSED', shadowDecision: 'WOULD_AUTO_PUBLISH' },
 };
 
@@ -25,5 +25,17 @@ describe('controlled editorial staging E2E planner', () => {
     expect(parseStagingE2EOptions([]).advance).toBe(false);
     expect(() => parseStagingE2EOptions(['--advance'])).toThrow('--confirm=EPION_STAGING_SHADOW');
     expect(parseStagingE2EOptions(['--advance', '--confirm=EPION_STAGING_SHADOW', '--draft-id=draft-1'])).toMatchObject({ advance: true, draftId: 'draft-1' });
+  });
+
+  it('uses only the quality gate when explicitly enabled', () => {
+    expect(determineStagingE2ENextStage({
+      ...complete,
+      draft: { ...complete.draft!, status: 'READY_FOR_REVIEW', articleStatus: null, humanReviewStatus: 'PENDING', qualityGateDecision: 'PASSED', qualityGateReasons: [] },
+      verification: null,
+    }, { validationMode: 'quality_gate' })).toBe('VERIFICATION');
+    expect(determineStagingE2ENextStage({
+      ...complete,
+      draft: { ...complete.draft!, status: 'QUALITY_FAILED', qualityGateDecision: 'FAILED', qualityGateReasons: ['INSUFFICIENT_INDEPENDENT_DOMAINS'] },
+    }, { validationMode: 'quality_gate' })).toBe('QUALITY_GATE_BLOCKED');
   });
 });

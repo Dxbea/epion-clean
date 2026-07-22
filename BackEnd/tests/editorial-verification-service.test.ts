@@ -145,6 +145,33 @@ describe('editorial verification orchestration', () => {
     }));
   });
 
+  it('accepts a passed quality gate without human approval in quality_gate mode', async () => {
+    const previousMode = process.env.EDITORIAL_VALIDATION_MODE;
+    process.env.EDITORIAL_VALIDATION_MODE = 'quality_gate';
+    try {
+      const client = clientFixture();
+      const pendingHumanDraft = draftFixture();
+      pendingHumanDraft.qualityGate.humanReviewStatus = 'PENDING';
+      client.editorialDraft.findUnique.mockResolvedValue(pendingHumanDraft);
+      const finalizeArticle = vi.fn(async (_client, _input, options) => {
+        const contract = { factCheckScore: 82, factCheckContentHash: 'fact-hash' };
+        await options.afterPersist(client, contract);
+        return contract;
+      });
+      const sourceHydrator = {
+        hydrate: vi.fn(async (evidence: any, index: number) => sourceEntry(index, evidence.domain, evidence.url, evidence.sourceId)),
+      };
+
+      await expect(verifyEditorialDraftForFinalization(client, { draftId: 'draft-1', expectedContentHash: 'content-hash' }, {
+        mistralAuditor: passingAuditor(), sourceHydrator, finalizeArticle: finalizeArticle as any, now: () => now,
+      })).resolves.toMatchObject({ outcome: 'FINALIZED' });
+      expect(finalizeArticle).toHaveBeenCalled();
+    } finally {
+      if (previousMode === undefined) delete process.env.EDITORIAL_VALIDATION_MODE;
+      else process.env.EDITORIAL_VALIDATION_MODE = previousMode;
+    }
+  });
+
   it('returns the existing finalized run idempotently for the same revision and hash', async () => {
     const client = clientFixture();
     const storedDraft = draftFixture();

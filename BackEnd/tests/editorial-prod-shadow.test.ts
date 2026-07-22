@@ -45,7 +45,7 @@ const complete: ProdShadowE2EState = {
   brief: { id: 'brief-1' },
   draft: {
     id: 'draft-1', briefId: 'brief-1', status: 'ARTICLE_DRAFT_CREATED', contentHash: 'hash-1',
-    articleStatus: 'DRAFT', publishedAt: null, humanReviewStatus: 'APPROVED', publicationAuditCount: 0,
+    articleStatus: 'DRAFT', publishedAt: null, humanReviewStatus: 'APPROVED', qualityGateDecision: 'PASSED', qualityGateReasons: [], publicationAuditCount: 0,
   },
   verification: { id: 'verification-1', status: 'PASSED', shadowDecision: 'WOULD_AUTO_PUBLISH' },
 };
@@ -81,6 +81,19 @@ describe('production-shadow editorial safety', () => {
     expect(retry).toMatchObject({ briefId: 'brief-1', trigger: 'PROD_SHADOW_RETRY' });
     expect(retry.retryKey).toMatch(/^prod-shadow-retry-/);
     expect(buildEditorialDraftJobId(retry)).not.toBe(buildEditorialDraftJobId({ ...retry, retryKey: null, trigger: 'MANUAL' }));
+  });
+
+  it('uses only the quality gate in opt-in mode and exposes a blocked failure', () => {
+    const passedWithoutHumanApproval = {
+      ...complete,
+      draft: { ...complete.draft!, status: 'READY_FOR_REVIEW', articleStatus: null, humanReviewStatus: 'PENDING', qualityGateDecision: 'PASSED', qualityGateReasons: [] },
+      verification: null,
+    };
+    expect(determineProdShadowE2ENextStage(passedWithoutHumanApproval, { validationMode: 'quality_gate' })).toBe('VERIFICATION');
+    expect(determineProdShadowE2ENextStage({
+      ...passedWithoutHumanApproval,
+      draft: { ...passedWithoutHumanApproval.draft!, status: 'QUALITY_FAILED', qualityGateDecision: 'FAILED', qualityGateReasons: ['INSUFFICIENT_INDEPENDENT_DOMAINS'] },
+    }, { validationMode: 'quality_gate' })).toBe('QUALITY_GATE_BLOCKED');
   });
 
   it('reports a robots-blocked document without re-queueing it for indexing', () => {
