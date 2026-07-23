@@ -95,9 +95,9 @@ export async function selectEditorialCandidates(
   const candidates = await client.editorialCandidate.findMany({
     where: {
       shadowOnly: true,
-      // A source-poor topic is a candidate for enrichment, not a publishable brief.
-      // The strict domain threshold is enforced again after enrichment.
-      status: { in: ['SHADOW_PROPOSED', 'SHADOW_SUPPRESSED'] },
+      // Source-poor candidates are enriched during the shadow run. BRIEF only
+      // consumes the final decision and never promotes a suppressed candidate.
+      status: 'SHADOW_PROPOSED',
       editorialScore: controlled ? undefined : { gte: config.minimumEditorialScore },
       topic: { runId: editorialRunId },
     },
@@ -116,6 +116,7 @@ export async function selectEditorialCandidates(
     take: controlled ? 1 : config.maximumCandidates * 3,
   });
   return candidates
+    .filter((candidate) => controlled || candidate.editorialScore >= config.minimumEditorialScore)
     .map((candidate) => ({
       candidateId: candidate.id,
       editorialScore: candidate.editorialScore,
@@ -123,6 +124,7 @@ export async function selectEditorialCandidates(
       requiredDomains: controlled ? 1 : requiredDomains(candidate.riskLevel, config),
       availableDomains: candidate.topic.independentDomainCount,
     }))
+    .filter((candidate) => controlled || candidate.availableDomains >= candidate.requiredDomains)
     .slice(0, controlled ? 1 : config.maximumCandidates)
     .map(({ availableDomains: _availableDomains, ...candidate }, index) => ({
       ...candidate,
@@ -156,6 +158,7 @@ export async function buildEditorialSourceDossier(
   const candidate = await loadCandidate(client, candidateId);
   const controlled = options.prodShadowControlled === true;
   const config = resolveEditorialBriefConfig({ ...options.config, prodShadowControlled: controlled });
+  assertEligibleCandidate(candidate, config, controlled);
   const minimumDomains = controlled ? 1 : requiredDomains(candidate.riskLevel, config);
   const idempotencyKey = buildEditorialDossierIdempotencyKey({
     candidateId,

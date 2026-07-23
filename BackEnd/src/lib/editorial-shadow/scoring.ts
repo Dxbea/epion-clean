@@ -32,7 +32,7 @@ export function scoreEditorialCluster(
   if (Number.isNaN(windowEnd.getTime())) throw new Error('windowEnd must be a valid date');
   const evidence = cluster.members.filter((member) => member.role !== 'QUASI_DUPLICATE');
   const quasiDuplicates = cluster.members.length - evidence.length;
-  const domains = new Set(evidence.map((member) => member.document.domain.toLowerCase()));
+  const domains = new Set(evidence.map((member) => normalizeDomain(member.document.domain)));
   const sources = new Set(evidence.map((member) =>
     member.document.sourceId ?? `domain:${member.document.domain.toLowerCase()}`));
 
@@ -137,6 +137,10 @@ function assessSensitivity(label: string): {
 
 function normalizeTerm(term: string): string {
   return term.normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLowerCase();
+}
+
+function normalizeDomain(value: string): string {
+  return value.trim().toLowerCase().replace(/^www\./, '');
 }
 
 function steppedDiversity(count: number): number {

@@ -75,6 +75,17 @@ describe('internal editorial score', () => {
     expect(score.status).toBe('SHADOW_SUPPRESSED');
   });
 
+  it('normalizes www aliases so one domain cannot count twice', () => {
+    const cluster = oneCluster([
+      document('a', 'Même sujet confirmé', [1, 0], { domain: 'www.example.com' }),
+      document('b', 'Confirmation du même sujet', [0.92, 0.28], { domain: 'example.com' }),
+    ]);
+    const score = scoreEditorialCluster(cluster, windowEnd, DEFAULT_EDITORIAL_CLUSTERING_CONFIG);
+
+    expect(score.independentDomains).toBe(1);
+    expect(score.rationale.reasons).toContain('insufficient_independent_domains');
+  });
+
   it('raises the basic sensitivity level for high-risk subjects', () => {
     const cluster = oneCluster([
       document('a', 'Guerre : menace nucléaire et otages', [1, 0]),

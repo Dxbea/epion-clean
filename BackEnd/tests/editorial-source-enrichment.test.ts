@@ -55,6 +55,18 @@ describe('editorial multi-source enrichment', () => {
     expect(client.editorialTopicDocument.upsert).toHaveBeenCalledWith(expect.objectContaining({
       create: expect.objectContaining({ documentId: 'corpus', role: 'EVIDENCE' }),
     }));
+    expect(client.editorialCandidate.update).toHaveBeenCalledWith(expect.objectContaining({
+      data: expect.objectContaining({
+        rationale: expect.objectContaining({
+          enrichment: expect.objectContaining({
+            documentsBefore: 1,
+            documentsAfter: 2,
+            independentDomainsBefore: 1,
+            independentDomainsAfter: 2,
+          }),
+        }),
+      }),
+    }));
   });
 
   it('uses Serper only when the corpus is insufficient and counts one same-domain result', async () => {

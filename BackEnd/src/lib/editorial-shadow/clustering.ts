@@ -59,6 +59,37 @@ export function clusterEditorialDocuments(
       left.clusterKey.localeCompare(right.clusterKey));
 }
 
+/**
+ * Rebuilds one persisted topic after controlled source enrichment. The topic
+ * membership is authoritative here; enrichment has already decided that the
+ * additional documents belong to this topic, so we only reclassify members
+ * and recompute the values consumed by editorial scoring.
+ */
+export function extendEditorialCluster(
+  cluster: EditorialCluster,
+  additionalDocuments: EditorialDocumentVector[],
+  config: EditorialClusteringConfig,
+): EditorialCluster {
+  const documents = [...cluster.members.map((member) => member.document)];
+  const knownIds = new Set(documents.map((document) => document.id));
+  for (const document of additionalDocuments) {
+    if (!knownIds.has(document.id)) {
+      documents.push(document);
+      knownIds.add(document.id);
+    }
+  }
+  validateDocuments(documents);
+  const materialized = materializeCluster({
+    documents,
+    centroid: averageEmbeddings(documents.map((document) => document.embedding)),
+  }, config);
+  return {
+    ...materialized,
+    // Keep the persisted topic identity stable while its score is refreshed.
+    clusterKey: cluster.clusterKey,
+  };
+}
+
 export function cosineSimilarity(left: number[], right: number[]): number {
   if (left.length === 0 || left.length !== right.length) return 0;
   let dot = 0;

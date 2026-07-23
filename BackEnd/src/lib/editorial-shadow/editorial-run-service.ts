@@ -2,19 +2,25 @@ import { createHash } from 'node:crypto';
 import { Prisma, type PrismaClient } from '@prisma/client';
 import logger from '../logger.js';
 import { DOCUMENT_EMBEDDING_MODEL } from '../document-corpus/document-rag-service.js';
-import { clusterEditorialDocuments } from './clustering.js';
+import { clusterEditorialDocuments, extendEditorialCluster } from './clustering.js';
 import { scoreEditorialCluster } from './scoring.js';
+import {
+  enrichEditorialTopicSources,
+} from '../editorial-source-enrichment/source-enrichment-service.js';
 import {
   DEFAULT_EDITORIAL_CLUSTERING_CONFIG,
   EDITORIAL_CLUSTERING_ALGORITHM_VERSION,
+  type EditorialCluster,
   type EditorialClusteringConfig,
   type EditorialDocumentVector,
+  type EditorialScore,
 } from './types.js';
 
 const editorialLog = logger.child({ module: 'EditorialShadow' });
 const EXPECTED_EMBEDDING_DIMENSIONS = 1_536;
 const MAX_WINDOW_MS = 7 * 24 * 60 * 60 * 1_000;
 const RUN_LEASE_MS = 15 * 60_000;
+const MAX_PRE_CANDIDATE_ENRICHMENT_DOCUMENTS = 6;
 
 interface EditorialDocumentRow {
   id: string;
@@ -35,6 +41,12 @@ export interface EditorialShadowRunOptions {
   /** Controlled shadow-only input. Normal runs continue to select by event window. */
   documentIds?: string[];
   now?: Date;
+  enrichment?: EditorialShadowEnrichmentDependencies;
+}
+
+export interface EditorialShadowEnrichmentDependencies {
+  enrichTopicSources?: typeof enrichEditorialTopicSources;
+  loadIndexedDocuments?: typeof loadIndexedEditorialDocuments;
 }
 
 export interface EditorialShadowRunResult {
@@ -233,21 +245,12 @@ export async function runEditorialShadow(
       cluster,
       score: scoreEditorialCluster(cluster, options.windowEnd, config),
     }));
-    const proposedCandidates = scored.filter(({ score }) =>
-      score.status === 'SHADOW_PROPOSED').length;
-    const quasiDuplicates = scored.reduce((sum, item) =>
-      sum + item.score.quasiDuplicates, 0);
-    const durationMs = Date.now() - startedAtMs;
-    const metrics = {
-      documentsConsidered: documents.length,
-      topicsCreated: scored.length,
-      candidatesCreated: scored.length,
-      proposedCandidates,
-      suppressedCandidates: scored.length - proposedCandidates,
-      quasiDuplicates,
-      durationMs,
-    };
-
+    const persistedCandidates: Array<{
+      candidateId: string;
+      topicId: string;
+      cluster: typeof scored[number]['cluster'];
+      score: typeof scored[number]['score'];
+    }> = [];
     await client.$transaction(async (transaction) => {
       await transaction.editorialTopic.deleteMany({ where: { runId: run.id } });
       for (const { cluster, score } of scored) {
@@ -271,7 +274,6 @@ export async function runEditorialShadow(
               centroidDimensions: cluster.centroid.length,
             },
           },
-          select: { id: true },
         });
         const centroidVector = `[${cluster.centroid.join(',')}]`;
         await transaction.$executeRaw`
@@ -289,7 +291,7 @@ export async function runEditorialShadow(
             eventAt: member.document.eventAt,
           })),
         });
-        await transaction.editorialCandidate.create({
+        const candidate = await transaction.editorialCandidate.create({
           data: {
             topicId: topic.id,
             status: score.status,
@@ -302,9 +304,77 @@ export async function runEditorialShadow(
             riskScore: score.riskScore,
             riskLevel: score.riskLevel,
             shadowOnly: true,
-            rationale: score.rationale,
+            rationale: score.rationale as unknown as Prisma.InputJsonValue,
+          },
+          select: { id: true },
+        });
+        persistedCandidates.push({ candidateId: candidate.id, topicId: topic.id, cluster, score });
+      }
+    });
+
+    const finalized = await enrichSourcePoorCandidates(
+      client,
+      persistedCandidates,
+      options.windowEnd,
+      embeddingModel,
+      config,
+      options.now ?? new Date(),
+      options.enrichment,
+    );
+    const proposedCandidates = finalized.filter(({ score }) =>
+      score.status === 'SHADOW_PROPOSED').length;
+    const quasiDuplicates = finalized.reduce((sum, item) =>
+      sum + item.score.quasiDuplicates, 0);
+    const durationMs = Date.now() - startedAtMs;
+    const metrics = {
+      documentsConsidered: documents.length,
+      topicsCreated: finalized.length,
+      candidatesCreated: finalized.length,
+      proposedCandidates,
+      suppressedCandidates: finalized.length - proposedCandidates,
+      quasiDuplicates,
+      durationMs,
+    };
+
+    await client.$transaction(async (transaction) => {
+      for (const item of finalized) {
+        const initial = persistedCandidates.find((candidate) => candidate.candidateId === item.candidateId);
+        if (!initial || initial.score === item.score) continue;
+        await transaction.editorialCandidate.update({
+          where: { id: item.candidateId },
+          data: {
+            status: item.score.status,
+            editorialScore: item.score.editorialScore,
+            freshnessScore: item.score.freshnessScore,
+            sourceDiversityScore: item.score.sourceDiversityScore,
+            independentDomainScore: item.score.independentDomainScore,
+            coverageScore: item.score.coverageScore,
+            relevanceScore: item.score.relevanceScore,
+            riskScore: item.score.riskScore,
+            riskLevel: item.score.riskLevel,
+            rationale: item.score.rationale as unknown as Prisma.InputJsonValue,
           },
         });
+        await transaction.editorialTopic.update({
+          where: { id: item.topicId },
+          data: {
+            documentCount: item.cluster.members.length,
+            independentDomainCount: item.score.independentDomains,
+            firstEventAt: item.cluster.firstEventAt,
+            latestEventAt: item.cluster.latestEventAt,
+            metadata: {
+              evidenceDocuments: item.score.evidenceDocuments,
+              quasiDuplicates: item.score.quasiDuplicates,
+              centroidDimensions: item.cluster.centroid.length,
+            },
+          },
+        });
+        const centroidVector = `[${item.cluster.centroid.join(',')}]`;
+        await transaction.$executeRaw`
+          UPDATE "EditorialTopic"
+          SET "centroidEmbedding" = ${centroidVector}::vector
+          WHERE id = ${item.topicId}
+        `;
       }
       await transaction.editorialRun.update({
         where: { id: run.id },
@@ -344,6 +414,85 @@ export async function runEditorialShadow(
     });
     throw error;
   }
+}
+
+async function enrichSourcePoorCandidates(
+  client: PrismaClient,
+  candidates: Array<{
+    candidateId: string;
+    topicId: string;
+    cluster: EditorialCluster;
+    score: EditorialScore;
+  }>,
+  windowEnd: Date,
+  embeddingModel: string,
+  config: EditorialClusteringConfig,
+  now: Date,
+  dependencies: EditorialShadowEnrichmentDependencies = {},
+): Promise<typeof candidates> {
+  const enrich = dependencies.enrichTopicSources ?? enrichEditorialTopicSources;
+  const loadDocuments = dependencies.loadIndexedDocuments ?? loadIndexedEditorialDocuments;
+  const finalized = [] as typeof candidates;
+
+  for (const candidate of candidates) {
+    const sourcePoor = candidate.score.rationale.reasons.some((reason) =>
+      reason === 'insufficient_evidence_documents' || reason === 'insufficient_independent_domains');
+    if (!sourcePoor) {
+      finalized.push(candidate);
+      continue;
+    }
+
+    const requiredDomains = candidate.score.riskLevel === 'HIGH'
+      ? Math.max(config.minProposalDomains, 3)
+      : config.minProposalDomains;
+    const enrichment = await enrich(client, candidate.candidateId, {
+      requiredDomains,
+      maximumDocuments: Math.min(
+        config.maxDocuments,
+        Math.max(MAX_PRE_CANDIDATE_ENRICHMENT_DOCUMENTS, requiredDomains),
+      ),
+      now,
+      promoteCandidate: false,
+    });
+    const topic = await client.editorialTopic.findUnique({
+      where: { id: candidate.topicId },
+      select: { documents: { select: { documentId: true } } },
+    });
+    if (!topic) throw new Error(`Editorial topic not found after enrichment: ${candidate.topicId}`);
+    const documentIds = topic.documents.map((document) => document.documentId);
+    const refreshedDocuments = await loadDocuments(client, {
+      windowStart: new Date(0),
+      windowEnd,
+      embeddingModel,
+      maxDocuments: Math.max(config.maxDocuments, documentIds.length),
+      documentIds,
+    });
+    const originalIds = new Set(candidate.cluster.members.map((member) => member.document.id));
+    const additionalDocuments = refreshedDocuments.filter((document) => !originalIds.has(document.id));
+    const refreshedCluster = additionalDocuments.length > 0
+      ? extendEditorialCluster(candidate.cluster, additionalDocuments, config)
+      : candidate.cluster;
+    const rescored = scoreEditorialCluster(refreshedCluster, windowEnd, config);
+    const reasons = [...rescored.rationale.reasons];
+    if (enrichment.enrichmentStatus === 'INSUFFICIENT' &&
+      !reasons.includes('SOURCE_ENRICHMENT_INSUFFICIENT')) {
+      reasons.push('SOURCE_ENRICHMENT_INSUFFICIENT');
+    }
+    finalized.push({
+      ...candidate,
+      cluster: refreshedCluster,
+      score: {
+        ...rescored,
+        rationale: {
+          ...rescored.rationale,
+          reasons,
+          proposalEligible: reasons.length === 0,
+          enrichment,
+        },
+      },
+    });
+  }
+  return finalized;
 }
 
 function completedResult(

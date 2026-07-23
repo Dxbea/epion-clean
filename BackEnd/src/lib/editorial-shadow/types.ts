@@ -3,6 +3,7 @@ import type {
   EditorialRiskLevel,
   EditorialTopicDocumentRole,
 } from '@prisma/client';
+import type { EditorialSourceEnrichmentDiagnostics } from '../editorial-source-enrichment/source-enrichment-service.js';
 
 export const EDITORIAL_CLUSTERING_ALGORITHM_VERSION = 'event-clustering-v1';
 
@@ -72,6 +73,7 @@ export interface EditorialScore {
       evidenceDocuments: number;
       quasiDuplicates: number;
     };
+    enrichment?: EditorialSourceEnrichmentDiagnostics;
   };
 }
 

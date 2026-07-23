@@ -121,6 +121,7 @@ describe('editorial shadow run persistence', () => {
         topicId: 'topic-1',
         shadowOnly: true,
       }),
+      select: { id: true },
     });
     const corpusQuery = vi.mocked(client.$queryRaw).mock.calls[0][0] as unknown as {
       strings: string[];
@@ -165,6 +166,93 @@ describe('editorial shadow run persistence', () => {
     expect(client.editorialRun.updateMany).not.toHaveBeenCalled();
     expect(client.$queryRaw).not.toHaveBeenCalled();
     expect(client.$transaction).not.toHaveBeenCalled();
+  });
+
+  it('enriches a source-poor suppressed candidate before its final decision', async () => {
+    const initial = {
+      id: 'document-a',
+      title: 'Annonce isolée à vérifier',
+      domain: 'alpha.example',
+      language: 'fr',
+      sourceId: 'source-a',
+      categoryId: 'news',
+      eventAt: new Date('2026-07-18T11:00:00Z'),
+      embedding: vector(1, 0),
+    };
+    const enriched = {
+      ...initial,
+      id: 'document-b',
+      title: 'Confirmation indépendante de cette annonce',
+      domain: 'beta.example',
+      sourceId: 'source-b',
+      embedding: vector(0.93, 0.25),
+    };
+    const transaction = {
+      editorialTopic: {
+        deleteMany: vi.fn(async () => ({ count: 0 })),
+        create: vi.fn(async () => ({ id: 'topic-1' })),
+        update: vi.fn(async () => ({})),
+      },
+      editorialTopicDocument: { createMany: vi.fn(async () => ({ count: 1 })) },
+      editorialCandidate: {
+        create: vi.fn(async () => ({ id: 'candidate-1' })),
+        update: vi.fn(async () => ({})),
+      },
+      editorialRun: { update: vi.fn(async () => ({})) },
+      $executeRaw: vi.fn(async () => 1),
+    };
+    const client = {
+      editorialRun: {
+        createMany: vi.fn(async () => ({ count: 1 })),
+        findUnique: vi.fn(async () => runRecord()),
+        updateMany: vi.fn(async () => ({ count: 1 })),
+        update: vi.fn(async () => ({})),
+      },
+      editorialTopic: {
+        findUnique: vi.fn(async () => ({ documents: [{ documentId: 'document-a' }, { documentId: 'document-b' }] })),
+      },
+      $queryRaw: vi.fn(async () => [initial]),
+      $transaction: vi.fn(async (operation) => operation(transaction)),
+    } as unknown as PrismaClient;
+    const enrichTopicSources = vi.fn(async () => ({
+      enrichmentStatus: 'SUFFICIENT' as const,
+      sourcesFound: 2,
+      sourcesAccepted: 1,
+      sourcesRejected: 0,
+      independentDomainsBefore: 1,
+      independentDomainsAfter: 2,
+      documentsBefore: 1,
+      documentsAfter: 2,
+      independentDomains: ['alpha.example', 'beta.example'],
+      rejectionReasons: [],
+      serperQueries: [],
+      reusedCorpusDocuments: ['document-b'],
+      newlyIngestedDocuments: [],
+    }));
+
+    const result = await runEditorialShadow(client, {
+      windowStart,
+      windowEnd,
+      config,
+      now,
+      enrichment: {
+        enrichTopicSources,
+        loadIndexedDocuments: vi.fn(async () => [initial, enriched].map((document) => ({
+          ...document,
+          embedding: document.embedding.slice(1, -1).split(',').map(Number),
+        }))),
+      },
+    });
+
+    expect(enrichTopicSources).toHaveBeenCalledWith(expect.anything(), 'candidate-1', expect.objectContaining({
+      requiredDomains: 2,
+      promoteCandidate: false,
+    }));
+    expect(result.proposedCandidates).toBe(1);
+    expect(transaction.editorialCandidate.update).toHaveBeenCalledWith(expect.objectContaining({
+      where: { id: 'candidate-1' },
+      data: expect.objectContaining({ status: 'SHADOW_PROPOSED' }),
+    }));
   });
 
   it('selects an explicitly controlled indexed document without widening normal event-window selection', async () => {

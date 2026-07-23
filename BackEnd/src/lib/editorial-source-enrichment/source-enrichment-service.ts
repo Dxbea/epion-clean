@@ -1,4 +1,4 @@
-import type { PrismaClient } from '@prisma/client';
+import { Prisma, type PrismaClient } from '@prisma/client';
 import { processIngestedDocument, type DocumentCorpusResult } from '../document-corpus/document-corpus-service.js';
 import { searchDocumentCorpus, type DocumentSearchResult } from '../document-corpus/document-rag-service.js';
 import { enrichEditorialEvidenceWithSerper, type EditorialSerperEnrichmentResult } from '../editorial-verification/serper-enrichment.js';
@@ -20,6 +20,10 @@ export interface EditorialSourceEnrichmentDiagnostics {
   sourcesFound: number;
   sourcesAccepted: number;
   sourcesRejected: number;
+  independentDomainsBefore: number;
+  independentDomainsAfter: number;
+  documentsBefore: number;
+  documentsAfter: number;
   independentDomains: string[];
   rejectionReasons: Array<{ documentId: string; reason: EditorialEnrichmentRejectionReason }>;
   serperQueries: Array<{ lane: string; query: string }>;
@@ -55,13 +59,14 @@ type TopicDocument = {
 export async function enrichEditorialTopicSources(
   client: PrismaClient,
   candidateId: string,
-  input: { requiredDomains: number; maximumDocuments: number; now?: Date },
+  input: { requiredDomains: number; maximumDocuments: number; now?: Date; promoteCandidate?: boolean },
   overrides: EditorialSourceEnrichmentDependencies = {},
 ): Promise<EditorialSourceEnrichmentDiagnostics> {
   const candidate = await client.editorialCandidate.findUnique({
     where: { id: candidateId },
     select: {
       id: true,
+      rationale: true,
       topic: {
         select: {
           id: true,
@@ -85,6 +90,10 @@ export async function enrichEditorialTopicSources(
     sourcesFound: candidate.topic.documents.length,
     sourcesAccepted: 0,
     sourcesRejected: 0,
+    independentDomainsBefore: independentDomains(candidate.topic.documents).length,
+    independentDomainsAfter: 0,
+    documentsBefore: candidate.topic.documents.length,
+    documentsAfter: candidate.topic.documents.length,
     independentDomains: independentDomains(candidate.topic.documents),
     rejectionReasons: [],
     serperQueries: [],
@@ -192,16 +201,34 @@ export async function enrichEditorialTopicSources(
   }
 
   diagnostics.independentDomains = [...domains].sort();
+  diagnostics.independentDomainsAfter = diagnostics.independentDomains.length;
+  diagnostics.documentsAfter = attached.size;
   diagnostics.sourcesRejected = diagnostics.rejectionReasons.length;
   diagnostics.enrichmentStatus = domains.size >= input.requiredDomains ? 'SUFFICIENT' : 'INSUFFICIENT';
   await client.editorialTopic.update({
     where: { id: candidate.topic.id },
     data: { independentDomainCount: domains.size, documentCount: attached.size },
   });
-  if (diagnostics.enrichmentStatus === 'SUFFICIENT') {
+  await client.editorialCandidate.update({
+    where: { id: candidateId },
+    data: {
+      rationale: mergeEnrichmentRationale(candidate.rationale, diagnostics),
+    },
+  });
+  if (diagnostics.enrichmentStatus === 'SUFFICIENT' && input.promoteCandidate !== false) {
     await client.editorialCandidate.update({ where: { id: candidateId }, data: { status: 'SHADOW_PROPOSED' } });
   }
   return diagnostics;
+}
+
+function mergeEnrichmentRationale(
+  rationale: Prisma.JsonValue | null | undefined,
+  enrichment: EditorialSourceEnrichmentDiagnostics,
+): Prisma.InputJsonValue {
+  const base = rationale && typeof rationale === 'object' && !Array.isArray(rationale)
+    ? rationale as Record<string, Prisma.JsonValue>
+    : {};
+  return { ...base, enrichment: enrichment as unknown as Prisma.InputJsonValue };
 }
 
 function reject(
