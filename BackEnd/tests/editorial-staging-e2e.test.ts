@@ -4,8 +4,8 @@ import { determineStagingE2ENextStage, parseStagingE2EOptions, type StagingE2ESt
 const complete: StagingE2EState = {
   sourceExists: true, discoveredDocuments: 3, unindexedDocumentIds: [],
   run: { id: 'run-1', status: 'COMPLETED' }, brief: { id: 'brief-1' },
-  draft: { id: 'draft-1', status: 'ARTICLE_DRAFT_CREATED', currentRevisionStatus: 'APPROVED', contentHash: 'hash-1', articleStatus: 'DRAFT', humanReviewStatus: 'APPROVED', qualityGateDecision: 'PASSED', qualityGateReasons: [] },
-  verification: { id: 'verification-1', status: 'PASSED', shadowDecision: 'WOULD_AUTO_PUBLISH' },
+  draft: { id: 'draft-1', status: 'ARTICLE_DRAFT_CREATED', currentRevisionStatus: 'APPROVED', contentHash: 'hash-1', articleStatus: 'DRAFT', humanReviewStatus: 'APPROVED', qualityGateDecision: 'PASSED', qualityGateReasons: [], articleSourcesComplete: true },
+  verification: { id: 'verification-1', status: 'PASSED', shadowDecision: 'WOULD_AUTO_PUBLISH', mistralPromptVersion: 'editorial-mistral-audit-v2' },
 };
 
 describe('controlled editorial staging E2E planner', () => {
@@ -42,5 +42,15 @@ describe('controlled editorial staging E2E planner', () => {
       draft: { ...complete.draft!, status: 'ARTICLE_DRAFT_CREATED', articleStatus: 'DRAFT', humanReviewStatus: 'PENDING', qualityGateDecision: 'PASSED', qualityGateReasons: [] },
       verification: { id: 'verification-1', status: 'PASSED', shadowDecision: 'WOULD_REQUIRE_HUMAN' },
     }, { validationMode: 'quality_gate' })).toBe('COMPLETE');
+    expect(determineStagingE2ENextStage({
+      ...complete,
+      draft: { ...complete.draft!, status: 'ARTICLE_DRAFT_CREATED', articleStatus: 'DRAFT', humanReviewStatus: 'PENDING', qualityGateDecision: 'PASSED', qualityGateReasons: [], articleSourcesComplete: false },
+      verification: { id: 'verification-1', status: 'HUMAN_REVIEW_REQUIRED', shadowDecision: null, mistralPromptVersion: 'editorial-mistral-audit-v1' },
+    }, { validationMode: 'quality_gate' })).toBe('VERIFICATION');
+    expect(determineStagingE2ENextStage({
+      ...complete,
+      draft: { ...complete.draft!, status: 'ARTICLE_DRAFT_CREATED', articleStatus: 'DRAFT', humanReviewStatus: 'PENDING', qualityGateDecision: 'PASSED', qualityGateReasons: [], articleSourcesComplete: true },
+      verification: { id: 'verification-1', status: 'HUMAN_REVIEW_REQUIRED', shadowDecision: null, mistralPromptVersion: 'editorial-mistral-audit-v1' },
+    }, { validationMode: 'quality_gate' })).toBe('VERIFICATION_RETRY_REQUIRED');
   });
 });

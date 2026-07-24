@@ -172,6 +172,43 @@ describe('editorial verification orchestration', () => {
     }
   });
 
+  it('keeps the human approval requirement when quality_gate mode is absent', async () => {
+    const previousMode = process.env.EDITORIAL_VALIDATION_MODE;
+    delete process.env.EDITORIAL_VALIDATION_MODE;
+    try {
+      const client = clientFixture();
+      const pendingHumanDraft = draftFixture();
+      pendingHumanDraft.qualityGate.humanReviewStatus = 'PENDING';
+      client.editorialDraft.findUnique.mockResolvedValue(pendingHumanDraft);
+      await expect(verifyEditorialDraftForFinalization(client, { draftId: 'draft-1', expectedContentHash: 'content-hash' }, {
+        mistralAuditor: passingAuditor(), sourceHydrator: { hydrate: vi.fn() } as any,
+        finalizeArticle: vi.fn() as any, now: () => now,
+      })).rejects.toThrow('existing automated and human gates');
+    } finally {
+      if (previousMode === undefined) delete process.env.EDITORIAL_VALIDATION_MODE;
+      else process.env.EDITORIAL_VALIDATION_MODE = previousMode;
+    }
+  });
+
+  it('does not require a Mistral counterpoint citation when the draft does not cite counterpoint evidence', async () => {
+    const client = clientFixture();
+    const mistralAuditor = {
+      model: 'mistral-small-latest',
+      audit: vi.fn(async () => ({
+        outcome: 'PASSED', available: true, validJson: true, model: 'mistral-small-latest',
+        claims: [{ claimKey: 'claim-1', verdict: 'SUPPORTED', evidenceKeys: ['ev_1'], citationValid: true, contradiction: false, agreesWithPrimary: true, explanation: 'Confirmed' }],
+        contradictions: [], invalidEvidenceKeys: [], reasons: [], inputTokens: 10, outputTokens: 5, estimatedCostMicros: null,
+      })),
+    } as any;
+    const result = await verifyEditorialDraftForFinalization(client, { draftId: 'draft-1', expectedContentHash: 'content-hash' }, {
+      mistralAuditor, sourceHydrator: { hydrate: vi.fn(async (evidence: any, index: number) => sourceEntry(index, evidence.domain, evidence.url, evidence.sourceId)) },
+      finalizeArticle: vi.fn() as any, now: () => now,
+    });
+    expect(result.outcome).toBe('HUMAN_REVIEW_REQUIRED');
+    expect(result.mistralReasons).toContain('MISTRAL_INSUFFICIENT_CITED_DOMAIN_DIVERSITY');
+    expect(result.mistralReasons).not.toContain('MISTRAL_COUNTERPOINT_NOT_CITED');
+  });
+
   it('returns the existing finalized run idempotently for the same revision and hash', async () => {
     const client = clientFixture();
     const storedDraft = draftFixture();

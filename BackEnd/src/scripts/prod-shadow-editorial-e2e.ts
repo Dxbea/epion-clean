@@ -10,10 +10,12 @@ import { createEditorialBriefQueues, enqueueEditorialBriefJob, prepareEditorialB
 import { buildEditorialDraftJobId, createEditorialDraftQueues, enqueueEditorialDraftJob, prepareEditorialDraftJob } from '../lib/editorial-draft/draft-queue.js';
 import { createEditorialVerificationQueues } from '../lib/editorial-verification/verification-queue.js';
 import { enqueueEditorialVerificationForDraft } from '../lib/editorial-verification/enqueue-service.js';
+import { EDITORIAL_MISTRAL_PROMPT_VERSION } from '../lib/editorial-verification/types.js';
 import { resolveEditorialValidationMode, type EditorialValidationMode } from '../lib/editorial-draft/validation-mode.js';
+import { normalizeSourceDomain } from '../lib/source-profile.js';
 
 export const PROD_SHADOW_FORBIDDEN_ACTIONS = ['authorize-publication', 'publish'] as const;
-export type ProdShadowE2EStage = 'DISCOVERY' | 'DOCUMENT_INDEXING' | 'CLUSTERING' | 'BRIEF' | 'DRAFT' | 'QUALITY_GATE_BLOCKED' | 'WAITING_PIPELINE' | 'WAITING_HUMAN_APPROVAL' | 'VERIFICATION' | 'COMPLETE';
+export type ProdShadowE2EStage = 'DISCOVERY' | 'DOCUMENT_INDEXING' | 'CLUSTERING' | 'BRIEF' | 'DRAFT' | 'QUALITY_GATE_BLOCKED' | 'WAITING_PIPELINE' | 'WAITING_HUMAN_APPROVAL' | 'VERIFICATION' | 'VERIFICATION_RETRY_REQUIRED' | 'COMPLETE';
 
 export interface ProdShadowE2EState {
   sourceExists: boolean;
@@ -32,8 +34,8 @@ export interface ProdShadowE2EState {
     sourcesAccepted: number | null;
     sourcesRejected: number | null;
   } | null;
-  draft: { id: string; briefId: string; status: string; currentRevisionStatus: string | null; contentHash: string | null; articleStatus: string | null; publishedAt: Date | null; humanReviewStatus: string | null; qualityGateDecision: string | null; qualityGateReasons: string[]; publicationAuditCount: number } | null;
-  verification: { id: string; status: string; shadowDecision: string | null } | null;
+  draft: { id: string; briefId: string; status: string; currentRevisionStatus: string | null; contentHash: string | null; articleStatus: string | null; publishedAt: Date | null; humanReviewStatus: string | null; qualityGateDecision: string | null; qualityGateReasons: string[]; publicationAuditCount: number; articleSourcesComplete?: boolean; articleSourceDomains?: string[]; expectedArticleSourceDomains?: string[] } | null;
+  verification: { id: string; status: string; shadowDecision: string | null; mistralPromptVersion?: string | null } | null;
 }
 
 export interface ProdShadowEmptyRun {
@@ -154,6 +156,8 @@ export function determineProdShadowE2ENextStage(state: ProdShadowE2EState, optio
     if (state.draft.status === 'QUALITY_FAILED' || state.draft.qualityGateDecision === 'FAILED') return 'QUALITY_GATE_BLOCKED';
     if (state.draft.status === 'READY_FOR_REVIEW' && state.draft.currentRevisionStatus === 'GATE_PASSED' && state.draft.qualityGateDecision === 'PASSED') return 'VERIFICATION';
     if (state.draft.status === 'ARTICLE_DRAFT_CREATED' && state.draft.articleStatus === 'DRAFT' && state.draft.qualityGateDecision === 'PASSED') {
+      if (state.draft.articleSourcesComplete === false) return 'VERIFICATION';
+      if (verificationNeedsRetry(state.verification)) return 'VERIFICATION_RETRY_REQUIRED';
       return state.verification?.shadowDecision ? 'COMPLETE' : state.verification?.status === 'PENDING' || state.verification?.status === 'RUNNING' ? 'WAITING_PIPELINE' : 'VERIFICATION';
     }
     return 'WAITING_PIPELINE';
@@ -193,16 +197,33 @@ export async function inspectProdShadowE2EState(options: ReturnType<typeof parse
   const draft = options.draftId
     ? await prisma.editorialDraft.findUnique({
       where: { id: options.draftId },
-      select: { id: true, briefId: true, status: true, currentRevision: { select: { status: true } }, contentHash: true, article: { select: { status: true, publishedAt: true } }, qualityGate: { select: { humanReviewStatus: true, automatedDecision: true, automatedReasons: true } }, auditLogs: { where: { action: 'ARTICLE_PUBLISHED' }, select: { id: true } } },
+      select: {
+        id: true, briefId: true, status: true, currentRevision: { select: { status: true } }, contentHash: true,
+        article: { select: { status: true, publishedAt: true, articleSources: { select: { source: { select: { domain: true } } } } } },
+        brief: { select: { dossier: { select: { evidence: { select: { role: true, domain: true } } } } } },
+        claims: { select: { evidence: { where: { criticConfirmed: true }, select: { briefEvidence: { select: { domain: true } } } } } },
+        qualityGate: { select: { humanReviewStatus: true, automatedDecision: true, automatedReasons: true } },
+        auditLogs: { where: { action: 'ARTICLE_PUBLISHED' }, select: { id: true } },
+      },
     })
     : options.retryDraft && options.briefId
       ? await prisma.editorialDraft.findFirst({
         where: { briefId: options.briefId, status: 'FAILED' },
         orderBy: { createdAt: 'desc' },
-        select: { id: true, briefId: true, status: true, currentRevision: { select: { status: true } }, contentHash: true, article: { select: { status: true, publishedAt: true } }, qualityGate: { select: { humanReviewStatus: true, automatedDecision: true, automatedReasons: true } }, auditLogs: { where: { action: 'ARTICLE_PUBLISHED' }, select: { id: true } } },
+        select: {
+          id: true, briefId: true, status: true, currentRevision: { select: { status: true } }, contentHash: true,
+          article: { select: { status: true, publishedAt: true, articleSources: { select: { source: { select: { domain: true } } } } } },
+          brief: { select: { dossier: { select: { evidence: { select: { role: true, domain: true } } } } } },
+          claims: { select: { evidence: { where: { criticConfirmed: true }, select: { briefEvidence: { select: { domain: true } } } } } },
+          qualityGate: { select: { humanReviewStatus: true, automatedDecision: true, automatedReasons: true } },
+          auditLogs: { where: { action: 'ARTICLE_PUBLISHED' }, select: { id: true } },
+        },
       })
       : null;
-  const verification = draft ? await prisma.editorialVerificationRun.findFirst({ where: { draftId: draft.id }, orderBy: { createdAt: 'desc' }, select: { id: true, status: true, shadowDecision: true } }) : null;
+  const verification = draft ? await prisma.editorialVerificationRun.findFirst({ where: { draftId: draft.id }, orderBy: { createdAt: 'desc' }, select: { id: true, status: true, shadowDecision: true, mistralPromptVersion: true } }) : null;
+  const expectedArticleSourceDomains = draft ? expectedSourceDomains(draft.brief?.dossier.evidence ?? [], draft.claims) : [];
+  const articleSourceDomains = draft?.article?.articleSources.map((item) => normalizeSourceDomain(item.source.domain)).filter((domain): domain is string => Boolean(domain)) ?? [];
+  const articleSourcesComplete = !draft?.article || expectedArticleSourceDomains.every((domain) => articleSourceDomains.includes(domain));
   return {
     sourceExists: Boolean(source), sourceEnabled: source?.enabled ?? false, discoveredDocuments: documents.length,
     ...documentState,
@@ -213,8 +234,8 @@ export async function inspectProdShadowE2EState(options: ReturnType<typeof parse
     run,
     brief: brief ? { id: brief.id } : null,
     enrichment: brief ? enrichmentDiagnostic(brief.dossier.metrics, jsonStringArray(brief.dossier.sourceDomains)) : null,
-    draft: draft ? { id: draft.id, briefId: draft.briefId, status: draft.status, currentRevisionStatus: draft.currentRevision?.status ?? null, contentHash: draft.contentHash, articleStatus: draft.article?.status ?? null, publishedAt: draft.article?.publishedAt ?? null, humanReviewStatus: draft.qualityGate?.humanReviewStatus ?? null, qualityGateDecision: draft.qualityGate?.automatedDecision ?? null, qualityGateReasons: jsonStringArray(draft.qualityGate?.automatedReasons), publicationAuditCount: draft.auditLogs.length } : null,
-    verification,
+    draft: draft ? { id: draft.id, briefId: draft.briefId, status: draft.status, currentRevisionStatus: draft.currentRevision?.status ?? null, contentHash: draft.contentHash, articleStatus: draft.article?.status ?? null, publishedAt: draft.article?.publishedAt ?? null, humanReviewStatus: draft.qualityGate?.humanReviewStatus ?? null, qualityGateDecision: draft.qualityGate?.automatedDecision ?? null, qualityGateReasons: jsonStringArray(draft.qualityGate?.automatedReasons), publicationAuditCount: draft.auditLogs.length, articleSourcesComplete, articleSourceDomains, expectedArticleSourceDomains } : null,
+    verification: verification ? { ...verification } : null,
   };
 }
 
@@ -270,10 +291,11 @@ export async function advanceProdShadowE2E(stage: ProdShadowE2EStage, state: Pro
       await enqueueEditorialDraftJob(draft.draftQueue, data);
       return { mode: 'ENQUEUED', stage, nextArgument: '--draft-id=<EditorialDraft.id>', humanApprovalRequired: options.validationMode !== 'quality_gate' };
     }
-    if (stage === 'VERIFICATION') {
+    if (stage === 'VERIFICATION' || stage === 'VERIFICATION_RETRY_REQUIRED') {
       if (!state.draft?.contentHash) throw new Error('Current draft content hash is required');
       assertDraftRemainsUnpublished(state.draft);
-      return await enqueueEditorialVerificationForDraft(prisma, { draftId: state.draft.id, expectedContentHash: state.draft.contentHash }, { queue: verification.verificationQueue });
+      const result = await enqueueEditorialVerificationForDraft(prisma, { draftId: state.draft.id, expectedContentHash: state.draft.contentHash }, { queue: verification.verificationQueue });
+      return stage === 'VERIFICATION_RETRY_REQUIRED' ? { ...result, retry: 'CONTROLLED_VERIFICATION_RETRY' as const } : result;
     }
     throw new Error(`Unsupported production shadow stage: ${stage}`);
   } finally {
@@ -286,6 +308,17 @@ function assertDraftRemainsUnpublished(draft: NonNullable<ProdShadowE2EState['dr
   if (draft.articleStatus === 'PUBLISHED' || draft.publishedAt || draft.publicationAuditCount > 0) {
     throw new Error('Production shadow safety violation: editorial article was published or has a publication audit');
   }
+}
+function expectedSourceDomains(evidence: Array<{ role: string; domain: string }>, claims: Array<{ evidence: Array<{ briefEvidence: { domain: string } }> }>): string[] {
+  return [...new Set([
+    ...evidence.filter((item) => item.role === 'PRIMARY').map((item) => normalizeSourceDomain(item.domain)),
+    ...claims.flatMap((claim) => claim.evidence.map((item) => normalizeSourceDomain(item.briefEvidence.domain))),
+  ].filter((domain): domain is string => Boolean(domain)))].sort();
+}
+function verificationNeedsRetry(verification: ProdShadowE2EState['verification']): boolean {
+  if (!verification) return false;
+  if (verification.mistralPromptVersion && verification.mistralPromptVersion !== EDITORIAL_MISTRAL_PROMPT_VERSION) return true;
+  return verification.status !== 'PENDING' && verification.status !== 'RUNNING' && !verification.shadowDecision;
 }
 function isTerminalBlockedDocument(document: ProdShadowDocumentStateInput): boolean {
   return document.status === 'BLOCKED'

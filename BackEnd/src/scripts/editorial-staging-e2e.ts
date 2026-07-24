@@ -9,11 +9,13 @@ import { createEditorialBriefQueues, enqueueEditorialBriefJob, prepareEditorialB
 import { createEditorialDraftQueues, enqueueEditorialDraftJob, prepareEditorialDraftJob } from '../lib/editorial-draft/draft-queue.js';
 import { createEditorialVerificationQueues } from '../lib/editorial-verification/verification-queue.js';
 import { enqueueEditorialVerificationForDraft } from '../lib/editorial-verification/enqueue-service.js';
+import { EDITORIAL_MISTRAL_PROMPT_VERSION } from '../lib/editorial-verification/types.js';
 import { resolveEditorialValidationMode, type EditorialValidationMode } from '../lib/editorial-draft/validation-mode.js';
+import { normalizeSourceDomain } from '../lib/source-profile.js';
 
 export type StagingE2EStage =
   | 'DISCOVERY' | 'DOCUMENT_INDEXING' | 'CLUSTERING' | 'BRIEF' | 'DRAFT'
-  | 'QUALITY_GATE_BLOCKED' | 'WAITING_PIPELINE' | 'WAITING_HUMAN_APPROVAL' | 'VERIFICATION' | 'COMPLETE';
+  | 'QUALITY_GATE_BLOCKED' | 'WAITING_PIPELINE' | 'WAITING_HUMAN_APPROVAL' | 'VERIFICATION' | 'VERIFICATION_RETRY_REQUIRED' | 'COMPLETE';
 
 export interface StagingE2EState {
   sourceExists: boolean;
@@ -21,8 +23,8 @@ export interface StagingE2EState {
   unindexedDocumentIds: string[];
   run: { id: string; status: string } | null;
   brief: { id: string } | null;
-  draft: { id: string; status: string; currentRevisionStatus: string | null; contentHash: string | null; articleStatus: string | null; humanReviewStatus: string | null; qualityGateDecision: string | null; qualityGateReasons: string[] } | null;
-  verification: { id: string; status: string; shadowDecision: string | null } | null;
+  draft: { id: string; status: string; currentRevisionStatus: string | null; contentHash: string | null; articleStatus: string | null; humanReviewStatus: string | null; qualityGateDecision: string | null; qualityGateReasons: string[]; articleSourcesComplete?: boolean; articleSourceDomains?: string[]; expectedArticleSourceDomains?: string[] } | null;
+  verification: { id: string; status: string; shadowDecision: string | null; mistralPromptVersion?: string | null } | null;
 }
 
 export function determineStagingE2ENextStage(state: StagingE2EState, options: { validationMode?: EditorialValidationMode } = {}): StagingE2EStage {
@@ -36,6 +38,8 @@ export function determineStagingE2ENextStage(state: StagingE2EState, options: { 
     if (state.draft.status === 'QUALITY_FAILED' || state.draft.qualityGateDecision === 'FAILED') return 'QUALITY_GATE_BLOCKED';
     if (state.draft.status === 'READY_FOR_REVIEW' && state.draft.currentRevisionStatus === 'GATE_PASSED' && state.draft.qualityGateDecision === 'PASSED') return 'VERIFICATION';
     if (state.draft.status === 'ARTICLE_DRAFT_CREATED' && state.draft.articleStatus === 'DRAFT' && state.draft.qualityGateDecision === 'PASSED') {
+      if (state.draft.articleSourcesComplete === false) return 'VERIFICATION';
+      if (verificationNeedsRetry(state.verification)) return 'VERIFICATION_RETRY_REQUIRED';
       return state.verification?.shadowDecision ? 'COMPLETE' : state.verification?.status === 'PENDING' || state.verification?.status === 'RUNNING' ? 'WAITING_PIPELINE' : 'VERIFICATION';
     }
     return 'WAITING_PIPELINE';
@@ -66,18 +70,27 @@ export async function inspectStagingE2EState(options: ReturnType<typeof parseSta
   const brief = options.briefId ? await prisma.editorialBrief.findUnique({ where: { id: options.briefId }, select: { id: true } }) : null;
   const draft = options.draftId ? await prisma.editorialDraft.findUnique({
     where: { id: options.draftId },
-    select: { id: true, status: true, currentRevision: { select: { status: true } }, contentHash: true, article: { select: { status: true } }, qualityGate: { select: { humanReviewStatus: true, automatedDecision: true, automatedReasons: true } } },
+    select: {
+      id: true, status: true, currentRevision: { select: { status: true } }, contentHash: true,
+      article: { select: { status: true, articleSources: { select: { source: { select: { domain: true } } } } } },
+      brief: { select: { dossier: { select: { evidence: { select: { role: true, domain: true } } } } } },
+      claims: { select: { evidence: { where: { criticConfirmed: true }, select: { briefEvidence: { select: { domain: true } } } } } },
+      qualityGate: { select: { humanReviewStatus: true, automatedDecision: true, automatedReasons: true } },
+    },
   }) : null;
   const verification = draft ? await prisma.editorialVerificationRun.findFirst({
     where: { draftId: draft.id }, orderBy: { createdAt: 'desc' },
-    select: { id: true, status: true, shadowDecision: true },
+    select: { id: true, status: true, shadowDecision: true, mistralPromptVersion: true },
   }) : null;
+  const expectedArticleSourceDomains = draft ? expectedSourceDomains(draft.brief?.dossier.evidence ?? [], draft.claims) : [];
+  const articleSourceDomains = draft?.article?.articleSources.map((item) => normalizeSourceDomain(item.source.domain)).filter((domain): domain is string => Boolean(domain)) ?? [];
+  const articleSourcesComplete = !draft?.article || expectedArticleSourceDomains.every((domain) => articleSourceDomains.includes(domain));
   return {
     sourceExists: Boolean(source), discoveredDocuments: documents.length,
     unindexedDocumentIds: documents.filter((document) => !document.isIndexed || document.status !== 'INDEXED').map((document) => document.id),
     run, brief,
-    draft: draft ? { id: draft.id, status: draft.status, currentRevisionStatus: draft.currentRevision?.status ?? null, contentHash: draft.contentHash, articleStatus: draft.article?.status ?? null, humanReviewStatus: draft.qualityGate?.humanReviewStatus ?? null, qualityGateDecision: draft.qualityGate?.automatedDecision ?? null, qualityGateReasons: jsonStringArray(draft.qualityGate?.automatedReasons) } : null,
-    verification,
+    draft: draft ? { id: draft.id, status: draft.status, currentRevisionStatus: draft.currentRevision?.status ?? null, contentHash: draft.contentHash, articleStatus: draft.article?.status ?? null, humanReviewStatus: draft.qualityGate?.humanReviewStatus ?? null, qualityGateDecision: draft.qualityGate?.automatedDecision ?? null, qualityGateReasons: jsonStringArray(draft.qualityGate?.automatedReasons), articleSourcesComplete, articleSourceDomains, expectedArticleSourceDomains } : null,
+    verification: verification ? { ...verification } : null,
   };
 }
 
@@ -123,9 +136,10 @@ export async function advanceStagingE2E(stage: StagingE2EStage, state: StagingE2
       await enqueueEditorialDraftJob(draft.draftQueue, prepareEditorialDraftJob({ briefId: state.brief.id }));
       return { mode: 'ENQUEUED', stage, nextArgument: '--draft-id=<EditorialDraft.id>', humanApprovalRequired: options.validationMode !== 'quality_gate' };
     }
-    if (stage === 'VERIFICATION') {
+    if (stage === 'VERIFICATION' || stage === 'VERIFICATION_RETRY_REQUIRED') {
       if (!state.draft?.contentHash) throw new Error('Current draft content hash is required');
-      return await enqueueEditorialVerificationForDraft(prisma, { draftId: state.draft.id, expectedContentHash: state.draft.contentHash }, { queue: verification.verificationQueue });
+      const result = await enqueueEditorialVerificationForDraft(prisma, { draftId: state.draft.id, expectedContentHash: state.draft.contentHash }, { queue: verification.verificationQueue });
+      return stage === 'VERIFICATION_RETRY_REQUIRED' ? { ...result, retry: 'CONTROLLED_VERIFICATION_RETRY' as const } : result;
     }
     throw new Error(`Unsupported staging E2E stage: ${stage}`);
   } finally {
@@ -135,6 +149,17 @@ export async function advanceStagingE2E(stage: StagingE2EStage, state: StagingE2
 }
 
 function jsonStringArray(value: unknown): string[] { return Array.isArray(value) ? value.filter((item): item is string => typeof item === 'string') : []; }
+function expectedSourceDomains(evidence: Array<{ role: string; domain: string }>, claims: Array<{ evidence: Array<{ briefEvidence: { domain: string } }> }>): string[] {
+  return [...new Set([
+    ...evidence.filter((item) => item.role === 'PRIMARY').map((item) => normalizeSourceDomain(item.domain)),
+    ...claims.flatMap((claim) => claim.evidence.map((item) => normalizeSourceDomain(item.briefEvidence.domain))),
+  ].filter((domain): domain is string => Boolean(domain)))].sort();
+}
+function verificationNeedsRetry(verification: StagingE2EState['verification']): boolean {
+  if (!verification) return false;
+  if (verification.mistralPromptVersion && verification.mistralPromptVersion !== EDITORIAL_MISTRAL_PROMPT_VERSION) return true;
+  return verification.status !== 'PENDING' && verification.status !== 'RUNNING' && !verification.shadowDecision;
+}
 function value(argv: string[], name: string): string | null { const prefix = `${name}=`; return argv.find((argument) => argument.startsWith(prefix))?.slice(prefix.length).trim() || null; }
 
 if (process.argv[1] === fileURLToPath(import.meta.url)) {

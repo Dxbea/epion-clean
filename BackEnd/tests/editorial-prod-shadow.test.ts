@@ -45,9 +45,9 @@ const complete: ProdShadowE2EState = {
   brief: { id: 'brief-1' },
   draft: {
     id: 'draft-1', briefId: 'brief-1', status: 'ARTICLE_DRAFT_CREATED', currentRevisionStatus: 'APPROVED', contentHash: 'hash-1',
-    articleStatus: 'DRAFT', publishedAt: null, humanReviewStatus: 'APPROVED', qualityGateDecision: 'PASSED', qualityGateReasons: [], publicationAuditCount: 0,
+    articleStatus: 'DRAFT', publishedAt: null, humanReviewStatus: 'APPROVED', qualityGateDecision: 'PASSED', qualityGateReasons: [], publicationAuditCount: 0, articleSourcesComplete: true,
   },
-  verification: { id: 'verification-1', status: 'PASSED', shadowDecision: 'WOULD_AUTO_PUBLISH' },
+  verification: { id: 'verification-1', status: 'PASSED', shadowDecision: 'WOULD_AUTO_PUBLISH', mistralPromptVersion: 'editorial-mistral-audit-v2' },
 };
 
 describe('production-shadow editorial safety', () => {
@@ -99,6 +99,16 @@ describe('production-shadow editorial safety', () => {
       draft: { ...complete.draft!, status: 'ARTICLE_DRAFT_CREATED', articleStatus: 'DRAFT', humanReviewStatus: 'PENDING', qualityGateDecision: 'PASSED', qualityGateReasons: [] },
       verification: { id: 'verification-1', status: 'PASSED', shadowDecision: 'WOULD_REQUIRE_HUMAN' },
     }, { validationMode: 'quality_gate' })).toBe('COMPLETE');
+    expect(determineProdShadowE2ENextStage({
+      ...complete,
+      draft: { ...complete.draft!, status: 'ARTICLE_DRAFT_CREATED', articleStatus: 'DRAFT', humanReviewStatus: 'PENDING', qualityGateDecision: 'PASSED', qualityGateReasons: [], articleSourcesComplete: false },
+      verification: { id: 'verification-1', status: 'HUMAN_REVIEW_REQUIRED', shadowDecision: null, mistralPromptVersion: 'editorial-mistral-audit-v1' },
+    }, { validationMode: 'quality_gate' })).toBe('VERIFICATION');
+    expect(determineProdShadowE2ENextStage({
+      ...complete,
+      draft: { ...complete.draft!, status: 'ARTICLE_DRAFT_CREATED', articleStatus: 'DRAFT', humanReviewStatus: 'PENDING', qualityGateDecision: 'PASSED', qualityGateReasons: [], articleSourcesComplete: true },
+      verification: { id: 'verification-1', status: 'HUMAN_REVIEW_REQUIRED', shadowDecision: null, mistralPromptVersion: 'editorial-mistral-audit-v1' },
+    }, { validationMode: 'quality_gate' })).toBe('VERIFICATION_RETRY_REQUIRED');
   });
 
   it('reports a robots-blocked document without re-queueing it for indexing', () => {

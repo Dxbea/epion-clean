@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { describeEditorialDraftValidationError, normalizeEditorialDraftArtifact, validateEditorialClaimReviews, validateEditorialDraftArtifact } from '../src/lib/editorial-draft/draft-validation.js';
+import { describeEditorialDraftValidationError, normalizeEditorialDraftArtifact, validateEditorialClaimReviews, validateEditorialDraftArtifact, validateEditorialDraftClaimDomainCoverage } from '../src/lib/editorial-draft/draft-validation.js';
 import { renderEditorialDraftHtml } from '../src/lib/editorial-draft/draft-service.js';
 import { draftEvidence, validArtifact } from './fixtures/editorial/draft.js';
 
@@ -45,5 +45,15 @@ describe('controlled editorial draft validation', () => {
     expect(() => validateEditorialClaimReviews([
       { claimKey: 'claim_1', verdict: 'SUPPORTED', explanation: 'Supported.', evidenceKeys: ['ev_one'] },
     ], artifact)).toThrow('every claim exactly once');
+  });
+
+  it('requires citations to cover two independent domains when both are available', () => {
+    const singleDomainArtifact = {
+      ...validArtifact,
+      claims: validArtifact.claims.map((claim) => ({ ...claim, evidenceKeys: ['ev_two'] })),
+    };
+    const artifact = validateEditorialDraftArtifact(singleDomainArtifact, draftEvidence, 10);
+    expect(() => validateEditorialDraftClaimDomainCoverage(artifact, draftEvidence)).toThrow('independent evidence domains');
+    expect(() => validateEditorialDraftClaimDomainCoverage(validArtifact, draftEvidence)).not.toThrow();
   });
 });
