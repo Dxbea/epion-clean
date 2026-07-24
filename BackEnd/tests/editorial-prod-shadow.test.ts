@@ -44,7 +44,7 @@ const complete: ProdShadowE2EState = {
   run: { id: 'run-1', status: 'COMPLETED', topicCount: 1, documentsConsidered: 1 },
   brief: { id: 'brief-1' },
   draft: {
-    id: 'draft-1', briefId: 'brief-1', status: 'ARTICLE_DRAFT_CREATED', contentHash: 'hash-1',
+    id: 'draft-1', briefId: 'brief-1', status: 'ARTICLE_DRAFT_CREATED', currentRevisionStatus: 'APPROVED', contentHash: 'hash-1',
     articleStatus: 'DRAFT', publishedAt: null, humanReviewStatus: 'APPROVED', qualityGateDecision: 'PASSED', qualityGateReasons: [], publicationAuditCount: 0,
   },
   verification: { id: 'verification-1', status: 'PASSED', shadowDecision: 'WOULD_AUTO_PUBLISH' },
@@ -86,7 +86,7 @@ describe('production-shadow editorial safety', () => {
   it('uses only the quality gate in opt-in mode and exposes a blocked failure', () => {
     const passedWithoutHumanApproval = {
       ...complete,
-      draft: { ...complete.draft!, status: 'READY_FOR_REVIEW', articleStatus: null, humanReviewStatus: 'PENDING', qualityGateDecision: 'PASSED', qualityGateReasons: [] },
+      draft: { ...complete.draft!, status: 'READY_FOR_REVIEW', currentRevisionStatus: 'GATE_PASSED', articleStatus: null, humanReviewStatus: 'PENDING', qualityGateDecision: 'PASSED', qualityGateReasons: [] },
       verification: null,
     };
     expect(determineProdShadowE2ENextStage(passedWithoutHumanApproval, { validationMode: 'quality_gate' })).toBe('VERIFICATION');
@@ -94,6 +94,11 @@ describe('production-shadow editorial safety', () => {
       ...passedWithoutHumanApproval,
       draft: { ...passedWithoutHumanApproval.draft!, status: 'QUALITY_FAILED', qualityGateDecision: 'FAILED', qualityGateReasons: ['INSUFFICIENT_INDEPENDENT_DOMAINS'] },
     }, { validationMode: 'quality_gate' })).toBe('QUALITY_GATE_BLOCKED');
+    expect(determineProdShadowE2ENextStage({
+      ...complete,
+      draft: { ...complete.draft!, status: 'ARTICLE_DRAFT_CREATED', articleStatus: 'DRAFT', humanReviewStatus: 'PENDING', qualityGateDecision: 'PASSED', qualityGateReasons: [] },
+      verification: { id: 'verification-1', status: 'PASSED', shadowDecision: 'WOULD_REQUIRE_HUMAN' },
+    }, { validationMode: 'quality_gate' })).toBe('COMPLETE');
   });
 
   it('reports a robots-blocked document without re-queueing it for indexing', () => {

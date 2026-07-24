@@ -24,10 +24,10 @@ export async function materializeQualityGateArticleDraft(
     throw new Error('Quality-gate validation requires a complete editorial draft artifact');
   }
   const qualityGate = draft.qualityGate;
-  if (draft.status !== 'READY_FOR_REVIEW' || draft.qualityGate.automatedDecision !== 'PASSED') {
+  if (draft.status !== 'READY_FOR_REVIEW' || draft.currentRevision.status !== 'GATE_PASSED' || draft.qualityGate.automatedDecision !== 'PASSED') {
     throw new Error(`Quality-gate validation cannot materialize draft: ${draft.qualityGate.automatedDecision}`);
   }
-  if (draft.qualityGate.gateVersion !== EDITORIAL_QUALITY_GATE_VERSION || draft.qualityGate.evaluatedContentHash !== draft.contentHash) {
+  if (draft.currentRevision.contentHash !== draft.contentHash || draft.qualityGate.gateVersion !== EDITORIAL_QUALITY_GATE_VERSION || draft.qualityGate.evaluatedContentHash !== draft.contentHash) {
     throw new Error('Quality-gate validation requires a current evaluated content hash');
   }
   const artifact = draft.structuredContent as unknown as EditorialDraftArtifact;
@@ -101,7 +101,7 @@ async function loadMaterializableDraft(client: PrismaClient, draftId: string) {
       contentHash: true,
       structuredContent: true,
       generatedAt: true,
-      currentRevision: { select: { id: true, version: true, contentHash: true } },
+      currentRevision: { select: { id: true, version: true, status: true, contentHash: true } },
       qualityGate: { select: { id: true, gateVersion: true, evaluatedContentHash: true, automatedDecision: true } },
       article: { select: { id: true, status: true } },
       claims: {

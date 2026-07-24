@@ -9,10 +9,11 @@ import { createEditorialBriefQueues, enqueueEditorialBriefJob, prepareEditorialB
 import { createEditorialDraftQueues, enqueueEditorialDraftJob, prepareEditorialDraftJob } from '../lib/editorial-draft/draft-queue.js';
 import { createEditorialVerificationQueues } from '../lib/editorial-verification/verification-queue.js';
 import { enqueueEditorialVerificationForDraft } from '../lib/editorial-verification/enqueue-service.js';
+import { resolveEditorialValidationMode, type EditorialValidationMode } from '../lib/editorial-draft/validation-mode.js';
 
 export type StagingE2EStage =
   | 'DISCOVERY' | 'DOCUMENT_INDEXING' | 'CLUSTERING' | 'BRIEF' | 'DRAFT'
-  | 'WAITING_PIPELINE' | 'WAITING_HUMAN_APPROVAL' | 'VERIFICATION' | 'COMPLETE';
+  | 'QUALITY_GATE_BLOCKED' | 'WAITING_PIPELINE' | 'WAITING_HUMAN_APPROVAL' | 'VERIFICATION' | 'COMPLETE';
 
 export interface StagingE2EState {
   sourceExists: boolean;
@@ -20,17 +21,25 @@ export interface StagingE2EState {
   unindexedDocumentIds: string[];
   run: { id: string; status: string } | null;
   brief: { id: string } | null;
-  draft: { id: string; status: string; contentHash: string | null; articleStatus: string | null; humanReviewStatus: string | null } | null;
+  draft: { id: string; status: string; currentRevisionStatus: string | null; contentHash: string | null; articleStatus: string | null; humanReviewStatus: string | null; qualityGateDecision: string | null; qualityGateReasons: string[] } | null;
   verification: { id: string; status: string; shadowDecision: string | null } | null;
 }
 
-export function determineStagingE2ENextStage(state: StagingE2EState): StagingE2EStage {
+export function determineStagingE2ENextStage(state: StagingE2EState, options: { validationMode?: EditorialValidationMode } = {}): StagingE2EStage {
   if (!state.sourceExists || state.discoveredDocuments === 0) return 'DISCOVERY';
   if (state.unindexedDocumentIds.length > 0) return 'DOCUMENT_INDEXING';
   if (!state.run) return 'CLUSTERING';
   if (state.run.status !== 'COMPLETED') return 'WAITING_PIPELINE';
   if (!state.brief) return 'BRIEF';
   if (!state.draft) return 'DRAFT';
+  if ((options.validationMode ?? resolveEditorialValidationMode()) === 'quality_gate') {
+    if (state.draft.status === 'QUALITY_FAILED' || state.draft.qualityGateDecision === 'FAILED') return 'QUALITY_GATE_BLOCKED';
+    if (state.draft.status === 'READY_FOR_REVIEW' && state.draft.currentRevisionStatus === 'GATE_PASSED' && state.draft.qualityGateDecision === 'PASSED') return 'VERIFICATION';
+    if (state.draft.status === 'ARTICLE_DRAFT_CREATED' && state.draft.articleStatus === 'DRAFT' && state.draft.qualityGateDecision === 'PASSED') {
+      return state.verification?.shadowDecision ? 'COMPLETE' : state.verification?.status === 'PENDING' || state.verification?.status === 'RUNNING' ? 'WAITING_PIPELINE' : 'VERIFICATION';
+    }
+    return 'WAITING_PIPELINE';
+  }
   if (state.draft.status !== 'ARTICLE_DRAFT_CREATED' || state.draft.articleStatus !== 'DRAFT' || state.draft.humanReviewStatus !== 'APPROVED') return 'WAITING_HUMAN_APPROVAL';
   if (!state.verification?.shadowDecision) return 'VERIFICATION';
   return 'COMPLETE';
@@ -41,6 +50,7 @@ export function parseStagingE2EOptions(argv: string[]) {
   if (advance) requireStagingWriteConfirmation(argv);
   return {
     advance,
+    validationMode: resolveEditorialValidationMode(),
     sourceKey: value(argv, '--source-key') ?? STAGING_DISCOVERY_SOURCE_KEY,
     runId: value(argv, '--run-id'), briefId: value(argv, '--brief-id'), draftId: value(argv, '--draft-id'),
   };
@@ -56,7 +66,7 @@ export async function inspectStagingE2EState(options: ReturnType<typeof parseSta
   const brief = options.briefId ? await prisma.editorialBrief.findUnique({ where: { id: options.briefId }, select: { id: true } }) : null;
   const draft = options.draftId ? await prisma.editorialDraft.findUnique({
     where: { id: options.draftId },
-    select: { id: true, status: true, contentHash: true, article: { select: { status: true } }, qualityGate: { select: { humanReviewStatus: true } } },
+    select: { id: true, status: true, currentRevision: { select: { status: true } }, contentHash: true, article: { select: { status: true } }, qualityGate: { select: { humanReviewStatus: true, automatedDecision: true, automatedReasons: true } } },
   }) : null;
   const verification = draft ? await prisma.editorialVerificationRun.findFirst({
     where: { draftId: draft.id }, orderBy: { createdAt: 'desc' },
@@ -66,7 +76,7 @@ export async function inspectStagingE2EState(options: ReturnType<typeof parseSta
     sourceExists: Boolean(source), discoveredDocuments: documents.length,
     unindexedDocumentIds: documents.filter((document) => !document.isIndexed || document.status !== 'INDEXED').map((document) => document.id),
     run, brief,
-    draft: draft ? { id: draft.id, status: draft.status, contentHash: draft.contentHash, articleStatus: draft.article?.status ?? null, humanReviewStatus: draft.qualityGate?.humanReviewStatus ?? null } : null,
+    draft: draft ? { id: draft.id, status: draft.status, currentRevisionStatus: draft.currentRevision?.status ?? null, contentHash: draft.contentHash, articleStatus: draft.article?.status ?? null, humanReviewStatus: draft.qualityGate?.humanReviewStatus ?? null, qualityGateDecision: draft.qualityGate?.automatedDecision ?? null, qualityGateReasons: jsonStringArray(draft.qualityGate?.automatedReasons) } : null,
     verification,
   };
 }
@@ -74,7 +84,7 @@ export async function inspectStagingE2EState(options: ReturnType<typeof parseSta
 export async function advanceStagingE2E(stage: StagingE2EStage, state: StagingE2EState, options: ReturnType<typeof parseStagingE2EOptions>) {
   assertStagingShadowSafety(process.env);
   if (!options.advance) return { mode: 'DRY_RUN', nextStage: stage };
-  if (['WAITING_PIPELINE', 'WAITING_HUMAN_APPROVAL', 'COMPLETE'].includes(stage)) return { mode: 'NO_ACTION', nextStage: stage };
+  if (['QUALITY_GATE_BLOCKED', 'WAITING_PIPELINE', 'WAITING_HUMAN_APPROVAL', 'COMPLETE'].includes(stage)) return { mode: 'NO_ACTION', nextStage: stage };
   const connection = createDiscoveryRedisConnection();
   const connectionOptions = connection as unknown as ConnectionOptions;
   const discovery = createDiscoveryQueues(connectionOptions);
@@ -111,7 +121,7 @@ export async function advanceStagingE2E(stage: StagingE2EStage, state: StagingE2
     if (stage === 'DRAFT') {
       if (!state.brief) throw new Error('--brief-id is required for draft generation');
       await enqueueEditorialDraftJob(draft.draftQueue, prepareEditorialDraftJob({ briefId: state.brief.id }));
-      return { mode: 'ENQUEUED', stage, nextArgument: '--draft-id=<EditorialDraft.id>', humanApprovalRequired: true };
+      return { mode: 'ENQUEUED', stage, nextArgument: '--draft-id=<EditorialDraft.id>', humanApprovalRequired: options.validationMode !== 'quality_gate' };
     }
     if (stage === 'VERIFICATION') {
       if (!state.draft?.contentHash) throw new Error('Current draft content hash is required');
@@ -124,6 +134,7 @@ export async function advanceStagingE2E(stage: StagingE2EStage, state: StagingE2
   }
 }
 
+function jsonStringArray(value: unknown): string[] { return Array.isArray(value) ? value.filter((item): item is string => typeof item === 'string') : []; }
 function value(argv: string[], name: string): string | null { const prefix = `${name}=`; return argv.find((argument) => argument.startsWith(prefix))?.slice(prefix.length).trim() || null; }
 
 if (process.argv[1] === fileURLToPath(import.meta.url)) {
@@ -131,9 +142,9 @@ if (process.argv[1] === fileURLToPath(import.meta.url)) {
     const options = parseStagingE2EOptions(process.argv.slice(2));
     assertStagingShadowSafety(process.env);
     inspectStagingE2EState(options).then(async (state) => {
-      const nextStage = determineStagingE2ENextStage(state);
+      const nextStage = determineStagingE2ENextStage(state, options);
       const action = await advanceStagingE2E(nextStage, state, options);
-      console.log(JSON.stringify({ shadowOnly: true, state, nextStage, action }, null, 2));
+      console.log(JSON.stringify({ shadowOnly: true, validationMode: options.validationMode, qualityGateDecision: state.draft?.qualityGateDecision ?? null, qualityGateReasons: state.draft?.qualityGateReasons ?? [], draftStatus: state.draft?.status ?? null, state, nextStage, action }, null, 2));
     }).catch((error) => { console.error(error instanceof Error ? error.message : String(error)); process.exitCode = 1; })
       .finally(() => prisma.$disconnect());
   } catch (error) {

@@ -9,7 +9,7 @@ function draftFixture(overrides: Record<string, unknown> = {}) {
     id: 'draft-1', briefId: 'brief-1', status: 'READY_FOR_REVIEW', title: validArtifact.title,
     summary: validArtifact.summary, contentHtml: '<section>content</section>', contentHash: 'hash-1',
     structuredContent: validArtifact, generatedAt: new Date('2026-07-22T12:00:00Z'), article: null,
-    currentRevision: { id: 'revision-1', version: 1, contentHash: 'hash-1' },
+    currentRevision: { id: 'revision-1', version: 1, status: 'GATE_PASSED', contentHash: 'hash-1' },
     qualityGate: { id: 'gate-1', gateVersion: EDITORIAL_QUALITY_GATE_VERSION, evaluatedContentHash: 'hash-1', automatedDecision: 'PASSED' },
     claims: validArtifact.claims.map((claim) => ({
       claimKey: claim.claimKey, verdict: 'SUPPORTED', evidence: [{ briefEvidence: {
@@ -46,6 +46,17 @@ describe('quality-gate Article DRAFT materialization', () => {
     (client as any).$transaction = vi.fn(async (callback: any) => callback({ article: { create: articleCreate } }));
 
     await expect(materializeQualityGateArticleDraft(client, 'draft-1')).rejects.toThrow('cannot materialize draft: FAILED');
+    expect(articleCreate).not.toHaveBeenCalled();
+  });
+
+  it('blocks a passed gate whose current revision is not gate-passed', async () => {
+    const articleCreate = vi.fn();
+    const client = {
+      editorialDraft: { findUnique: vi.fn(async () => draftFixture({ currentRevision: { id: 'revision-1', version: 1, status: 'PENDING_CRITIC', contentHash: 'hash-1' } })) },
+      $transaction: vi.fn(async (callback: any) => callback({ article: { create: articleCreate } })),
+    } as unknown as PrismaClient;
+
+    await expect(materializeQualityGateArticleDraft(client, 'draft-1')).rejects.toThrow('cannot materialize draft: PASSED');
     expect(articleCreate).not.toHaveBeenCalled();
   });
 });

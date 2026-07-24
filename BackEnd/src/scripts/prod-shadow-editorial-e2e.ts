@@ -32,7 +32,7 @@ export interface ProdShadowE2EState {
     sourcesAccepted: number | null;
     sourcesRejected: number | null;
   } | null;
-  draft: { id: string; briefId: string; status: string; contentHash: string | null; articleStatus: string | null; publishedAt: Date | null; humanReviewStatus: string | null; qualityGateDecision: string | null; qualityGateReasons: string[]; publicationAuditCount: number } | null;
+  draft: { id: string; briefId: string; status: string; currentRevisionStatus: string | null; contentHash: string | null; articleStatus: string | null; publishedAt: Date | null; humanReviewStatus: string | null; qualityGateDecision: string | null; qualityGateReasons: string[]; publicationAuditCount: number } | null;
   verification: { id: string; status: string; shadowDecision: string | null } | null;
 }
 
@@ -152,7 +152,10 @@ export function determineProdShadowE2ENextStage(state: ProdShadowE2EState, optio
   if (options.retryDraft && state.draft.status === 'FAILED') return 'DRAFT';
   if ((options.validationMode ?? resolveEditorialValidationMode()) === 'quality_gate') {
     if (state.draft.status === 'QUALITY_FAILED' || state.draft.qualityGateDecision === 'FAILED') return 'QUALITY_GATE_BLOCKED';
-    if ((state.draft.status === 'READY_FOR_REVIEW' || state.draft.status === 'ARTICLE_DRAFT_CREATED') && state.draft.qualityGateDecision === 'PASSED') return 'VERIFICATION';
+    if (state.draft.status === 'READY_FOR_REVIEW' && state.draft.currentRevisionStatus === 'GATE_PASSED' && state.draft.qualityGateDecision === 'PASSED') return 'VERIFICATION';
+    if (state.draft.status === 'ARTICLE_DRAFT_CREATED' && state.draft.articleStatus === 'DRAFT' && state.draft.qualityGateDecision === 'PASSED') {
+      return state.verification?.shadowDecision ? 'COMPLETE' : state.verification?.status === 'PENDING' || state.verification?.status === 'RUNNING' ? 'WAITING_PIPELINE' : 'VERIFICATION';
+    }
     return 'WAITING_PIPELINE';
   }
   if (state.draft.status !== 'ARTICLE_DRAFT_CREATED' || state.draft.articleStatus !== 'DRAFT' || state.draft.humanReviewStatus !== 'APPROVED') return 'WAITING_HUMAN_APPROVAL';
@@ -190,13 +193,13 @@ export async function inspectProdShadowE2EState(options: ReturnType<typeof parse
   const draft = options.draftId
     ? await prisma.editorialDraft.findUnique({
       where: { id: options.draftId },
-      select: { id: true, briefId: true, status: true, contentHash: true, article: { select: { status: true, publishedAt: true } }, qualityGate: { select: { humanReviewStatus: true, automatedDecision: true, automatedReasons: true } }, auditLogs: { where: { action: 'ARTICLE_PUBLISHED' }, select: { id: true } } },
+      select: { id: true, briefId: true, status: true, currentRevision: { select: { status: true } }, contentHash: true, article: { select: { status: true, publishedAt: true } }, qualityGate: { select: { humanReviewStatus: true, automatedDecision: true, automatedReasons: true } }, auditLogs: { where: { action: 'ARTICLE_PUBLISHED' }, select: { id: true } } },
     })
     : options.retryDraft && options.briefId
       ? await prisma.editorialDraft.findFirst({
         where: { briefId: options.briefId, status: 'FAILED' },
         orderBy: { createdAt: 'desc' },
-        select: { id: true, briefId: true, status: true, contentHash: true, article: { select: { status: true, publishedAt: true } }, qualityGate: { select: { humanReviewStatus: true, automatedDecision: true, automatedReasons: true } }, auditLogs: { where: { action: 'ARTICLE_PUBLISHED' }, select: { id: true } } },
+        select: { id: true, briefId: true, status: true, currentRevision: { select: { status: true } }, contentHash: true, article: { select: { status: true, publishedAt: true } }, qualityGate: { select: { humanReviewStatus: true, automatedDecision: true, automatedReasons: true } }, auditLogs: { where: { action: 'ARTICLE_PUBLISHED' }, select: { id: true } } },
       })
       : null;
   const verification = draft ? await prisma.editorialVerificationRun.findFirst({ where: { draftId: draft.id }, orderBy: { createdAt: 'desc' }, select: { id: true, status: true, shadowDecision: true } }) : null;
@@ -210,7 +213,7 @@ export async function inspectProdShadowE2EState(options: ReturnType<typeof parse
     run,
     brief: brief ? { id: brief.id } : null,
     enrichment: brief ? enrichmentDiagnostic(brief.dossier.metrics, jsonStringArray(brief.dossier.sourceDomains)) : null,
-    draft: draft ? { id: draft.id, briefId: draft.briefId, status: draft.status, contentHash: draft.contentHash, articleStatus: draft.article?.status ?? null, publishedAt: draft.article?.publishedAt ?? null, humanReviewStatus: draft.qualityGate?.humanReviewStatus ?? null, qualityGateDecision: draft.qualityGate?.automatedDecision ?? null, qualityGateReasons: jsonStringArray(draft.qualityGate?.automatedReasons), publicationAuditCount: draft.auditLogs.length } : null,
+    draft: draft ? { id: draft.id, briefId: draft.briefId, status: draft.status, currentRevisionStatus: draft.currentRevision?.status ?? null, contentHash: draft.contentHash, articleStatus: draft.article?.status ?? null, publishedAt: draft.article?.publishedAt ?? null, humanReviewStatus: draft.qualityGate?.humanReviewStatus ?? null, qualityGateDecision: draft.qualityGate?.automatedDecision ?? null, qualityGateReasons: jsonStringArray(draft.qualityGate?.automatedReasons), publicationAuditCount: draft.auditLogs.length } : null,
     verification,
   };
 }
