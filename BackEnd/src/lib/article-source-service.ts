@@ -29,6 +29,13 @@ export interface ArticleSourceProfileSnapshot {
   publicTrustLabel: string | null;
   lastProfiledAt: string | null;
   snapshotAt: string;
+  sourceMetadata?: {
+    domain: string | null;
+    name: string | null;
+    trustScore: number | null;
+    reliability: string | null;
+    profileVersion: number | null;
+  };
   platformContext?: PlatformArticleContext;
 }
 
