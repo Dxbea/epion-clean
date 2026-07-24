@@ -88,6 +88,8 @@ export function createEditorialVerificationProcessor(
       const result = await verifyDraft(dependencies.client, {
         draftId: job.data.draftId,
         expectedContentHash: job.data.expectedContentHash,
+        retryReason: job.data.retryReason,
+        retryAttempt: job.data.retryAttempt,
       }, {
         serperSearcher: calls.serperSearcher,
         mistralAuditor: calls.mistralAuditor,

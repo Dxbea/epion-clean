@@ -31,6 +31,12 @@ function clientFixture() {
         article: { id: 'article-1', status: 'DRAFT' },
       })),
     },
+    editorialVerificationRun: {
+      findMany: vi.fn(async () => [{ id: 'old-run-v1' }]),
+    },
+    articleSource: {
+      count: vi.fn(async () => 2),
+    },
   } as unknown as PrismaClient;
 }
 
@@ -54,5 +60,33 @@ describe('editorial verification enqueue transition', () => {
       draftId: 'draft-1', expectedContentHash: 'hash-1',
     }, { queue: { add: vi.fn(async () => ({})) } })).rejects.toThrow('automated and human approval gates');
     expect(materializeQualityGateArticleDraft).not.toHaveBeenCalled();
+  });
+
+  it('creates a distinct controlled retry job after an old terminal run', async () => {
+    process.env.EDITORIAL_VALIDATION_MODE = 'quality_gate';
+    const queue = { add: vi.fn(async (_name: string, data: any, options: { jobId: string }) => ({ id: options.jobId, data })) };
+
+    const result = await enqueueEditorialVerificationForDraft(clientFixture(), {
+      draftId: 'draft-1', expectedContentHash: 'hash-1',
+    }, { queue, retryReason: 'ARTICLE_SOURCES_INCOMPLETE' });
+
+    expect(result).toMatchObject({ outcome: 'VERIFICATION_QUEUED', retryReason: 'ARTICLE_SOURCES_INCOMPLETE' });
+    expect(queue.add).toHaveBeenCalledWith('verify-editorial-draft', expect.objectContaining({
+      mistralPromptVersion: 'editorial-mistral-audit-v2',
+      retryReason: 'ARTICLE_SOURCES_INCOMPLETE',
+      retryAttempt: 1,
+    }), expect.objectContaining({ jobId: expect.not.stringContaining('eb337473572061ea2245675d37495df6') }));
+  });
+
+  it('refuses to report queued when ArticleSource repair remains empty', async () => {
+    process.env.EDITORIAL_VALIDATION_MODE = 'quality_gate';
+    const client = clientFixture() as any;
+    client.articleSource.count.mockResolvedValue(0);
+    const queue = { add: vi.fn(async () => ({})) };
+
+    await expect(enqueueEditorialVerificationForDraft(client, {
+      draftId: 'draft-1', expectedContentHash: 'hash-1',
+    }, { queue, retryReason: 'ARTICLE_SOURCES_INCOMPLETE' })).rejects.toThrow('ArticleSource repair did not materialize');
+    expect(queue.add).not.toHaveBeenCalled();
   });
 });

@@ -124,7 +124,7 @@ export function validateMistralAudit(
 }
 
 function systemPrompt(): string {
-  return `Tu es l'auditeur éditorial indépendant d'Epion. Le brouillon et son premier audit ont été produits par OpenAI. Vérifie chaque affirmation sans leur faire confiance. Pour chaque claim, contrôle que les preuves citées soutiennent réellement le texte, que les URLs et extraits fournis sont utilisables, et signale les contradictions. Un claim central doit être pleinement supporté. Réponds uniquement en JSON conforme au format demandé. Version: ${EDITORIAL_MISTRAL_PROMPT_VERSION}.`;
+  return `Tu es l'auditeur éditorial indépendant d'Epion. Le brouillon et son premier audit ont été produits par OpenAI. Vérifie chaque affirmation sans leur faire confiance. Pour chaque claim, contrôle que toutes les evidenceKeys déjà attachées à ce claim sont examinées et recopiées dans evidenceKeys si elles sont utilisables, que les URLs et extraits fournis sont utilisables, et signale les contradictions. N'omets pas une source citée par le claim et n'ajoute jamais de preuve non citée par ce claim. Un claim central doit être pleinement supporté. Réponds uniquement en JSON conforme au format demandé. Version: ${EDITORIAL_MISTRAL_PROMPT_VERSION}.`;
 }
 
 function userPrompt(input: {
@@ -136,6 +136,7 @@ function userPrompt(input: {
 }): string {
   return JSON.stringify({
     task: 'independent_editorial_claim_and_citation_audit',
+    citationRule: 'For every claim, inspect and return every evidenceKey already attached to that claim when the cited source is usable. Never add an evidenceKey from another claim.',
     article: {
       title: input.title,
       summary: input.summary,

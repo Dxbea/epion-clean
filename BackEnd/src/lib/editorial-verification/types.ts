@@ -2,7 +2,8 @@ import type { EditorialClaimImportance, EditorialClaimVerdict } from '@prisma/cl
 import type { SourceScoreEntry } from '../score-types.js';
 
 export const EDITORIAL_VERIFICATION_VERSION = 'editorial-verification-v1';
-export const EDITORIAL_MISTRAL_PROMPT_VERSION = 'editorial-mistral-audit-v1';
+export const EDITORIAL_MISTRAL_PROMPT_VERSION = 'editorial-mistral-audit-v2';
+export type EditorialVerificationRetryReason = 'ARTICLE_SOURCES_INCOMPLETE' | 'VERIFICATION_PROMPT_UPGRADE' | 'TERMINAL_RUN_RETRY';
 
 export class RetryableEditorialVerificationDependencyError extends Error {
   constructor(readonly dependency: 'SERPER' | 'MISTRAL' | 'OPENAI', message: string) {

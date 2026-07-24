@@ -22,4 +22,16 @@ describe('editorial verification queue', () => {
     const jobId = await enqueueEditorialVerificationJob({ add } as never, first);
     expect(add).toHaveBeenCalledWith('verify-editorial-draft', first, { jobId });
   });
+
+  it('changes identity for a controlled retry reason and attempt', () => {
+    const first = prepareEditorialVerificationJob({
+      draftId: 'draft-1', revisionId: 'revision-1', expectedContentHash: 'hash-1', trigger: 'ADMIN',
+    });
+    const retry = prepareEditorialVerificationJob({
+      draftId: 'draft-1', revisionId: 'revision-1', expectedContentHash: 'hash-1', trigger: 'ADMIN',
+      retryReason: 'ARTICLE_SOURCES_INCOMPLETE', retryAttempt: 1,
+    });
+    expect(retry.mistralPromptVersion).toBe('editorial-mistral-audit-v2');
+    expect(buildEditorialVerificationJobId(retry)).not.toBe(buildEditorialVerificationJobId(first));
+  });
 });

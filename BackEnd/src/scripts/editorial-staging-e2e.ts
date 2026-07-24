@@ -9,7 +9,7 @@ import { createEditorialBriefQueues, enqueueEditorialBriefJob, prepareEditorialB
 import { createEditorialDraftQueues, enqueueEditorialDraftJob, prepareEditorialDraftJob } from '../lib/editorial-draft/draft-queue.js';
 import { createEditorialVerificationQueues } from '../lib/editorial-verification/verification-queue.js';
 import { enqueueEditorialVerificationForDraft } from '../lib/editorial-verification/enqueue-service.js';
-import { EDITORIAL_MISTRAL_PROMPT_VERSION } from '../lib/editorial-verification/types.js';
+import { EDITORIAL_MISTRAL_PROMPT_VERSION, type EditorialVerificationRetryReason } from '../lib/editorial-verification/types.js';
 import { resolveEditorialValidationMode, type EditorialValidationMode } from '../lib/editorial-draft/validation-mode.js';
 import { normalizeSourceDomain } from '../lib/source-profile.js';
 
@@ -138,7 +138,8 @@ export async function advanceStagingE2E(stage: StagingE2EStage, state: StagingE2
     }
     if (stage === 'VERIFICATION' || stage === 'VERIFICATION_RETRY_REQUIRED') {
       if (!state.draft?.contentHash) throw new Error('Current draft content hash is required');
-      const result = await enqueueEditorialVerificationForDraft(prisma, { draftId: state.draft.id, expectedContentHash: state.draft.contentHash }, { queue: verification.verificationQueue });
+      const retryReason = verificationRetryReason(stage, state);
+      const result = await enqueueEditorialVerificationForDraft(prisma, { draftId: state.draft.id, expectedContentHash: state.draft.contentHash }, { queue: verification.verificationQueue, retryReason });
       return stage === 'VERIFICATION_RETRY_REQUIRED' ? { ...result, retry: 'CONTROLLED_VERIFICATION_RETRY' as const } : result;
     }
     throw new Error(`Unsupported staging E2E stage: ${stage}`);
@@ -159,6 +160,13 @@ function verificationNeedsRetry(verification: StagingE2EState['verification']): 
   if (!verification) return false;
   if (verification.mistralPromptVersion && verification.mistralPromptVersion !== EDITORIAL_MISTRAL_PROMPT_VERSION) return true;
   return verification.status !== 'PENDING' && verification.status !== 'RUNNING' && !verification.shadowDecision;
+}
+function verificationRetryReason(stage: StagingE2EStage, state: StagingE2EState): EditorialVerificationRetryReason | null {
+  if (state.draft?.articleSourcesComplete === false) return 'ARTICLE_SOURCES_INCOMPLETE';
+  if (stage !== 'VERIFICATION_RETRY_REQUIRED') return null;
+  return state.verification?.mistralPromptVersion !== EDITORIAL_MISTRAL_PROMPT_VERSION
+    ? 'VERIFICATION_PROMPT_UPGRADE'
+    : 'TERMINAL_RUN_RETRY';
 }
 function value(argv: string[], name: string): string | null { const prefix = `${name}=`; return argv.find((argument) => argument.startsWith(prefix))?.slice(prefix.length).trim() || null; }
 

@@ -11,6 +11,7 @@ import { MistralEditorialAuditor } from './mistral-auditor.js';
 import { enrichEditorialEvidenceWithSerper, type EditorialSerperSearcher } from './serper-enrichment.js';
 import { assessEditorialCorpus } from './sufficiency.js';
 import { resolveEditorialValidationMode } from '../editorial-draft/validation-mode.js';
+import { normalizeSourceDomain } from '../source-profile.js';
 import {
   EDITORIAL_MISTRAL_PROMPT_VERSION,
   EDITORIAL_VERIFICATION_VERSION,
@@ -20,6 +21,7 @@ import {
   type EditorialMistralAuditor,
   type EditorialVerificationEvidence,
   type EditorialVerificationResult,
+  type EditorialVerificationRetryReason,
   type EditorialVerificationSourceHydrator,
 } from './types.js';
 
@@ -30,7 +32,7 @@ export class TrustScoreEditorialSourceHydrator implements EditorialVerificationS
     const richScore = await getRichTrustScore(evidence.domain, evidence.url, {
       content: evidence.extractionStatus === 'full' ? evidence.content : undefined,
       metaDescription: evidence.extractionStatus !== 'full' ? evidence.content : undefined,
-    });
+    }, { sourceId: evidence.sourceId });
     const entry = buildEnrichedSourceScoreEntry({
       url: evidence.url,
       index,
@@ -81,7 +83,7 @@ export class EditorialVerificationInProgressError extends Error {
 
 export async function verifyEditorialDraftForFinalization(
   client: PrismaClient,
-  input: { draftId: string; expectedContentHash: string },
+  input: { draftId: string; expectedContentHash: string; retryReason?: EditorialVerificationRetryReason | null; retryAttempt?: number },
   dependencyOverrides: Partial<EditorialVerificationDependencies> = {},
 ): Promise<EditorialVerificationResult> {
   const dependencies = { ...defaultDependencies, ...dependencyOverrides };
@@ -92,8 +94,12 @@ export async function verifyEditorialDraftForFinalization(
     version: EDITORIAL_VERIFICATION_VERSION,
     draftId: draft.id,
     revisionId: draft.currentRevision.id,
+    articleId: draft.article.id,
     contentHash: draft.contentHash,
+    mistralPromptVersion: EDITORIAL_MISTRAL_PROMPT_VERSION,
     mistralModel: dependencies.mistralAuditor.model,
+    retryReason: input.retryReason ?? null,
+    retryAttempt: input.retryAttempt ?? 0,
   })).digest('hex');
   await client.editorialVerificationRun.createMany({
     data: [{
@@ -188,7 +194,7 @@ export async function verifyEditorialDraftForFinalization(
     });
     const auditedEvidenceKeys = new Set(mistralAudit.claims.flatMap((claim) => claim.evidenceKeys));
     const auditedEvidence = hydratedEvidence.filter((item) => auditedEvidenceKeys.has(item.evidenceKey));
-    const auditedDomains = new Set(auditedEvidence.map((item) => item.domain));
+    const auditedDomains = new Set(auditedEvidence.map((item) => normalizeSourceDomain(item.domain) ?? item.domain));
     const evidenceByKey = new Map(hydratedEvidence.map((item) => [item.evidenceKey, item]));
     const coreMetadataOnly = mistralAudit.claims.some((audit) => {
       const claim = claims.find((item) => item.claimKey === audit.claimKey);
@@ -199,7 +205,7 @@ export async function verifyEditorialDraftForFinalization(
     const auditCoverageReasons = [
       ...(auditedDomains.size < finalAssessment.requiredDomains ? ['MISTRAL_INSUFFICIENT_CITED_DOMAIN_DIVERSITY'] : []),
       ...(!auditedEvidence.some((item) => item.lane === 'PRIMARY' || item.officialStatement) ? ['MISTRAL_PRIMARY_SOURCE_NOT_CITED'] : []),
-      ...(!auditedEvidence.some((item) => item.lane === 'COUNTERPOINT') && finalAssessment.hasCounterpoint ? ['MISTRAL_COUNTERPOINT_NOT_CITED'] : []),
+      ...(!auditedEvidence.some((item) => item.lane === 'COUNTERPOINT') && draftCitesCounterpointEvidence(claims, brief) ? ['MISTRAL_COUNTERPOINT_NOT_CITED'] : []),
       ...(coreMetadataOnly ? ['CORE_CLAIM_ONLY_METADATA_EVIDENCE'] : []),
     ];
     const gateReasons = unique([
@@ -402,7 +408,7 @@ function buildCorpusEvidence(evidence: Array<any>, brief: EditorialBriefContent)
     sourceId: item.document.sourceId ?? null,
     url: item.canonicalUrl,
     title: item.documentTitle,
-    domain: item.domain,
+    domain: normalizeSourceDomain(item.domain) ?? item.domain.trim().toLowerCase(),
     content: item.contentSnapshot,
     publishedAt: item.publishedAt,
     lane: counterpointKeys.has(item.evidenceKey) ? 'COUNTERPOINT' : item.role === 'PRIMARY' ? 'PRIMARY' : 'CONTEXT',
@@ -410,6 +416,12 @@ function buildCorpusEvidence(evidence: Array<any>, brief: EditorialBriefContent)
     officialStatement: false,
     extractionStatus: 'full',
   }));
+}
+
+function draftCitesCounterpointEvidence(claims: EditorialClaimForAudit[], brief: EditorialBriefContent): boolean {
+  const counterpointKeys = new Set(brief.contradictions.flatMap((contradiction) =>
+    contradiction.sides.slice(1).flatMap((side) => side.evidenceKeys)));
+  return claims.some((claim) => claim.evidenceKeys.some((evidenceKey) => counterpointKeys.has(evidenceKey)));
 }
 
 async function hydrateSources(

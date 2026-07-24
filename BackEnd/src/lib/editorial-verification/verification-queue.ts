@@ -1,7 +1,7 @@
 import { createHash } from 'node:crypto';
 import { Queue, type ConnectionOptions } from 'bullmq';
 import { Redis as IORedis } from 'ioredis';
-import { EDITORIAL_VERIFICATION_VERSION } from './types.js';
+import { EDITORIAL_MISTRAL_PROMPT_VERSION, EDITORIAL_VERIFICATION_VERSION, type EditorialVerificationRetryReason } from './types.js';
 
 export const EDITORIAL_VERIFICATION_QUEUE_NAME = 'editorial-verification-queue';
 export const EDITORIAL_VERIFICATION_DLQ_NAME = 'editorial-verification-dead-letter';
@@ -14,6 +14,9 @@ export interface EditorialVerificationJobData {
   revisionId: string;
   expectedContentHash: string;
   verificationVersion: string;
+  mistralPromptVersion: string;
+  retryReason: EditorialVerificationRetryReason | null;
+  retryAttempt: number;
   requestedAt: string;
   trigger: 'ADMIN' | 'RECONCILIATION';
 }
@@ -30,16 +33,24 @@ export function prepareEditorialVerificationJob(input: {
   revisionId: string;
   expectedContentHash: string;
   trigger: EditorialVerificationJobData['trigger'];
+  mistralPromptVersion?: string;
+  retryReason?: EditorialVerificationRetryReason | null;
+  retryAttempt?: number;
   requestedAt?: Date;
 }): EditorialVerificationJobData {
   if (!input.draftId.trim() || !input.revisionId.trim() || !input.expectedContentHash.trim()) {
     throw new Error('draftId, revisionId and expectedContentHash are required');
   }
+  const retryAttempt = input.retryAttempt ?? 0;
+  if (!Number.isInteger(retryAttempt) || retryAttempt < 0) throw new Error('retryAttempt must be a non-negative integer');
   return {
     draftId: input.draftId,
     revisionId: input.revisionId,
     expectedContentHash: input.expectedContentHash,
     verificationVersion: EDITORIAL_VERIFICATION_VERSION,
+    mistralPromptVersion: input.mistralPromptVersion?.trim() || EDITORIAL_MISTRAL_PROMPT_VERSION,
+    retryReason: input.retryReason ?? null,
+    retryAttempt,
     requestedAt: (input.requestedAt ?? new Date()).toISOString(),
     trigger: input.trigger,
   };
@@ -51,6 +62,9 @@ export function buildEditorialVerificationJobId(data: EditorialVerificationJobDa
     revisionId: data.revisionId,
     expectedContentHash: data.expectedContentHash,
     verificationVersion: data.verificationVersion,
+    mistralPromptVersion: data.mistralPromptVersion,
+    retryReason: data.retryReason,
+    retryAttempt: data.retryAttempt,
   })).digest('hex').slice(0, 32)}`;
 }
 
