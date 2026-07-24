@@ -16,6 +16,7 @@ import {
     mergeSourceProfileData,
     normalizeSourceProfileData,
     resolveSourceProfileConfidence,
+    normalizeSourceDomain,
     SOURCE_PROFILE_VERSION,
 } from "./source-profile.js";
 
@@ -61,6 +62,7 @@ export interface RichTrustScore {
 export interface TrustScoreAuditInput {
     content?: string;
     metaDescription?: string | null;
+    sourceId?: string | null;
 }
 
 function getRange(reliability: Reliability) {
@@ -84,8 +86,12 @@ export async function getRichTrustScore(
     url?: string,
     auditInput: TrustScoreAuditInput = {},
 ): Promise<RichTrustScore> {
-    let source = await prisma.source.findUnique({
-        where: { domain },
+    const normalizedDomain = normalizeSourceDomain(domain) ?? domain.trim().toLowerCase();
+    let source = auditInput.sourceId
+        ? await prisma.source.findUnique({ where: { id: auditInput.sourceId } })
+        : null;
+    source ??= await prisma.source.findUnique({
+        where: { domain: normalizedDomain },
     });
 
     const now = new Date();
@@ -109,45 +115,45 @@ export async function getRichTrustScore(
         const range = getRange(source.reliability);
 
         if (source.trustScore < range.min || source.trustScore > range.max) {
-            logger.warn('Cache HIT but Consistency Check FAILED. Re-auditing.', { module: 'TrustScore', domain });
+            logger.warn('Cache HIT but Consistency Check FAILED. Re-auditing.', { module: 'TrustScore', domain: normalizedDomain });
         } else {
             const rangeSize = range.max - range.min;
             const recoveredQuality = rangeSize > 0
                 ? (source.trustScore - range.min) / rangeSize
                 : 0;
 
-            logger.info('Cache HIT', { module: 'TrustScore', domain });
+            logger.info('Cache HIT', { module: 'TrustScore', domain: normalizedDomain });
             return formatResponse(source, range.min, range.max, recoveredQuality, []);
         }
     }
 
-    const factCheckResult = await checkMediaReputation(domain);
+    const factCheckResult = await checkMediaReputation(normalizedDomain);
 
     let reliability = source?.reliability || Reliability.UNKNOWN;
     let detectedSourceType = source?.type || 'GENERAL';
     let investigation: InvestigationResult | null = null;
 
     if (reliability === Reliability.UNKNOWN) {
-        investigation = await evaluateUnknownSource(domain, factCheckResult);
+        investigation = await evaluateUnknownSource(normalizedDomain, factCheckResult);
         reliability = investigation.reliability;
         detectedSourceType = investigation.sourceType;
         logger.info(`Cold Profiler Verdict: ${reliability} (${detectedSourceType})`, {
             module: 'TrustScore',
-            domain,
+            domain: normalizedDomain,
             reasoning: investigation.reasoning,
         });
     }
 
-    logger.info('Starting V2 Audit (Range & Cursor)', { module: 'TrustScore', domain, reliability });
+    logger.info('Starting V2 Audit (Range & Cursor)', { module: 'TrustScore', domain: normalizedDomain, reliability });
 
     const [adsResult, pluralismResult, semanticResult, editorialResult, biasResult] = await Promise.all([
-        analyzeAdsTxt(domain),
-        analyzePluralism(domain, { url, content: auditInput.content }),
-        analyzeSemantics(domain, { content: auditInput.content, metaDescription: auditInput.metaDescription }),
-        analyzeEditorial(domain, { content: auditInput.content, metaDescription: auditInput.metaDescription }),
+        analyzeAdsTxt(normalizedDomain),
+        analyzePluralism(normalizedDomain, { url, content: auditInput.content }),
+        analyzeSemantics(normalizedDomain, { content: auditInput.content, metaDescription: auditInput.metaDescription }),
+        analyzeEditorial(normalizedDomain, { content: auditInput.content, metaDescription: auditInput.metaDescription }),
         investigation
             ? Promise.resolve(buildBiasResultFromInvestigation(investigation, source))
-            : analyzeBias(domain),
+            : analyzeBias(normalizedDomain),
     ]);
 
     const { min, max } = getRange(reliability);
@@ -197,11 +203,11 @@ export async function getRichTrustScore(
 
         if (source.isConsensusVerified) {
             newWeight = 0.10;
-            logger.info(`Evolving Score for CONSENSUS ${domain}. Weights: History=0.90, New=0.10`, { module: 'TrustScore' });
+            logger.info(`Evolving Score for CONSENSUS ${normalizedDomain}. Weights: History=0.90, New=0.10`, { module: 'TrustScore' });
         } else {
             const currentCount = source.auditCount || 1;
             newWeight = Math.max(1 / (currentCount + 1), 0.10);
-            logger.info(`Evolving Score for AI-SOURCE ${domain} (Audit #${nextAuditCount}). Weights: History=${(1 - newWeight).toFixed(2)}, New=${newWeight.toFixed(2)}`, { module: 'TrustScore' });
+            logger.info(`Evolving Score for AI-SOURCE ${normalizedDomain} (Audit #${nextAuditCount}). Weights: History=${(1 - newWeight).toFixed(2)}, New=${newWeight.toFixed(2)}`, { module: 'TrustScore' });
         }
 
         const historyWeight = 1 - newWeight;
@@ -217,7 +223,7 @@ export async function getRichTrustScore(
 
     if (source?.isConsensusVerified) {
         finalPoliticalBias = source.politicalBias;
-        logger.info(`Consensus Protected: Ignoring AI Bias (${biasResult.bias})`, { module: 'TrustScore', domain });
+        logger.info(`Consensus Protected: Ignoring AI Bias (${biasResult.bias})`, { module: 'TrustScore', domain: normalizedDomain });
     } else if (biasResult.bias !== PoliticalBias.UNKNOWN) {
         finalPoliticalBias = biasResult.bias;
     }
@@ -253,7 +259,7 @@ export async function getRichTrustScore(
         : null;
     const existingProfileData = normalizeSourceProfileData(source?.profileData ?? legacyProfileData);
     const generatedProfileData = buildSourceProfileDataFromTrustScore({
-        domain,
+        domain: normalizedDomain,
         metadata: {
             description: globalProfileDescription,
             type: detectedSourceType,
@@ -306,9 +312,10 @@ export async function getRichTrustScore(
         }
         : {};
     const publicTrustLabel = derivePublicTrustLabelFromTrustScore(finalTrustScore);
+    const sourceWhere = source ? { id: source.id } : { domain: normalizedDomain };
 
     const updatedSource = await prisma.source.upsert({
-        where: { domain },
+        where: sourceWhere,
         update: {
             trustScore: finalTrustScore,
             transparencyScore: targetTransparency,
@@ -330,8 +337,8 @@ export async function getRichTrustScore(
             publicTrustLabel,
         },
         create: {
-            domain,
-            name: domain,
+            domain: normalizedDomain,
+            name: normalizedDomain,
             type: detectedSourceType,
             trustScore: finalTrustScore,
             reliability,

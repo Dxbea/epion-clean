@@ -32,7 +32,8 @@ export class TrustScoreEditorialSourceHydrator implements EditorialVerificationS
     const richScore = await getRichTrustScore(evidence.domain, evidence.url, {
       content: evidence.extractionStatus === 'full' ? evidence.content : undefined,
       metaDescription: evidence.extractionStatus !== 'full' ? evidence.content : undefined,
-    }, { sourceId: evidence.sourceId });
+      sourceId: evidence.sourceId,
+    });
     const entry = buildEnrichedSourceScoreEntry({
       url: evidence.url,
       index,
