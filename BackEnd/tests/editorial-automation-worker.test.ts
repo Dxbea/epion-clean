@@ -1,5 +1,7 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { resolveEditorialVerificationRuntimeFlags } from '../src/lib/editorial-verification/runtime-flags.js';
+import { DOCUMENT_EMBEDDING_MODEL } from '../src/lib/document-corpus/document-rag-service.js';
+import { prepareEditorialShadowJob } from '../src/lib/editorial-shadow/editorial-queue.js';
 
 const prismaMock = vi.hoisted(() => ({
   discoverySource: { findMany: vi.fn() },
@@ -13,7 +15,10 @@ const prismaMock = vi.hoisted(() => ({
 vi.mock('../src/lib/db.js', () => ({ prisma: prismaMock }));
 
 import { runEditorialAutomationTick } from '../src/workers/editorial-automation.worker.js';
-import { assertEditorialAutomationOnceSafety } from '../src/scripts/editorial-automation-once.js';
+import {
+  assertEditorialAutomationOnceSafety,
+  runEditorialAutomationPasses,
+} from '../src/scripts/editorial-automation-once.js';
 
 function flags() {
   return resolveEditorialVerificationRuntimeFlags({
@@ -149,6 +154,124 @@ describe('editorial automation indexing selection', () => {
       expect.objectContaining({ code: 'SOURCE_POOR_INITIAL_CLUSTER' }),
     ]));
     expect(report.minimumDomainsRequired).toBe(2);
+  });
+
+  it('derives a new run identity from the enriched final corpus and clears informational blockage', async () => {
+    const now = new Date('2026-07-25T10:00:00.000Z');
+    const windowStart = new Date('2026-07-25T00:00:00.000Z');
+    const windowEnd = new Date('2026-07-26T00:00:00.000Z');
+    const oldJob = prepareEditorialShadowJob({
+      windowStart,
+      windowEnd,
+      embeddingModel: DOCUMENT_EMBEDDING_MODEL,
+      documentIds: ['doc-1', 'doc-2'],
+      trigger: 'SCHEDULED',
+      requestedAt: now,
+      config: { maxDocuments: 12, minProposalDocuments: 2, minProposalDomains: 2 },
+    });
+    prismaMock.discoverySource.findMany.mockResolvedValue([
+      { id: 'discovery-ecb', key: 'institution-ecb-press', sourceId: 'durable-ecb', categoryId: 'economy', connectorType: 'RSS' },
+      { id: 'discovery-inserm', key: 'institution-inserm-actualites', sourceId: 'durable-inserm', categoryId: 'health', connectorType: 'RSS' },
+    ]);
+    prismaMock.ingestedDocument.findMany
+      .mockResolvedValueOnce([
+        { id: 'doc-1', status: 'INDEXED', isIndexed: true, robotsAllowed: true, accessPolicy: 'FULL_FETCH', storagePolicy: 'FULL' },
+        { id: 'doc-2', status: 'INDEXED', isIndexed: true, robotsAllowed: true, accessPolicy: 'FULL_FETCH', storagePolicy: 'FULL' },
+      ])
+      .mockResolvedValueOnce([
+        { id: 'doc-1', domain: 'same.example', sourceId: 'durable-ecb' },
+        { id: 'doc-2', domain: 'same.example', sourceId: 'durable-ecb' },
+      ]);
+    prismaMock.editorialCandidate.findMany.mockResolvedValue([{
+      rationale: {
+        enrichment: {
+          sourcesAccepted: 1,
+          newlyIngestedDocuments: ['doc-3'],
+          persistedDocuments: 1,
+          indexedDocuments: 1,
+        },
+      },
+      topic: {
+        independentDomainCount: 2,
+        documentCount: 3,
+        run: { idempotencyKey: oldJob.idempotencyKey },
+        documents: [
+          { documentId: 'doc-1', role: 'REPRESENTATIVE', document: { domain: 'same.example', status: 'INDEXED', isIndexed: true } },
+          { documentId: 'doc-2', role: 'EVIDENCE', document: { domain: 'same.example', status: 'INDEXED', isIndexed: true } },
+          { documentId: 'doc-3', role: 'EVIDENCE', document: { domain: 'other.example', status: 'INDEXED', isIndexed: true } },
+        ],
+      },
+      sourceDossiers: [],
+    }]);
+    prismaMock.editorialRun.findUnique.mockImplementation(async ({ where }) =>
+      where.idempotencyKey === oldJob.idempotencyKey
+        ? { id: 'old-run', status: 'COMPLETED', completedAt: now, updatedAt: now }
+        : null);
+    prismaMock.editorialCandidate.findFirst.mockResolvedValue(null);
+    prismaMock.editorialBrief.findFirst.mockResolvedValue(null);
+    prismaMock.editorialDraft.findFirst.mockResolvedValue(null);
+    prismaMock.editorialReviewAuditLog.count.mockResolvedValue(0);
+    const queue = queues();
+
+    const report = await runEditorialAutomationTick(flags(), queue, now);
+
+    expect(queue.editorialQueue.add).toHaveBeenCalledOnce();
+    expect(queue.editorialQueue.add.mock.calls[0][1]).toMatchObject({
+      documentIds: ['doc-1', 'doc-2', 'doc-3'],
+    });
+    expect(queue.editorialQueue.add.mock.calls[0][1].idempotencyKey)
+      .not.toBe(oldJob.idempotencyKey);
+    expect(report).toMatchObject({
+      clusters: 1,
+      initialDomains: 1,
+      finalEligibleDomains: 2,
+      finalEligibleDocuments: 3,
+      finalBlockage: null,
+      publicationBlockedReason: 'AUTOPUBLISH_DISABLED_OR_NOT_REACHED',
+    });
+    expect(report.clusterBlockages).toEqual(expect.arrayContaining([
+      expect.objectContaining({ code: 'SOURCE_POOR_INITIAL_CLUSTER' }),
+    ]));
+    expect(report.blockages).not.toContain('SOURCE_POOR_INITIAL_CLUSTER');
+    expect(report.blockages).not.toContain('RUN_SKIPPED_ALREADY_COMPLETED');
+  });
+
+  it('polls productive one-shot passes and preserves dispatched stage reporting', async () => {
+    const stages = [
+      { clusters: 1 },
+      { briefs: 1 },
+      { drafts: 1 },
+      { verifications: 1 },
+      {},
+    ];
+    const runTick = vi.fn(async () => ({
+      documentsQueuedForIndexing: 0,
+      documentsAlreadyIndexed: 2,
+      documentsIndexedThisRun: 0,
+      clusters: 0,
+      briefs: 0,
+      drafts: 0,
+      verifications: 0,
+      existingRun: null,
+      ...stages.shift(),
+    } as any));
+    let clock = 0;
+
+    const report = await runEditorialAutomationPasses(runTick, {
+      waitMs: 10_000,
+      pollMs: 1_000,
+      now: () => clock,
+      sleep: async (milliseconds) => { clock += milliseconds; },
+    });
+
+    expect(runTick).toHaveBeenCalledTimes(5);
+    expect(report).toMatchObject({
+      automationPasses: 5,
+      clusters: 1,
+      briefs: 1,
+      drafts: 1,
+      verifications: 1,
+    });
   });
 
   it('requires the one-shot confirmation and honours its local kill switch', () => {

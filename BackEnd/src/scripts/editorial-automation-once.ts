@@ -10,7 +10,10 @@ import { createEditorialDraftQueues } from '../lib/editorial-draft/draft-queue.j
 import { createEditorialVerificationQueues, createEditorialVerificationRedisConnection } from '../lib/editorial-verification/verification-queue.js';
 import { isRedisKillSwitchActive, type DiscoveryRedis } from '../lib/discovery/redis-lock.js';
 import { EDITORIAL_AUTOMATION_REDIS_KILL_SWITCH_KEY, EDITORIAL_AUTOPUBLISH_REDIS_KILL_SWITCH_KEY, resolveEditorialVerificationRuntimeFlags } from '../lib/editorial-verification/runtime-flags.js';
-import { runEditorialAutomationTick } from '../workers/editorial-automation.worker.js';
+import {
+  runEditorialAutomationTick,
+  type EditorialAutomationReport,
+} from '../workers/editorial-automation.worker.js';
 
 const CONFIRMATION = 'EPION_EDITORIAL_AUTOMATION';
 
@@ -20,6 +23,65 @@ export function assertEditorialAutomationOnceSafety(
 ): void {
   if (!argumentsList.includes(`--confirm=${CONFIRMATION}`)) throw new Error(`Confirmation required: --confirm=${CONFIRMATION}`);
   if (!flags.automationEnabled || flags.automationKillSwitch) throw new Error('Editorial automation is disabled or kill-switched');
+}
+
+export interface EditorialAutomationOneShotResult extends EditorialAutomationReport {
+  automationPasses: number;
+}
+
+export async function runEditorialAutomationPasses(
+  runTick: () => Promise<EditorialAutomationReport>,
+  options: {
+    waitMs: number;
+    pollMs?: number;
+    sleep?: (milliseconds: number) => Promise<void>;
+    now?: () => number;
+  },
+): Promise<EditorialAutomationOneShotResult> {
+  const now = options.now ?? Date.now;
+  const sleep = options.sleep ?? ((milliseconds) =>
+    new Promise<void>((resolve) => setTimeout(resolve, milliseconds)));
+  const startedAt = now();
+  const deadline = startedAt + Math.max(0, options.waitMs);
+  const pollMs = Math.max(250, Math.min(30_000, options.pollMs ?? 10_000));
+  const initial = await runTick();
+  let current = initial;
+  let passes = 1;
+  const dispatched = {
+    clusters: initial.clusters,
+    briefs: initial.briefs,
+    drafts: initial.drafts,
+    verifications: initial.verifications,
+  };
+
+  while (options.waitMs > 0 && automationPassNeedsFollowUp(current) && now() < deadline) {
+    await sleep(Math.min(pollMs, Math.max(1, deadline - now())));
+    current = await runTick();
+    passes++;
+    dispatched.clusters = Math.max(dispatched.clusters, current.clusters);
+    dispatched.briefs = Math.max(dispatched.briefs, current.briefs);
+    dispatched.drafts = Math.max(dispatched.drafts, current.drafts);
+    dispatched.verifications = Math.max(dispatched.verifications, current.verifications);
+  }
+
+  return {
+    ...current,
+    ...dispatched,
+    documentsIndexedThisRun: Math.max(
+      current.documentsIndexedThisRun,
+      current.documentsAlreadyIndexed - initial.documentsAlreadyIndexed,
+    ),
+    automationPasses: passes,
+  };
+}
+
+function automationPassNeedsFollowUp(report: EditorialAutomationReport): boolean {
+  return report.documentsQueuedForIndexing > 0
+    || report.clusters > 0
+    || report.briefs > 0
+    || report.drafts > 0
+    || report.verifications > 0
+    || Boolean(report.existingRun && report.existingRun.status !== 'COMPLETED');
 }
 
 async function main() {
@@ -49,12 +111,10 @@ async function main() {
   const discovery = createDiscoveryQueues(options); const documents = createDocumentQueues(options); const editorial = createEditorialShadowQueues(options); const briefs = createEditorialBriefQueues(options); const drafts = createEditorialDraftQueues(options); const verification = createEditorialVerificationQueues(options);
   const queues = { discoveryQueue: discovery.discoveryQueue, documentQueue: documents.documentQueue, editorialQueue: editorial.editorialQueue, briefQueue: briefs.briefQueue, draftQueue: drafts.draftQueue, verificationQueue: verification.verificationQueue };
   try {
-    let report = await runEditorialAutomationTick(flags, queues, new Date(), { indexedLookbackHours });
-    if (waitMs > 0 && report.documentsQueuedForIndexing > 0) {
-      await new Promise((resolve) => setTimeout(resolve, waitMs));
-      const resumed = await runEditorialAutomationTick(flags, queues, new Date(), { indexedLookbackHours });
-      report = { ...resumed, documentsIndexedThisRun: Math.max(0, resumed.documentsAlreadyIndexed - report.documentsAlreadyIndexed) };
-    }
+    const report = await runEditorialAutomationPasses(
+      () => runEditorialAutomationTick(flags, queues, new Date(), { indexedLookbackHours }),
+      { waitMs },
+    );
     process.stdout.write(`${JSON.stringify({ mode: 'one-shot', waitMs, indexedLookbackHours, noPublish, autopublishBlockedReason: noPublish ? 'KILL_SWITCH' : null, ...report }, null, 2)}\n`);
   } finally {
     await Promise.all([discovery.discoveryQueue.close(), documents.documentQueue.close(), editorial.editorialQueue.close(), briefs.briefQueue.close(), drafts.draftQueue.close(), verification.verificationQueue.close(), connection.quit(), prisma.$disconnect(), Sentry.close(2_000)]);

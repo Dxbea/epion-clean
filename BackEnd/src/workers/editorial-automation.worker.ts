@@ -101,9 +101,60 @@ export async function runEditorialAutomationTick(
   });
   const sourceById = new Map(sources.filter((source) => source.sourceId).map((source) => [source.sourceId!, source]));
   const indexedDomains = new Set(indexed.map((document) => document.domain.toLowerCase()));
-  const clusterInputDocumentIds = indexed.map((document) => document.id).sort();
+  const initialClusterInputDocumentIds = indexed.map((document) => document.id).sort();
+  const initialClusterJob = initialClusterInputDocumentIds.length >= 2
+    ? prepareEditorialShadowJob({ windowStart, windowEnd, embeddingModel: DOCUMENT_EMBEDDING_MODEL, documentIds: initialClusterInputDocumentIds, trigger: 'SCHEDULED', requestedAt: now, config: { maxDocuments: flags.automationMaximumDocuments, minProposalDocuments: 2, minProposalDomains: 2 } })
+    : null;
+  const candidateDiagnostics = await prisma.editorialCandidate.findMany({
+    where: { topic: { run: { windowStart, windowEnd } } },
+    select: {
+      rationale: true,
+      topic: {
+        select: {
+          independentDomainCount: true,
+          documentCount: true,
+          run: { select: { idempotencyKey: true } },
+          documents: {
+            select: {
+              documentId: true,
+              role: true,
+              document: {
+                select: { domain: true, status: true, isIndexed: true },
+              },
+            },
+          },
+        },
+      },
+      sourceDossiers: {
+        select: {
+          selectedChunkCount: true,
+          brief: { select: { id: true } },
+        },
+      },
+    },
+  });
+  const enrichmentDiagnostics = candidateDiagnostics
+    .map((item) => jsonRecord(jsonRecord(item.rationale).enrichment))
+    .filter((item) => Object.keys(item).length > 0);
+  const enrichedIndexedDocuments = candidateDiagnostics
+    .filter((item) =>
+      initialClusterJob
+      && item.topic.run?.idempotencyKey === initialClusterJob.idempotencyKey)
+    .flatMap((item) =>
+    (item.topic.documents ?? []).filter((topicDocument) =>
+      topicDocument.role !== 'QUASI_DUPLICATE'
+      && topicDocument.document.status === 'INDEXED'
+      && topicDocument.document.isIndexed));
+  const clusterInputDocumentIds = [...new Set([
+    ...initialClusterInputDocumentIds,
+    ...enrichedIndexedDocuments.map((item) => item.documentId),
+  ])].sort();
+  const finalCorpusDomains = new Set([
+    ...indexedDomains,
+    ...enrichedIndexedDocuments.map((item) => item.document.domain.toLowerCase()),
+  ]);
   const sourcePoorInitialCluster = indexed.length >= 2 && indexedDomains.size < 2;
-  const clusterJob = indexed.length >= 2
+  const clusterJob = clusterInputDocumentIds.length >= 2
     ? prepareEditorialShadowJob({ windowStart, windowEnd, embeddingModel: DOCUMENT_EMBEDDING_MODEL, documentIds: clusterInputDocumentIds, trigger: 'SCHEDULED', requestedAt: now, config: { maxDocuments: flags.automationMaximumDocuments, minProposalDocuments: 2, minProposalDomains: 2 } })
     : null;
   const existingRun = clusterJob
@@ -126,22 +177,6 @@ export async function runEditorialAutomationTick(
   const readyDraft = await prisma.editorialDraft.findFirst({ where: { status: 'ARTICLE_DRAFT_CREATED', article: { is: { status: 'DRAFT' } }, verificationRuns: { none: {} }, brief: { dossier: { candidate: { topic: { run: { windowStart, windowEnd, status: 'COMPLETED' } } } } } }, select: { id: true, currentRevisionId: true, contentHash: true }, orderBy: { createdAt: 'asc' } });
   let verification = false;
   if (readyDraft?.currentRevisionId && readyDraft.contentHash) { await enqueueEditorialVerificationJob(queues.verificationQueue, prepareEditorialVerificationJob({ draftId: readyDraft.id, revisionId: readyDraft.currentRevisionId, expectedContentHash: readyDraft.contentHash, trigger: 'AUTOMATION', requestedAt: now })); verification = true; }
-  const candidateDiagnostics = await prisma.editorialCandidate.findMany({
-    where: { topic: { run: { windowStart, windowEnd } } },
-    select: {
-      rationale: true,
-      topic: { select: { independentDomainCount: true, documentCount: true } },
-      sourceDossiers: {
-        select: {
-          selectedChunkCount: true,
-          brief: { select: { id: true } },
-        },
-      },
-    },
-  });
-  const enrichmentDiagnostics = candidateDiagnostics
-    .map((item) => jsonRecord(jsonRecord(item.rationale).enrichment))
-    .filter((item) => Object.keys(item).length > 0);
   const degradedEvidenceReasons = [...new Set([
     ...candidateDiagnostics.flatMap((item) => {
     const reasons = jsonRecord(item.rationale).reasons;
@@ -159,11 +194,11 @@ export async function runEditorialAutomationTick(
       sum + (dossier.brief ? dossier.selectedChunkCount : 0), 0), 0)
     + sumNumeric(enrichmentDiagnostics, 'usedEvidenceItems');
   const finalEligibleDomains = Math.max(
-    indexedDomains.size,
+    finalCorpusDomains.size,
     ...candidateDiagnostics.map((item) => item.topic.independentDomainCount),
   );
   const finalEligibleDocuments = Math.max(
-    indexed.length,
+    clusterInputDocumentIds.length,
     ...candidateDiagnostics.map((item) => item.topic.documentCount),
   );
   const enrichmentAttempted = enrichmentDiagnostics.length > 0;
@@ -183,12 +218,14 @@ export async function runEditorialAutomationTick(
   const clusterBlockages = [
     ...(indexed.length === 0 ? [{ code: 'NO_CLUSTERABLE_DOCUMENTS', detail: { documents: [] } }] : []),
     ...(indexed.length > 0 && indexed.length < 2 ? [{ code: 'NOT_ENOUGH_CLUSTERABLE_DOCUMENTS', detail: { present: indexed.length, required: 2, documentIds: clusterInputDocumentIds } }] : []),
-    ...(sourcePoorInitialCluster ? [{ code: 'SOURCE_POOR_INITIAL_CLUSTER', detail: { informational: true, presentDomains: [...indexedDomains].sort(), present: indexedDomains.size, required: 2, documentIds: clusterInputDocumentIds } }] : []),
+    ...(sourcePoorInitialCluster ? [{ code: 'SOURCE_POOR_INITIAL_CLUSTER', detail: { informational: true, presentDomains: [...indexedDomains].sort(), present: indexedDomains.size, required: 2, documentIds: initialClusterInputDocumentIds } }] : []),
     ...(existingRun ? [{ code: existingRun.status === 'COMPLETED' ? 'RUN_SKIPPED_ALREADY_COMPLETED' : `RUN_ALREADY_${existingRun.status}`, detail: { runId: existingRun.id, status: existingRun.status, completedAt: existingRun.completedAt, updatedAt: existingRun.updatedAt, informational: existingRun.status === 'COMPLETED' } }] : []),
   ];
   const blockages = [
     ...(sources.filter((source) => !source.categoryId).map((source) => `MISSING_CATEGORY:${source.key}`)),
-    ...clusterBlockages.map((blockage) => blockage.code),
+    ...clusterBlockages
+      .filter((blockage) => jsonRecord(blockage.detail).informational !== true)
+      .map((blockage) => blockage.code),
   ];
   const publications = await prisma.editorialReviewAuditLog.count({
     where: { action: 'ARTICLE_PUBLISHED', operationKey: { startsWith: 'editorial-autopublish:' }, createdAt: { gte: windowStart, lt: windowEnd } },
