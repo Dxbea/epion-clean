@@ -23,6 +23,7 @@
     "worker:editorial-verification": "node --import ./dist/instrument.js dist/workers/editorial-verification.worker.js",
     "worker:editorial-automation": "node --import ./dist/instrument.js dist/workers/editorial-automation.worker.js",
     "editorial:automation:once": "node --import ./dist/instrument.js dist/scripts/editorial-automation-once.js",
+    "editorial:automation:sources": "node --import ./dist/instrument.js dist/scripts/list-editorial-automation-sources.js",
     "staging:editorial:migrations": "node --import tsx src/scripts/audit-editorial-migrations.ts",
     "staging:editorial:readiness": "node --import tsx src/scripts/editorial-staging-readiness.ts",
     "staging:editorial:seed": "node --import tsx src/scripts/seed-editorial-staging.ts",

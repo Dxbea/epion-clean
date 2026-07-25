@@ -4,7 +4,7 @@ import { resolveEditorialVerificationRuntimeFlags } from '../src/lib/editorial-v
 const prismaMock = vi.hoisted(() => ({
   discoverySource: { findMany: vi.fn() },
   ingestedDocument: { findMany: vi.fn() },
-  editorialRun: { findFirst: vi.fn() },
+  editorialRun: { findFirst: vi.fn(), findUnique: vi.fn() },
   editorialCandidate: { findFirst: vi.fn() },
   editorialBrief: { findFirst: vi.fn() },
   editorialDraft: { findFirst: vi.fn() },
@@ -38,7 +38,7 @@ describe('editorial automation indexing selection', () => {
     prismaMock.ingestedDocument.findMany
       .mockResolvedValueOnce([{ id: 'ecb-document', status: 'DISCOVERED', isIndexed: false, robotsAllowed: null, accessPolicy: 'FULL_FETCH', storagePolicy: 'FULL' }])
       .mockResolvedValueOnce([]);
-    prismaMock.editorialRun.findFirst.mockResolvedValue(null);
+    prismaMock.editorialRun.findUnique.mockResolvedValue(null);
     prismaMock.editorialCandidate.findFirst.mockResolvedValue(null);
     prismaMock.editorialBrief.findFirst.mockResolvedValue(null);
     prismaMock.editorialDraft.findFirst.mockResolvedValue(null);
@@ -57,7 +57,7 @@ describe('editorial automation indexing selection', () => {
       { id: 'discovery-inserm', key: 'institution-inserm-actualites', sourceId: 'durable-inserm', categoryId: null },
     ]);
     prismaMock.ingestedDocument.findMany.mockResolvedValueOnce([{ id: 'blocked', status: 'DISCOVERED', isIndexed: false, robotsAllowed: false, accessPolicy: 'FULL_FETCH', storagePolicy: 'FULL' }]).mockResolvedValueOnce([]);
-    prismaMock.editorialRun.findFirst.mockResolvedValue(null); prismaMock.editorialCandidate.findFirst.mockResolvedValue(null); prismaMock.editorialBrief.findFirst.mockResolvedValue(null); prismaMock.editorialDraft.findFirst.mockResolvedValue(null); prismaMock.editorialReviewAuditLog.count.mockResolvedValue(0);
+    prismaMock.editorialRun.findUnique.mockResolvedValue(null); prismaMock.editorialCandidate.findFirst.mockResolvedValue(null); prismaMock.editorialBrief.findFirst.mockResolvedValue(null); prismaMock.editorialDraft.findFirst.mockResolvedValue(null); prismaMock.editorialReviewAuditLog.count.mockResolvedValue(0);
     const report = await runEditorialAutomationTick(flags(), queues(), new Date('2026-07-25T10:00:00.000Z'));
     expect(report.documentsBlocked).toEqual([{ documentId: 'blocked', reason: 'ROBOTS_DISALLOWED' }]);
     expect(report.blockages).toEqual(expect.arrayContaining(['MISSING_CATEGORY:institution-ecb-press', 'NO_CLUSTERABLE_DOCUMENTS']));
@@ -74,7 +74,7 @@ describe('editorial automation indexing selection', () => {
         { id: 'inserm-indexed', status: 'INDEXED', isIndexed: true, robotsAllowed: true, accessPolicy: 'FULL_FETCH', storagePolicy: 'FULL' },
       ])
       .mockResolvedValueOnce([{ id: 'ecb-indexed', domain: 'ecb.europa.eu' }, { id: 'inserm-indexed', domain: 'inserm.fr' }]);
-    prismaMock.editorialRun.findFirst.mockResolvedValue(null); prismaMock.editorialCandidate.findFirst.mockResolvedValue(null); prismaMock.editorialBrief.findFirst.mockResolvedValue(null); prismaMock.editorialDraft.findFirst.mockResolvedValue(null); prismaMock.editorialReviewAuditLog.count.mockResolvedValue(0);
+    prismaMock.editorialRun.findUnique.mockResolvedValue(null); prismaMock.editorialCandidate.findFirst.mockResolvedValue(null); prismaMock.editorialBrief.findFirst.mockResolvedValue(null); prismaMock.editorialDraft.findFirst.mockResolvedValue(null); prismaMock.editorialReviewAuditLog.count.mockResolvedValue(0);
     const queue = queues();
     const report = await runEditorialAutomationTick(flags(), queue, new Date('2026-07-25T10:00:00.000Z'), { indexedLookbackHours: 24 });
     expect(report).toMatchObject({ documentsQueuedForIndexing: 0, documentsAlreadyIndexed: 2, documentsEligibleForClustering: 2, clusters: 1 });

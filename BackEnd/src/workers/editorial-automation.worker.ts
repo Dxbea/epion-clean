@@ -26,6 +26,14 @@ export interface EditorialAutomationReport {
   documentsAlreadyIndexed: number;
   documentsIndexedThisRun: number;
   documentsEligibleForClustering: number;
+  eligibleDocuments: Array<{ id: string; title: string | null; domain: string; sourceId: string | null; sourceKey: string | null; categoryId: string | null; status: string; isIndexed: boolean; indexedAt: Date | null; updatedAt: Date }>;
+  eligibleDomains: string[];
+  eligibleSourceKeys: string[];
+  minimumDomainsRequired: number;
+  minimumSourcesRequired: number;
+  clusterInputDocumentIds: string[];
+  clusterBlockages: Array<{ code: string; detail: Record<string, unknown> }>;
+  existingRun: { id: string; status: string; completedAt: Date | null; updatedAt: Date; informational: boolean } | null;
   documentsQueuedForIndexing: number;
   documentsIndexed: number;
   documentsBlocked: Array<{ documentId: string; reason: string }>;
@@ -56,7 +64,7 @@ export async function runEditorialAutomationTick(
   const selectionStart = new Date(now.getTime() - indexedLookbackHours * 60 * 60_000);
   const scopedDocuments = await prisma.ingestedDocument.findMany({
     where: { sourceId: { in: durableSourceIds }, discoveredAt: { gte: selectionStart, lte: now } },
-    select: { id: true, status: true, isIndexed: true, robotsAllowed: true, accessPolicy: true, storagePolicy: true },
+    select: { id: true, title: true, domain: true, sourceId: true, status: true, isIndexed: true, indexedAt: true, updatedAt: true, robotsAllowed: true, accessPolicy: true, storagePolicy: true },
   });
   const blocked = scopedDocuments.filter((document) => document.robotsAllowed === false || document.accessPolicy === 'BLOCKED' || document.accessPolicy === 'METADATA_ONLY' || document.storagePolicy === 'NONE' || document.storagePolicy === 'METADATA_ONLY')
     .map((document) => ({ documentId: document.id, reason: document.robotsAllowed === false ? 'ROBOTS_DISALLOWED' : document.accessPolicy === 'BLOCKED' ? 'ACCESS_POLICY_BLOCKED' : document.accessPolicy === 'METADATA_ONLY' ? 'ACCESS_POLICY_METADATA_ONLY' : document.storagePolicy === 'NONE' ? 'STORAGE_POLICY_NONE' : 'STORAGE_POLICY_METADATA_ONLY' }));
@@ -68,14 +76,20 @@ export async function runEditorialAutomationTick(
 
   const indexed = await prisma.ingestedDocument.findMany({
     where: { sourceId: { in: durableSourceIds }, discoveredAt: { gte: selectionStart, lte: now }, isIndexed: true, status: 'INDEXED' },
-    orderBy: { discoveredAt: 'asc' }, take: flags.automationMaximumDocuments, select: { id: true, domain: true },
+    orderBy: { discoveredAt: 'asc' }, take: flags.automationMaximumDocuments, select: { id: true, title: true, domain: true, sourceId: true, status: true, isIndexed: true, indexedAt: true, updatedAt: true },
   });
-  const existingRun = await prisma.editorialRun.findFirst({ where: { windowStart, windowEnd }, select: { id: true, status: true } });
-  let clustered = false;
+  const sourceById = new Map(sources.filter((source) => source.sourceId).map((source) => [source.sourceId!, source]));
   const indexedDomains = new Set(indexed.map((document) => document.domain.toLowerCase()));
-  if (!existingRun && indexed.length >= 2 && indexedDomains.size >= 2) {
-    const job = prepareEditorialShadowJob({ windowStart, windowEnd, embeddingModel: DOCUMENT_EMBEDDING_MODEL, documentIds: indexed.map((item) => item.id), trigger: 'SCHEDULED', requestedAt: now, config: { maxDocuments: flags.automationMaximumDocuments, minProposalDocuments: 2, minProposalDomains: 2 } });
-    await enqueueEditorialShadowJob(queues.editorialQueue, job);
+  const clusterInputDocumentIds = indexed.map((document) => document.id).sort();
+  const clusterJob = indexed.length >= 2 && indexedDomains.size >= 2
+    ? prepareEditorialShadowJob({ windowStart, windowEnd, embeddingModel: DOCUMENT_EMBEDDING_MODEL, documentIds: clusterInputDocumentIds, trigger: 'SCHEDULED', requestedAt: now, config: { maxDocuments: flags.automationMaximumDocuments, minProposalDocuments: 2, minProposalDomains: 2 } })
+    : null;
+  const existingRun = clusterJob
+    ? await prisma.editorialRun.findUnique({ where: { idempotencyKey: clusterJob.idempotencyKey }, select: { id: true, status: true, completedAt: true, updatedAt: true } })
+    : null;
+  let clustered = false;
+  if (!existingRun && clusterJob) {
+    await enqueueEditorialShadowJob(queues.editorialQueue, clusterJob);
     clustered = true;
   }
   const candidate = await prisma.editorialCandidate.findFirst({
@@ -90,12 +104,15 @@ export async function runEditorialAutomationTick(
   const readyDraft = await prisma.editorialDraft.findFirst({ where: { status: 'ARTICLE_DRAFT_CREATED', article: { is: { status: 'DRAFT' } }, verificationRuns: { none: {} }, brief: { dossier: { candidate: { topic: { run: { windowStart, windowEnd, status: 'COMPLETED' } } } } } }, select: { id: true, currentRevisionId: true, contentHash: true }, orderBy: { createdAt: 'asc' } });
   let verification = false;
   if (readyDraft?.currentRevisionId && readyDraft.contentHash) { await enqueueEditorialVerificationJob(queues.verificationQueue, prepareEditorialVerificationJob({ draftId: readyDraft.id, revisionId: readyDraft.currentRevisionId, expectedContentHash: readyDraft.contentHash, trigger: 'AUTOMATION', requestedAt: now })); verification = true; }
+  const clusterBlockages = [
+    ...(indexed.length === 0 ? [{ code: 'NO_CLUSTERABLE_DOCUMENTS', detail: { documents: [] } }] : []),
+    ...(indexed.length > 0 && indexed.length < 2 ? [{ code: 'NOT_ENOUGH_CLUSTERABLE_DOCUMENTS', detail: { present: indexed.length, required: 2, documentIds: clusterInputDocumentIds } }] : []),
+    ...(indexed.length >= 2 && indexedDomains.size < 2 ? [{ code: 'NOT_ENOUGH_DOMAINS', detail: { presentDomains: [...indexedDomains].sort(), present: indexedDomains.size, required: 2, documentIds: clusterInputDocumentIds } }] : []),
+    ...(existingRun ? [{ code: existingRun.status === 'COMPLETED' ? 'RUN_SKIPPED_ALREADY_COMPLETED' : `RUN_ALREADY_${existingRun.status}`, detail: { runId: existingRun.id, status: existingRun.status, completedAt: existingRun.completedAt, updatedAt: existingRun.updatedAt, informational: existingRun.status === 'COMPLETED' } }] : []),
+  ];
   const blockages = [
     ...(sources.filter((source) => !source.categoryId).map((source) => `MISSING_CATEGORY:${source.key}`)),
-    ...(indexed.length === 0 ? ['NO_CLUSTERABLE_DOCUMENTS'] : []),
-    ...(indexed.length > 0 && indexed.length < 2 ? ['NOT_ENOUGH_CLUSTERABLE_DOCUMENTS'] : []),
-    ...(indexed.length >= 2 && indexedDomains.size < 2 ? ['NOT_ENOUGH_DOMAINS'] : []),
-    ...(existingRun ? [`EDITORIAL_RUN_ALREADY_${existingRun.status}`] : []),
+    ...clusterBlockages.map((blockage) => blockage.code),
   ];
   const publications = await prisma.editorialReviewAuditLog.count({
     where: { action: 'ARTICLE_PUBLISHED', operationKey: { startsWith: 'editorial-autopublish:' }, createdAt: { gte: windowStart, lt: windowEnd } },
@@ -106,6 +123,14 @@ export async function runEditorialAutomationTick(
     documentsAlreadyIndexed: scopedDocuments.filter((document) => document.isIndexed).length,
     documentsIndexedThisRun: options.documentsIndexedThisRun ?? 0,
     documentsEligibleForClustering: indexed.length,
+    eligibleDocuments: indexed.map((document) => ({ ...document, sourceKey: sourceById.get(document.sourceId ?? '')?.key ?? null, categoryId: sourceById.get(document.sourceId ?? '')?.categoryId ?? null })),
+    eligibleDomains: [...indexedDomains].sort(),
+    eligibleSourceKeys: [...new Set(indexed.map((document) => sourceById.get(document.sourceId ?? '')?.key).filter((key): key is string => Boolean(key)))].sort(),
+    minimumDomainsRequired: 2,
+    minimumSourcesRequired: 2,
+    clusterInputDocumentIds,
+    clusterBlockages,
+    existingRun: existingRun ? { ...existingRun, informational: existingRun.status === 'COMPLETED' } : null,
     documentsQueuedForIndexing: documents.length,
     documentsIndexed: indexed.length,
     documentsBlocked: blocked,
