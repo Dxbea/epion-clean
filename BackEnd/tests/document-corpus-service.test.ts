@@ -4,7 +4,7 @@ import {
   processIngestedDocument,
   type DocumentCorpusDependencies,
 } from '../src/lib/document-corpus/document-corpus-service.js';
-import { extractReadableHtml } from '../src/lib/extractor.js';
+import { extractReadableHtml, ExtractorUnsupportedContentTypeError } from '../src/lib/extractor.js';
 import type { indexDocumentCorpus } from '../src/lib/document-corpus/document-rag-service.js';
 
 function document(overrides: Record<string, unknown> = {}) {
@@ -157,6 +157,16 @@ describe('document fetch, extraction and exact deduplication service', () => {
       where: { id: 'document-1' },
       data: expect.objectContaining({ status: 'FAILED', fetchError: expect.stringContaining('status=200') }),
     });
+  });
+
+  it('marks an unsupported PDF as terminal PARTIAL instead of retrying into the DLQ', async () => {
+    const { client } = clientFor(document({ canonicalUrl: 'https://example.com/press-release.pdf' }));
+    await expect(processIngestedDocument({
+      client,
+      robotsChecker: { check: vi.fn(async () => ({ allowed: true, retryable: false, checkedAt: new Date(), reason: 'robots_allowed', robotsUrl: 'https://example.com/robots.txt' })) },
+      extractor: vi.fn(async () => { throw new ExtractorUnsupportedContentTypeError('application/pdf', 'https://example.com/press-release.pdf'); }),
+    }, 'document-1')).resolves.toMatchObject({ outcome: 'PARTIAL', reason: 'UNSUPPORTED_CONTENT_TYPE' });
+    expect(client.ingestedDocument.update).toHaveBeenLastCalledWith({ where: { id: 'document-1' }, data: { status: 'PARTIAL', fetchError: 'UNSUPPORTED_CONTENT_TYPE:application/pdf' } });
   });
 
   it('marks a concurrent exact-content identity winner as canonical and skips embeddings', async () => {

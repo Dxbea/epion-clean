@@ -1,6 +1,7 @@
 import type { PrismaClient } from '@prisma/client';
 import {
   extractArticle,
+  ExtractorUnsupportedContentTypeError,
   type ExtractedDocument,
   type ExtractLogContext,
 } from '../extractor.js';
@@ -243,6 +244,13 @@ export async function processIngestedDocument(
       normalizedContent.length,
     );
   } catch (error) {
+    if (error instanceof ExtractorUnsupportedContentTypeError) {
+      await client.ingestedDocument.update({
+        where: { id: documentId },
+        data: { status: 'PARTIAL', fetchError: `UNSUPPORTED_CONTENT_TYPE:${error.contentType}` },
+      });
+      return result(documentId, 'PARTIAL', 'UNSUPPORTED_CONTENT_TYPE');
+    }
     const message = errorMessage(error).slice(0, 1_000);
     await client.ingestedDocument.update({
       where: { id: documentId },

@@ -24,6 +24,8 @@ export interface EditorialAutomationReport {
   discoveryJobsStarted: number;
   documentsDiscovered: number;
   documentsAlreadyIndexed: number;
+  documentsIndexedThisRun: number;
+  documentsEligibleForClustering: number;
   documentsQueuedForIndexing: number;
   documentsIndexed: number;
   documentsBlocked: Array<{ documentId: string; reason: string }>;
@@ -39,6 +41,7 @@ export async function runEditorialAutomationTick(
   flags: EditorialVerificationRuntimeFlags,
   queues: any,
   now = new Date(),
+  options: { indexedLookbackHours?: number; documentsIndexedThisRun?: number } = {},
 ): Promise<EditorialAutomationReport> {
   if (!flags.automationSourceKeys.length) throw new Error('EDITORIAL_AUTOMATION_SOURCE_KEYS is required when automation is enabled');
   const { windowStart, windowEnd } = editorialAutomationWindow(now);
@@ -49,7 +52,8 @@ export async function runEditorialAutomationTick(
   if (sources.length !== flags.automationSourceKeys.length) throw new Error('Configured editorial automation sources must exist, be enabled and not blocked');
   const durableSourceIds = sources.map((source) => source.sourceId).filter((sourceId): sourceId is string => Boolean(sourceId));
   if (durableSourceIds.length !== sources.length) throw new Error('Configured editorial automation sources require a durable DiscoverySource.sourceId');
-  const selectionStart = new Date(now.getTime() - 24 * 60 * 60_000);
+  const indexedLookbackHours = options.indexedLookbackHours ?? flags.automationIndexedLookbackHours;
+  const selectionStart = new Date(now.getTime() - indexedLookbackHours * 60 * 60_000);
   const scopedDocuments = await prisma.ingestedDocument.findMany({
     where: { sourceId: { in: durableSourceIds }, discoveredAt: { gte: selectionStart, lte: now } },
     select: { id: true, status: true, isIndexed: true, robotsAllowed: true, accessPolicy: true, storagePolicy: true },
@@ -64,11 +68,12 @@ export async function runEditorialAutomationTick(
 
   const indexed = await prisma.ingestedDocument.findMany({
     where: { sourceId: { in: durableSourceIds }, discoveredAt: { gte: selectionStart, lte: now }, isIndexed: true, status: 'INDEXED' },
-    orderBy: { discoveredAt: 'asc' }, take: flags.automationMaximumDocuments, select: { id: true },
+    orderBy: { discoveredAt: 'asc' }, take: flags.automationMaximumDocuments, select: { id: true, domain: true },
   });
   const existingRun = await prisma.editorialRun.findFirst({ where: { windowStart, windowEnd }, select: { id: true, status: true } });
   let clustered = false;
-  if (!existingRun && indexed.length >= 2) {
+  const indexedDomains = new Set(indexed.map((document) => document.domain.toLowerCase()));
+  if (!existingRun && indexed.length >= 2 && indexedDomains.size >= 2) {
     const job = prepareEditorialShadowJob({ windowStart, windowEnd, embeddingModel: DOCUMENT_EMBEDDING_MODEL, documentIds: indexed.map((item) => item.id), trigger: 'SCHEDULED', requestedAt: now, config: { maxDocuments: flags.automationMaximumDocuments, minProposalDocuments: 2, minProposalDomains: 2 } });
     await enqueueEditorialShadowJob(queues.editorialQueue, job);
     clustered = true;
@@ -87,7 +92,10 @@ export async function runEditorialAutomationTick(
   if (readyDraft?.currentRevisionId && readyDraft.contentHash) { await enqueueEditorialVerificationJob(queues.verificationQueue, prepareEditorialVerificationJob({ draftId: readyDraft.id, revisionId: readyDraft.currentRevisionId, expectedContentHash: readyDraft.contentHash, trigger: 'AUTOMATION', requestedAt: now })); verification = true; }
   const blockages = [
     ...(sources.filter((source) => !source.categoryId).map((source) => `MISSING_CATEGORY:${source.key}`)),
-    ...(documents.length === 0 ? ['NO_INDEXABLE_DISCOVERED_DOCUMENTS'] : []),
+    ...(indexed.length === 0 ? ['NO_CLUSTERABLE_DOCUMENTS'] : []),
+    ...(indexed.length > 0 && indexed.length < 2 ? ['NOT_ENOUGH_CLUSTERABLE_DOCUMENTS'] : []),
+    ...(indexed.length >= 2 && indexedDomains.size < 2 ? ['NOT_ENOUGH_DOMAINS'] : []),
+    ...(existingRun ? [`EDITORIAL_RUN_ALREADY_${existingRun.status}`] : []),
   ];
   const publications = await prisma.editorialReviewAuditLog.count({
     where: { action: 'ARTICLE_PUBLISHED', operationKey: { startsWith: 'editorial-autopublish:' }, createdAt: { gte: windowStart, lt: windowEnd } },
@@ -96,6 +104,8 @@ export async function runEditorialAutomationTick(
     discoveryJobsStarted: sources.length,
     documentsDiscovered: scopedDocuments.filter((document) => document.status === 'DISCOVERED').length,
     documentsAlreadyIndexed: scopedDocuments.filter((document) => document.isIndexed).length,
+    documentsIndexedThisRun: options.documentsIndexedThisRun ?? 0,
+    documentsEligibleForClustering: indexed.length,
     documentsQueuedForIndexing: documents.length,
     documentsIndexed: indexed.length,
     documentsBlocked: blocked,

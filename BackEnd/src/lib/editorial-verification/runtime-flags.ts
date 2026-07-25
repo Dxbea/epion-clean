@@ -27,6 +27,7 @@ export interface EditorialVerificationRuntimeFlags {
   automationKillSwitch: boolean;
   automationIntervalMs: number;
   automationMaximumDocuments: number;
+  automationIndexedLookbackHours: number;
   automationSourceKeys: string[];
 }
 
@@ -58,6 +59,7 @@ export function resolveEditorialVerificationRuntimeFlags(
     automationKillSwitch: booleanFlag(values.EDITORIAL_AUTOMATION_KILL_SWITCH, true, 'EDITORIAL_AUTOMATION_KILL_SWITCH'),
     automationIntervalMs: integerFlag(values.EDITORIAL_AUTOMATION_INTERVAL_MS, 300_000, 60_000, 60 * 60_000, 'EDITORIAL_AUTOMATION_INTERVAL_MS'),
     automationMaximumDocuments: integerFlag(values.EDITORIAL_AUTOMATION_MAXIMUM_DOCUMENTS, 12, 2, 50, 'EDITORIAL_AUTOMATION_MAXIMUM_DOCUMENTS'),
+    automationIndexedLookbackHours: integerFlag(values.EDITORIAL_AUTOMATION_INDEXED_LOOKBACK_HOURS, 24, 1, 168, 'EDITORIAL_AUTOMATION_INDEXED_LOOKBACK_HOURS'),
     automationSourceKeys: commaSeparatedKeys(values.EDITORIAL_AUTOMATION_SOURCE_KEYS, 'EDITORIAL_AUTOMATION_SOURCE_KEYS'),
   };
 }
