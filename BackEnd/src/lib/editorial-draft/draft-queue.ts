@@ -10,7 +10,7 @@ export const EDITORIAL_DRAFT_JOB_NAME = 'generate-controlled-editorial-draft';
 export const EDITORIAL_DRAFT_DLQ_JOB_NAME = 'editorial-draft-failed';
 export const EDITORIAL_DRAFT_JOB_ATTEMPTS = 3;
 
-export type EditorialDraftJobTrigger = 'MANUAL' | 'PROD_SHADOW_RETRY';
+export type EditorialDraftJobTrigger = 'MANUAL' | 'AUTOMATION' | 'PROD_SHADOW_RETRY';
 
 export interface EditorialDraftJobData {
   briefId: string;

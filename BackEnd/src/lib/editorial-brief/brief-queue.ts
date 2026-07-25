@@ -18,7 +18,7 @@ export interface EditorialBriefJobData {
   config: EditorialBriefConfig;
   prodShadowControlled?: boolean;
   requestedAt: string;
-  trigger: 'MANUAL';
+  trigger: 'MANUAL' | 'AUTOMATION';
 }
 
 export interface EditorialBriefDeadLetterJobData extends EditorialBriefJobData {
@@ -34,6 +34,7 @@ export function prepareEditorialBriefJob(options: {
   config?: Partial<EditorialBriefConfig>;
   prodShadowControlled?: boolean;
   requestedAt?: Date;
+  trigger?: EditorialBriefJobData['trigger'];
 }): EditorialBriefJobData {
   if (!options.editorialRunId.trim()) throw new Error('editorialRunId is required');
   const generatorModel = options.generatorModel?.trim() || process.env.EDITORIAL_BRIEF_MODEL || 'gpt-4o-mini';
@@ -45,7 +46,7 @@ export function prepareEditorialBriefJob(options: {
     config: resolveEditorialBriefConfig({ ...options.config, prodShadowControlled: options.prodShadowControlled === true }),
     prodShadowControlled: options.prodShadowControlled === true ? true : undefined,
     requestedAt: (options.requestedAt ?? new Date()).toISOString(),
-    trigger: 'MANUAL',
+    trigger: options.trigger ?? 'MANUAL',
   };
 }
 

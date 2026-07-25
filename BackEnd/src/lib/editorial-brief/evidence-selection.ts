@@ -1,5 +1,7 @@
 import { createHash } from 'node:crypto';
 import { Prisma, type PrismaClient } from '@prisma/client';
+import { normalizeArticleSourceUrl } from '../article-source-service.js';
+import { normalizeSourceDomain } from '../source-profile.js';
 import type { EditorialBriefConfig, EditorialEvidenceSnapshot } from './types.js';
 
 export interface EditorialEvidenceRow {
@@ -79,8 +81,14 @@ export function selectEditorialEvidence(
 ): EditorialEvidenceSelection {
   const eligible = rows
     .filter((row) => Number.isFinite(row.similarity) && row.similarity >= config.minimumChunkSimilarity)
-    .map((row) => ({ ...row, domain: row.domain.trim().toLowerCase() }))
-    .filter((row) => row.domain && row.content.trim());
+    .map((row) => {
+      const canonicalUrl = normalizeArticleSourceUrl(row.canonicalUrl);
+      const domain = normalizeSourceDomain(row.domain);
+      const urlDomain = normalizeSourceDomain(canonicalUrl);
+      return { ...row, canonicalUrl, domain, urlDomain };
+    })
+    .filter((row) => row.domain && row.canonicalUrl && row.urlDomain === row.domain && row.content.trim())
+    .map(({ urlDomain: _urlDomain, ...row }) => row as EditorialEvidenceRow & { canonicalUrl: string; domain: string });
   const documents = groupDocuments(eligible, config.maximumChunksPerDocument);
   if (documents.length === 0) {
     return { evidence: [], domains: [], evidenceHash: null, blockedReason: 'No eligible evidence chunks' };

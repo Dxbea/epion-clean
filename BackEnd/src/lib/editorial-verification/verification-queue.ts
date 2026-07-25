@@ -18,7 +18,7 @@ export interface EditorialVerificationJobData {
   retryReason: EditorialVerificationRetryReason | null;
   retryAttempt: number;
   requestedAt: string;
-  trigger: 'ADMIN' | 'RECONCILIATION';
+  trigger: 'ADMIN' | 'AUTOMATION' | 'RECONCILIATION';
 }
 
 export interface EditorialVerificationDeadLetterData extends EditorialVerificationJobData {

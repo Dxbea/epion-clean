@@ -18,10 +18,15 @@ import { EditorialVerificationBudgetExceededError, EditorialVerificationBudgetSe
 import { MistralEditorialAuditor } from '../lib/editorial-verification/mistral-auditor.js';
 import { reconcileEditorialVerificationRuns } from '../lib/editorial-verification/reconciliation.js';
 import {
+  EDITORIAL_AUTOPUBLISH_REDIS_KILL_SWITCH_KEY,
   EDITORIAL_VERIFICATION_REDIS_KILL_SWITCH_KEY,
   resolveEditorialVerificationRuntimeFlags,
   type EditorialVerificationRuntimeFlags,
 } from '../lib/editorial-verification/runtime-flags.js';
+import {
+  autoPublishVerifiedEditorialArticle,
+  EditorialAutoPublicationBlockedError,
+} from '../lib/editorial-verification/auto-publisher.js';
 import { calculateEditorialShadowEligibility } from '../lib/editorial-verification/shadow-eligibility.js';
 import {
   EDITORIAL_VERIFICATION_VERSION,
@@ -61,6 +66,7 @@ export interface EditorialVerificationProcessorDependencies {
   serperSearcher?: typeof searchSerperStrict;
   mistralAuditor?: EditorialMistralAuditor;
   sourceHydrator?: EditorialVerificationSourceHydrator;
+  autoPublish?: typeof autoPublishVerifiedEditorialArticle;
   now?: () => Date;
 }
 
@@ -106,6 +112,7 @@ export function createEditorialVerificationProcessor(
       dependencies.metrics.increment('documentsEnqueued', documentsEnqueued);
       const shadow = await calculateAndPersistShadowEligibility(dependencies.client, result.runId, now());
       dependencies.metrics.recordShadow(shadow.decision);
+      const autoPublication = await maybeAutoPublish(dependencies, job.data, result, now);
       dependencies.metrics.increment('jobsSucceeded');
       workerLog.info('Editorial verification job completed', {
         jobId: job.id,
@@ -113,10 +120,11 @@ export function createEditorialVerificationProcessor(
         result,
         documentsEnqueued,
         shadow,
+        autoPublication,
         durationMs: Date.now() - startedAt,
         metrics: dependencies.metrics.snapshot(),
       });
-      return { ...result, documentsEnqueued, shadow };
+      return { ...result, documentsEnqueued, shadow, autoPublication };
     } catch (error) {
       if (error instanceof EditorialVerificationBudgetExceededError) {
         dependencies.metrics.increment('jobsDelayedByBudget');
@@ -130,6 +138,42 @@ export function createEditorialVerificationProcessor(
       await lock.release().catch((error) => workerLog.warn('Failed to release editorial verification lock', { error: errorMessage(error) }));
     }
   };
+}
+
+async function maybeAutoPublish(
+  dependencies: EditorialVerificationProcessorDependencies,
+  job: EditorialVerificationJobData,
+  result: { runId: string; outcome: string },
+  now: () => Date,
+) {
+  if (!dependencies.flags.autoPublishEnabled || dependencies.flags.autoPublishKillSwitch) {
+    return { outcome: 'SKIPPED_DISABLED' as const };
+  }
+  if (await isRedisKillSwitchActive(dependencies.redis, EDITORIAL_AUTOPUBLISH_REDIS_KILL_SWITCH_KEY)) {
+    return { outcome: 'SKIPPED_KILL_SWITCH' as const };
+  }
+  if (!['FINALIZED', 'ALREADY_FINALIZED'].includes(result.outcome)) {
+    return { outcome: 'SKIPPED_VERIFICATION_NOT_PASSED' as const };
+  }
+  try {
+    const publish = dependencies.autoPublish ?? autoPublishVerifiedEditorialArticle;
+    return await publish(dependencies.client, {
+      draftId: job.draftId,
+      revisionId: job.revisionId,
+      expectedContentHash: job.expectedContentHash,
+      verificationRunId: result.runId,
+      flags: dependencies.flags,
+      now: now(),
+    });
+  } catch (error) {
+    if (error instanceof EditorialAutoPublicationBlockedError) {
+      workerLog.info('Editorial auto-publication left Article in DRAFT', {
+        draftId: job.draftId, verificationRunId: result.runId, code: error.code, reason: error.message,
+      });
+      return { outcome: 'BLOCKED' as const, code: error.code };
+    }
+    throw error;
+  }
 }
 
 function createBudgetedDependencies(dependencies: EditorialVerificationProcessorDependencies) {

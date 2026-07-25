@@ -21,6 +21,7 @@
     "worker:editorial-brief": "node --import ./dist/instrument.js dist/workers/editorial-brief.worker.js",
     "worker:editorial-draft": "node --import ./dist/instrument.js dist/workers/editorial-draft.worker.js",
     "worker:editorial-verification": "node --import ./dist/instrument.js dist/workers/editorial-verification.worker.js",
+    "worker:editorial-automation": "node --import ./dist/instrument.js dist/workers/editorial-automation.worker.js",
     "staging:editorial:migrations": "node --import tsx src/scripts/audit-editorial-migrations.ts",
     "staging:editorial:readiness": "node --import tsx src/scripts/editorial-staging-readiness.ts",
     "staging:editorial:seed": "node --import tsx src/scripts/seed-editorial-staging.ts",

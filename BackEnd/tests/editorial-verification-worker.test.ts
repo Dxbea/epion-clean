@@ -177,6 +177,32 @@ describe('private editorial verification worker', () => {
     expect(metrics.snapshot()).toMatchObject({ jobsSucceeded: 1, shadowDecisions: { WOULD_AUTO_PUBLISH: 1 } });
   });
 
+  it('calls the isolated auto-publisher only when its explicit flag is enabled', async () => {
+    const update = vi.fn().mockResolvedValue({});
+    const workerClient = {
+      editorialDraft: { findUnique: vi.fn().mockResolvedValue({ contentHash: 'hash-1', currentRevisionId: 'revision-1', article: { status: 'DRAFT' } }) },
+      editorialVerificationRun: {
+        findUnique: vi.fn()
+          .mockResolvedValueOnce({ serperDocumentIds: [] })
+          .mockResolvedValueOnce({
+            id: 'run-1', status: 'PASSED', gateReasons: [], sourceSnapshot: [{}, {}, {}], mistralAudit: { outcome: 'PASSED', contradictions: [] },
+            corpusAssessment: { final: { independentDomains: 3 } }, article: { status: 'DRAFT', factCheckScore: 91 },
+            draft: { qualityGate: { qualityScore: 92, publishabilityScore: 90 }, brief: { dossier: { candidate: { riskLevel: 'LOW', topic: { dominantCategoryId: null, label: 'Mission spatiale' } } } } },
+          }),
+        update,
+      },
+      ingestedDocument: { findMany: vi.fn().mockResolvedValue([]) }, category: { findUnique: vi.fn() }, article: { update: vi.fn(), updateMany: vi.fn() },
+    } as unknown as PrismaClient;
+    const autoPublish = vi.fn().mockResolvedValue({ outcome: 'ARTICLE_PUBLISHED', articleId: 'article-1' });
+    const processor = createEditorialVerificationProcessor({
+      client: workerClient, redis: new WorkerRedis(), flags: flags({ EDITORIAL_AUTOPUBLISH_ENABLED: 'true', EDITORIAL_AUTOPUBLISH_KILL_SWITCH: 'false', EDITORIAL_AUTOPUBLISH_SYSTEM_USER_ID: 'system-admin' }),
+      metrics: new EditorialVerificationMetrics(), budget: budget(), documentQueue: { add: vi.fn() }, autoPublish,
+      verifyDraft: vi.fn().mockResolvedValue({ runId: 'run-1', draftId: 'draft-1', revisionId: 'revision-1', articleId: 'article-1', outcome: 'FINALIZED', serperRequired: false, serperDocuments: 0, mistralReasons: [], factCheckScore: 91 }),
+    });
+    await expect(processor(job(), 'token')).resolves.toMatchObject({ autoPublication: { outcome: 'ARTICLE_PUBLISHED' } });
+    expect(autoPublish).toHaveBeenCalledWith(workerClient, expect.objectContaining({ verificationRunId: 'run-1', draftId: 'draft-1' }));
+  });
+
   it('dead-letters only terminal failures with bounded diagnostics', () => {
     const queued = job({ attemptsMade: 4 });
     expect(isTerminalEditorialVerificationFailure(queued, new Error('retry exhausted'))).toBe(true);

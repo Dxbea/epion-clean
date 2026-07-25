@@ -158,6 +158,23 @@ services:
     networks:
       - epion-net
 
+  worker-editorial-automation:
+    build:
+      context: ./BackEnd
+      dockerfile: Dockerfile
+    command: ["npm", "run", "worker:editorial-automation"]
+    restart: unless-stopped
+    env_file: .env.production
+    environment:
+      - NODE_ENV=production
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    networks:
+      - epion-net
+
   postgres:
     image: pgvector/pgvector:pg17
     restart: unless-stopped

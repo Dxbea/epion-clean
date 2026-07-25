@@ -63,7 +63,7 @@ export async function materializeQualityGateArticleDraft(
     structuredContent,
     status: 'DRAFT',
     authorId: null,
-    categoryId: null,
+    categoryId: draft.brief.dossier.candidate?.topic?.dominantCategoryId ?? null,
     generatedAt: draft.generatedAt,
     generationVersion: 1,
     generationConfig: {
@@ -171,6 +171,11 @@ async function loadMaterializableDraft(client: PrismaClient, draftId: string) {
                       },
                     },
                   },
+                },
+              },
+              candidate: {
+                select: {
+                  topic: { select: { dominantCategoryId: true } },
                 },
               },
             },

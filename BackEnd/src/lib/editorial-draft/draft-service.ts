@@ -3,7 +3,7 @@ import { Prisma, type PrismaClient } from '@prisma/client';
 import logger from '../logger.js';
 import type { EditorialBriefContent, EditorialEvidenceSnapshot } from '../editorial-brief/types.js';
 import { OpenAIEditorialClaimCritic, OpenAIEditorialDraftGenerator } from './draft-generator.js';
-import { describeEditorialDraftValidationError, normalizeEditorialDraftArtifact, validateEditorialClaimReviews, validateEditorialDraftArtifact } from './draft-validation.js';
+import { describeEditorialDraftValidationError, normalizeEditorialDraftArtifact, validateEditorialClaimReviews, validateEditorialDraftArtifact, validateEditorialDraftClaimDomainCoverage } from './draft-validation.js';
 import { calculateEditorialQualityGate } from './quality-gate.js';
 import {
   DEFAULT_EDITORIAL_DRAFT_CONFIG,
@@ -291,7 +291,9 @@ async function validateGeneratedArtifact(
 ): Promise<{ artifact: EditorialDraftArtifact; repair: EditorialDraftGenerationResult | null }> {
   const normalizedArtifact = normalizeEditorialDraftArtifact(rawArtifact);
   try {
-    return { artifact: validateEditorialDraftArtifact(normalizedArtifact, input.evidence, maximumClaims), repair: null };
+    const artifact = validateEditorialDraftArtifact(normalizedArtifact, input.evidence, maximumClaims);
+    validateEditorialDraftClaimDomainCoverage(artifact, input.evidence);
+    return { artifact, repair: null };
   } catch (initialError) {
     const validationError = describeEditorialDraftValidationError(initialError);
     draftLog.warn('Controlled editorial draft artifact validation failed; considering one repair', {
@@ -310,8 +312,10 @@ async function validateGeneratedArtifact(
       throw new Error(`Editorial draft repair failed after validation error (${validationError}): ${describeEditorialDraftValidationError(repairError)}`);
     }
     try {
+      const artifact = validateEditorialDraftArtifact(normalizeEditorialDraftArtifact(repaired.artifact), input.evidence, maximumClaims);
+      validateEditorialDraftClaimDomainCoverage(artifact, input.evidence);
       return {
-        artifact: validateEditorialDraftArtifact(normalizeEditorialDraftArtifact(repaired.artifact), input.evidence, maximumClaims),
+        artifact,
         repair: repaired,
       };
     } catch (repairError) {

@@ -1,5 +1,6 @@
 import { z } from 'zod';
 import type { EditorialEvidenceSnapshot } from '../editorial-brief/types.js';
+import { normalizeSourceDomain } from '../source-profile.js';
 import type { EditorialClaimReview, EditorialDraftArtifact } from './types.js';
 
 const cleanText = (max: number) => z.string().trim().min(1).max(max);
@@ -81,6 +82,26 @@ export function validateEditorialDraftArtifact(
     }
   }
   return artifact;
+}
+
+export function validateEditorialDraftClaimDomainCoverage(
+  artifact: EditorialDraftArtifact,
+  evidence: EditorialEvidenceSnapshot[],
+): void {
+  const domainsByEvidenceKey = new Map(
+    evidence.map((item) => [item.evidenceKey, normalizeSourceDomain(item.domain)]),
+  );
+  const availableDomains = new Set([...domainsByEvidenceKey.values()].filter((domain): domain is string => Boolean(domain)));
+  const citedDomains = new Set(
+    artifact.claims
+      .flatMap((claim) => claim.evidenceKeys)
+      .map((evidenceKey) => domainsByEvidenceKey.get(evidenceKey))
+      .filter((domain): domain is string => Boolean(domain)),
+  );
+  const requiredDomains = Math.min(2, availableDomains.size);
+  if (requiredDomains > 1 && citedDomains.size < requiredDomains) {
+    throw new Error(`Editorial draft must cite at least ${requiredDomains} independent evidence domains when available`);
+  }
 }
 
 export function validateEditorialClaimReviews(
