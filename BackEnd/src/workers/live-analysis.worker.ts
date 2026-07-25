@@ -5,11 +5,18 @@ import { logger } from '../lib/logger.js';
 import { runLiveAnalysis, runLiveAnalysisWithGeneration } from '../lib/live-analysis/index.js';
 import { documentCorpusQueue, sourceEnrichmentQueue } from '../lib/queue.js';
 import { stableSourceId } from '../lib/structured-article.js';
-import { hashAnalysisInput } from '../lib/score-helpers.js';
 import { prisma } from '../lib/db.js';
 import { getWikipediaImage } from '../lib/images/wikipedia-fetcher.js';
 import { prepareEvidenceCorpus } from '../lib/article-generation-core/evidence-corpus.js';
+import { usedEvidenceUrls } from '../lib/article-generation-core/evidence-consumption.js';
+import type { EvidenceDossier, EvidenceRole } from '../lib/article-generation-core/types.js';
+import {
+    buildArticleFinalizationContract,
+    isCanonicalStructuredArticleContent,
+} from '../lib/article-finalization.js';
+import { normalizeArticleSourceUrl } from '../lib/article-source-service.js';
 import type { FactCheckSource } from '../lib/live-analysis/types.js';
+import type { SourceScoreEntry } from '../lib/score-types.js';
 
 const LIVE_ANALYSIS_WORKER_CONCURRENCY = 3;
 const LIVE_ANALYSIS_LOCK_DURATION_MS = 10 * 60 * 1000;
@@ -62,9 +69,9 @@ async function persistUserRequestEvidence(
     articleId: string,
     sources: FactCheckSource[],
     language?: string,
-): Promise<void> {
+): Promise<EvidenceDossier> {
     const webSources = sources.filter((source) => source.provider === 'web');
-    if (webSources.length === 0) return;
+    if (webSources.length === 0) return foundEvidenceDossier(sources, 'NO_WEB_EVIDENCE_TO_PERSIST');
 
     try {
         const result = await prepareEvidenceCorpus({
@@ -116,13 +123,54 @@ async function persistUserRequestEvidence(
             traceability: result.dossier.traceability,
             degradedEvidenceReasons: result.dossier.degradedReasons,
         });
+        return result.dossier;
     } catch (error) {
         logger.warn('Could not persist user-request web evidence; generation will continue', {
             module: 'LiveAnalysisWorker',
             articleId,
             error: error instanceof Error ? error.message : String(error),
         });
+        return foundEvidenceDossier(webSources, 'CORPUS_PERSISTENCE_FAILED');
     }
+}
+
+function foundEvidenceDossier(
+    sources: FactCheckSource[],
+    reason: string,
+): EvidenceDossier {
+    const items = sources.flatMap((source) => {
+        const canonicalUrl = normalizeArticleSourceUrl(source.url);
+        if (!canonicalUrl) return [];
+        return [{
+            ingestedDocumentId: null,
+            chunkIds: [],
+            sourceId: null,
+            canonicalUrl,
+            domain: source.domain || new URL(canonicalUrl).hostname.replace(/^www\./, ''),
+            title: source.title || null,
+            role: evidenceRole(source),
+            status: 'FOUND' as const,
+            claimKeys: [],
+            provenance: source.provider === 'web' ? 'SERPER' as const : 'MANUAL' as const,
+            traceability: 'DEGRADED' as const,
+        }];
+    });
+    return {
+        mode: 'USER_REQUEST',
+        items,
+        traceability: 'DEGRADED',
+        degradedReasons: [reason, 'FOUND_NOT_PERSISTED'],
+        persistedDocuments: 0,
+        indexedDocuments: 0,
+        usedEvidenceItems: 0,
+    };
+}
+
+function evidenceRole(source: FactCheckSource): EvidenceRole {
+    if (source.searchLane === 'FACTUAL') return 'PRIMARY';
+    if (source.searchLane === 'CRITICAL') return 'COUNTERPOINT';
+    if (source.role === 'BACKGROUND') return 'BACKGROUND';
+    return 'CONTEXT';
 }
 
 type SourcePipelineMetadata = {
@@ -137,9 +185,21 @@ type SourcePipelineMetadata = {
     contentTitle?: string;
 };
 
-function buildPendingSources(sources: Array<SourcePipelineMetadata & { url?: string; domain?: string; extractionFailureReason?: string }>) {
+function buildPendingSources(
+    sources: Array<SourcePipelineMetadata & {
+        url?: string;
+        title?: string;
+        domain?: string;
+        extractionFailureReason?: string;
+    }>,
+): SourceScoreEntry[] {
     return sources
-        .filter((source): source is SourcePipelineMetadata & { url: string; domain?: string; extractionFailureReason?: string } => typeof source.url === 'string' && source.url.trim().length > 0)
+        .filter((source): source is SourcePipelineMetadata & {
+            url: string;
+            title?: string;
+            domain?: string;
+            extractionFailureReason?: string;
+        } => typeof source.url === 'string' && source.url.trim().length > 0)
         .map((source, index) => {
             let domain = source.domain || '';
             if (!domain) {
@@ -156,51 +216,25 @@ function buildPendingSources(sources: Array<SourcePipelineMetadata & { url?: str
                 name: domain || 'Source inconnue',
                 url: source.url,
                 domain,
-                trustScore: null,
+                trustScore: 0,
                 flags: null,
                 type: 'PENDING',
-                logo: domain && domain !== 'unknown' ? `https://logo.clearbit.com/${domain}` : null,
+                logo: domain && domain !== 'unknown' ? `https://logo.clearbit.com/${domain}` : '',
                 description: 'Analyse en cours...',
+                justification: null,
                 metrics: null,
+                analysisStatus: 'PENDING' as const,
                 extractionStatus: source.extractionStatus === 'metadata_only' ? 'metadata_only' as const : undefined,
                 provider: source.provider,
                 searchLane: source.searchLane,
                 role: source.role,
                 provenance: source.provenance,
                 officialStatement: source.officialStatement,
+                metadata: {
+                    contentTitle: source.contentTitle ?? source.title,
+                },
             };
         });
-}
-
-function buildInitialFactCheckData(result: any, pendingSources: ReturnType<typeof buildPendingSources>, contentHash: string) {
-    const liveScore = Math.round(result.globalScore || 50);
-    return {
-        version: 1,
-        status: 'COMPLETED',
-        score: liveScore,
-        factScore: liveScore,
-        supportLevel: liveScore >= 70 ? 'strong' : liveScore >= 50 ? 'nuanced' : liveScore >= 30 ? 'fragile' : 'unverified',
-        liveScore,
-        sourcesMean: null,
-        calculation: {
-            formula: 'weighted-source-live-v1',
-            sourceWeight: 0.75,
-            contentWeight: 0.25,
-            liveWeight: 0.25,
-            sourcesMean: null,
-            contentScore: liveScore,
-            liveScore,
-            finalScore: liveScore,
-        },
-        analyzedAt: new Date().toISOString(),
-        contentHash,
-        liveAnalysis: {
-            contentIntent: result.contentIntent,
-            pillarScores: result.pillarScores,
-            judges: result.judges,
-        },
-        sources: pendingSources,
-    };
 }
 function normalizeGeneratedOpinionQuestion(input: unknown) {
     if (!input || typeof input !== 'object') return DEFAULT_OPINION_QUESTION;
@@ -310,11 +344,16 @@ export function startLiveAnalysisWorker(): Worker<LiveAnalysisJobData> {
                     throw new Error('Live analysis did not return generated article content');
                 }
 
-                const pendingSources = buildPendingSources(result.sources || []);
-                if (pendingSources.length === 0) {
-                    throw new Error('Live analysis returned no sources for generated article');
-                }
-
+                const usedUrls = result.evidenceDossier
+                    ? new Set(usedEvidenceUrls(result.evidenceDossier))
+                    : null;
+                const usedSources = usedUrls
+                    ? (result.sources || []).filter((source) => {
+                        const url = normalizeArticleSourceUrl(source.url);
+                        return Boolean(url && usedUrls.has(url));
+                    })
+                    : result.sources || [];
+                const pendingSources = buildPendingSources(usedSources);
                 citationUrls = pendingSources.map((source) => source.url);
                 const gc = result.generatedContent;
 
@@ -323,13 +362,36 @@ export function startLiveAnalysisWorker(): Worker<LiveAnalysisJobData> {
                     coverImageUrl = await getWikipediaImage(gc.wikipedia_search_query);
                 }
                 const opinionQuestion = normalizeGeneratedOpinionQuestion(gc.opinionQuestion);
-                const contentHash = hashAnalysisInput({
+                const completedAt = new Date();
+                const initialFinalization = buildArticleFinalizationContract({
+                    articleId,
                     title: gc.title,
                     summary: gc.summary,
                     content: gc.content,
-                    sourceDomains: pendingSources.map((source) => source.domain),
+                    structuredContent: isCanonicalStructuredArticleContent(gc.structuredContent)
+                        ? gc.structuredContent
+                        : null,
+                    contentScore: Math.round(result.globalScore),
+                    sources: pendingSources,
+                    liveAnalysis: {
+                        contentIntent: result.contentIntent,
+                        pillarScores: result.pillarScores,
+                        judges: result.judges,
+                        evidenceDossier: result.evidenceDossier ?? null,
+                    },
+                    completedAt,
                 });
-                const factCheckData = buildInitialFactCheckData(result, pendingSources, contentHash);
+                const factCheckData = {
+                    ...initialFinalization.factCheckData,
+                    factScore: initialFinalization.factCheckScore,
+                    liveScore: Math.round(result.globalScore),
+                    sourcesMean: null,
+                    calculation: {
+                        ...initialFinalization.factCheckData.calculation,
+                        liveWeight: 0.25,
+                        liveScore: Math.round(result.globalScore),
+                    },
+                };
 
                 await prisma.article.update({
                     where: { id: articleId },
@@ -339,14 +401,16 @@ export function startLiveAnalysisWorker(): Worker<LiveAnalysisJobData> {
                         content: gc.content,
                         structuredContent: gc.structuredContent as any,
                         aiSummary: gc.summary,
-                        factCheckScore: Math.round(result.globalScore),
+                        factCheckScore: initialFinalization.factCheckScore,
                         factCheckData: factCheckData as any,
-                        factCheckStatus: 'COMPLETED',
-                        factCheckContentHash: contentHash,
-                        factCheckCompletedAt: new Date(),
-                        factCheckError: null,
+                        factCheckStatus: initialFinalization.factCheckStatus,
+                        factCheckContentHash: initialFinalization.factCheckContentHash,
+                        factCheckCompletedAt: completedAt,
+                        factCheckError: initialFinalization.factCheckStatus === 'COMPLETED'
+                            ? null
+                            : 'Generated private draft has no persisted evidence marked USED',
                         status: 'DRAFT',
-                        generatedAt: new Date(),
+                        generatedAt: completedAt,
                         imageUrl: coverImageUrl,
                         generationConfig: {
                             style: style || 'neutral',
@@ -356,7 +420,9 @@ export function startLiveAnalysisWorker(): Worker<LiveAnalysisJobData> {
                             wikipedia_search_query: gc.wikipedia_search_query || null,
                             tags: gc.tags || [],
                             asyncGeneration: true,
-                        },
+                            articleGenerationMode: 'USER_REQUEST',
+                            evidenceDossier: result.evidenceDossier ?? null,
+                        } as any,
                         slug: generateSlug(gc.title),
                         opinionQuestion: {
                             upsert: {
@@ -408,6 +474,7 @@ export function startLiveAnalysisWorker(): Worker<LiveAnalysisJobData> {
                 generatedContent: result.generatedContent,
                 citationUrls,
                 sources: result.sources,
+                evidenceDossier: result.evidenceDossier,
             };
         },
         {
@@ -493,6 +560,7 @@ export function startLiveAnalysisWorker(): Worker<LiveAnalysisJobData> {
                     contentIntent: result.contentIntent,
                     pillarScores: result.pillarScores,
                     judges: result.judges,
+                    evidenceDossier: result.evidenceDossier ?? null,
                 },
                 articleGeneration: job.data.mode === 'article-generation',
             }, {

@@ -1,4 +1,5 @@
 import type { EditorialEvidenceRole, EditorialRiskLevel } from '@prisma/client';
+import type { EvidenceProvenance } from '../article-generation-core/types.js';
 
 export const EDITORIAL_DOSSIER_VERSION = 'source-dossier-v1';
 export const EDITORIAL_BRIEF_PROMPT_VERSION = 'factual-brief-v1';
@@ -48,6 +49,8 @@ export interface EditorialEvidenceSnapshot {
   chunkPosition: number;
   contentSnapshot: string;
   contentHash: string;
+  sourceId?: string | null;
+  provenance?: EvidenceProvenance;
 }
 
 export interface EditorialBriefFact {

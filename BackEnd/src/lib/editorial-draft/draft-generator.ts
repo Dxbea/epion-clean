@@ -1,5 +1,6 @@
 import OpenAI from 'openai';
 import type { EditorialBriefContent, EditorialEvidenceSnapshot } from '../editorial-brief/types.js';
+import type { EvidenceDossier } from '../article-generation-core/types.js';
 import type {
   EditorialClaimCritic,
   EditorialCriticResult,
@@ -21,6 +22,7 @@ export class OpenAIEditorialDraftGenerator implements EditorialDraftGenerator {
     brief: EditorialBriefContent;
     riskLevel: 'LOW' | 'MEDIUM' | 'HIGH';
     evidence: EditorialEvidenceSnapshot[];
+    evidenceDossier: EvidenceDossier;
   }): Promise<EditorialDraftGenerationResult> {
     const response = await this.client.chat.completions.create({
       model: this.model,
@@ -33,6 +35,7 @@ export class OpenAIEditorialDraftGenerator implements EditorialDraftGenerator {
           task: 'Create an internal controlled editorial draft, never a published article.',
           riskLevel: input.riskLevel,
           brief: input.brief,
+          evidenceDossier: compactDossier(input.evidenceDossier),
           evidence: compactEvidence(input.evidence),
         }) },
       ],
@@ -51,6 +54,7 @@ export class OpenAIEditorialDraftGenerator implements EditorialDraftGenerator {
     brief: EditorialBriefContent;
     riskLevel: 'LOW' | 'MEDIUM' | 'HIGH';
     evidence: EditorialEvidenceSnapshot[];
+    evidenceDossier: EvidenceDossier;
     artifact: unknown;
     validationError: string;
   }): Promise<EditorialDraftGenerationResult> {
@@ -67,6 +71,7 @@ export class OpenAIEditorialDraftGenerator implements EditorialDraftGenerator {
           validationError: input.validationError,
           artifact: input.artifact,
           brief: input.brief,
+          evidenceDossier: compactDossier(input.evidenceDossier),
           evidence: compactEvidence(input.evidence),
         }) },
       ],
@@ -152,6 +157,23 @@ function compactEvidence(evidence: EditorialEvidenceSnapshot[]) {
     publishedAt: item.publishedAt?.toISOString() ?? null,
     content: item.contentSnapshot,
   }));
+}
+
+function compactDossier(dossier: EvidenceDossier) {
+  return {
+    mode: dossier.mode,
+    traceability: dossier.traceability,
+    degradedReasons: dossier.degradedReasons,
+    items: dossier.items.map((item) => ({
+      documentId: item.ingestedDocumentId,
+      chunkIds: item.chunkIds,
+      url: item.canonicalUrl,
+      domain: item.domain,
+      role: item.role,
+      status: item.status,
+      provenance: item.provenance,
+    })),
+  };
 }
 
 function parseJsonOrRaw(content: string): unknown {

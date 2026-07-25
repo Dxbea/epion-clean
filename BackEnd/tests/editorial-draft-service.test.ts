@@ -10,7 +10,22 @@ function briefSource() {
     structuredContent: { schemaVersion: 1, audit: { dossierId: 'dossier-1', evidenceHash: 'evidence-hash' } },
     dossier: {
       id: 'dossier-1', status: 'COMPLETED', shadowOnly: true, evidenceHash: 'evidence-hash',
-      evidence: draftEvidence.map((item, index) => ({ id: `brief-evidence-${index + 1}`, ...item })),
+      evidence: draftEvidence.map((item, index) => ({
+        id: `brief-evidence-${index + 1}`,
+        ...item,
+        document: {
+          sourceId: `source-${index + 1}`,
+          discoveries: [{
+            discoveredUrl: item.canonicalUrl,
+            metadata: { provider: index === 0 ? 'gdelt' : 'google_news_rss' },
+            discoverySource: {
+              key: `radar-${index + 1}`,
+              connectorType: index === 0 ? 'GDELT' : 'GOOGLE_NEWS_RSS',
+              configuration: null,
+            },
+          }],
+        },
+      })),
       candidate: { shadowOnly: true, riskLevel: 'MEDIUM' },
     },
   };
@@ -45,9 +60,36 @@ describe('controlled editorial draft service', () => {
     expect(result).toMatchObject({ outcome: 'READY_FOR_REVIEW', qualityScore: 100, claims: 2, inputTokens: 150, outputTokens: 70, estimatedCostMicros: 5 });
     expect(transaction.editorialDraftClaim.createMany).toHaveBeenCalledOnce();
     expect(transaction.editorialDraftClaimEvidence.createMany).toHaveBeenCalledOnce();
+    expect(generator.generate).toHaveBeenCalledWith(expect.objectContaining({
+      evidenceDossier: expect.objectContaining({
+        mode: 'AUTO_EDITORIAL',
+        usedEvidenceItems: 0,
+        items: expect.arrayContaining([
+          expect.objectContaining({ status: 'INDEXED', chunkIds: ['chunk-1'] }),
+          expect.objectContaining({
+            status: 'INDEXED',
+            chunkIds: ['chunk-2'],
+            sourceId: 'source-2',
+            provenance: 'GOOGLE_NEWS_RSS',
+          }),
+        ]),
+      }),
+    }));
     expect(transaction.editorialQualityGate.upsert.mock.calls[0][0].create).toMatchObject({ automatedDecision: 'PASSED', humanReviewStatus: 'PENDING' });
     expect(transaction.editorialDraftRevision.create.mock.calls[0][0].data).toMatchObject({ version: 1, origin: 'GENERATED', status: 'GATE_PASSED' });
-    expect(transaction.editorialDraft.update.mock.calls[0][0].data.currentRevisionId).toBeTruthy();
+    expect(transaction.editorialDraft.update.mock.calls[0][0].data).toMatchObject({
+      currentRevisionId: expect.any(String),
+      metrics: {
+        articleGenerationMode: 'AUTO_EDITORIAL',
+        evidenceDossier: {
+          usedEvidenceItems: 2,
+          items: expect.arrayContaining([
+            expect.objectContaining({ status: 'USED', claimKeys: ['claim_1'] }),
+            expect.objectContaining({ status: 'USED', claimKeys: ['claim_1', 'claim_2'] }),
+          ]),
+        },
+      },
+    });
     expect(transaction.article.create).not.toHaveBeenCalled();
   });
 

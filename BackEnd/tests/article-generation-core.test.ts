@@ -16,6 +16,10 @@ const { prepareEvidenceCorpus } = await import(
 const { resolveArticleGenerationPolicy } = await import(
   '../src/lib/article-generation-core/policy.js'
 );
+const {
+  markEvidenceDossierUsage,
+  usedEvidenceUrls,
+} = await import('../src/lib/article-generation-core/evidence-consumption.js');
 
 function document(overrides: Record<string, unknown> = {}) {
   return {
@@ -166,8 +170,10 @@ describe('Article Generation Core', () => {
       queuedForCorpus: 1,
       indexingTimedOut: false,
       dossier: {
-        traceability: 'DEGRADED',
-        degradedReasons: ['USED_DOCUMENT_NOT_INDEXED'],
+        traceability: 'COMPLETE',
+        degradedReasons: [],
+        usedEvidenceItems: 0,
+        items: [expect.objectContaining({ status: 'PERSISTED' })],
       },
     });
   });
@@ -209,7 +215,83 @@ describe('Article Generation Core', () => {
     expect(result.dossier).toMatchObject({
       traceability: 'COMPLETE',
       indexedDocuments: 1,
+      usedEvidenceItems: 0,
+      items: [expect.objectContaining({ status: 'INDEXED' })],
+    });
+  });
+
+  it('keeps unpersisted radar/search findings out of final used evidence', () => {
+    const dossier = markEvidenceDossierUsage({
+      mode: 'USER_REQUEST',
+      items: [{
+        ingestedDocumentId: null,
+        chunkIds: [],
+        sourceId: null,
+        canonicalUrl: 'https://publisher.example/story',
+        discoveredUrls: ['https://publisher.example/story?utm_source=radar'],
+        domain: 'publisher.example',
+        title: 'Story',
+        role: 'CONTEXT',
+        status: 'FOUND',
+        claimKeys: [],
+        provenance: 'GOOGLE_NEWS_RSS',
+        traceability: 'DEGRADED',
+      }],
+      traceability: 'DEGRADED',
+      degradedReasons: ['FOUND_NOT_PERSISTED'],
+      persistedDocuments: 0,
+      indexedDocuments: 0,
+      usedEvidenceItems: 0,
+    }, {
+      sourceUrls: ['https://publisher.example/story?utm_source=radar'],
+      claimKeysByUrl: {
+        'https://publisher.example/story': ['claim-1'],
+      },
+    });
+
+    expect(dossier).toMatchObject({
+      usedEvidenceItems: 0,
+      degradedReasons: [
+        'FOUND_NOT_PERSISTED',
+        'FOUND_EVIDENCE_USED_FOR_PRIVATE_DRAFT',
+      ],
+      items: [expect.objectContaining({
+        status: 'FOUND',
+        claimKeys: ['claim-1'],
+      })],
+    });
+    expect(usedEvidenceUrls(dossier)).toEqual([]);
+  });
+
+  it('recomputes USED from the current generation output instead of preserving stale usage', () => {
+    const dossier = markEvidenceDossierUsage({
+      mode: 'AUTO_EDITORIAL',
+      items: [{
+        ingestedDocumentId: 'doc-1',
+        chunkIds: ['chunk-1'],
+        sourceId: 'source-1',
+        canonicalUrl: 'https://publisher.example/story',
+        domain: 'publisher.example',
+        title: 'Story',
+        role: 'PRIMARY',
+        status: 'USED',
+        claimKeys: ['old-claim'],
+        provenance: 'RSS',
+        traceability: 'COMPLETE',
+      }],
+      traceability: 'COMPLETE',
+      degradedReasons: [],
+      persistedDocuments: 1,
+      indexedDocuments: 1,
       usedEvidenceItems: 1,
+    }, {});
+
+    expect(dossier).toMatchObject({
+      usedEvidenceItems: 0,
+      items: [expect.objectContaining({
+        status: 'INDEXED',
+        claimKeys: [],
+      })],
     });
   });
 });

@@ -201,7 +201,10 @@ describe('live-analysis article generation worker', () => {
         provider: 'rag',
         provenance: 'INTERNAL_RAG',
       },
-    ])).resolves.toBeUndefined();
+    ])).resolves.toMatchObject({
+      traceability: 'DEGRADED',
+      degradedReasons: ['USED_DOCUMENT_NOT_INDEXED'],
+    });
 
     expect(prepareEvidenceCorpus).toHaveBeenCalledWith(
       expect.objectContaining({
@@ -273,7 +276,12 @@ describe('live-analysis article generation worker', () => {
       domain: 'example.com',
       score: 0.8,
       provider: 'web',
-    }])).resolves.toBeUndefined();
+    }])).resolves.toMatchObject({
+      mode: 'USER_REQUEST',
+      traceability: 'DEGRADED',
+      degradedReasons: ['CORPUS_PERSISTENCE_FAILED', 'FOUND_NOT_PERSISTED'],
+      items: [expect.objectContaining({ status: 'FOUND' })],
+    });
   });
 });
 

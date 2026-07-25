@@ -45,6 +45,7 @@ export async function buildEvidenceDossier(
           chunks: { select: { id: true }, orderBy: { position: 'asc' } },
           discoveries: {
             select: {
+              discoveredUrl: true,
               metadata: true,
               discoverySource: {
                 select: {
@@ -70,12 +71,15 @@ export async function buildEvidenceDossier(
       chunkIds,
       sourceId: document.sourceId,
       canonicalUrl: document.canonicalUrl,
+      discoveredUrls: uniqueStrings(document.discoveries
+        .map((discovery) => normalizeArticleSourceUrl(discovery.discoveredUrl))
+        .filter((url): url is string => Boolean(url))),
       domain: document.domain,
       title: document.title,
       role: input.rolesByDocumentId?.[document.id] ?? 'CONTEXT',
       status: used ? 'USED' : indexed ? 'INDEXED' : 'PERSISTED',
       claimKeys: uniqueStrings(input.claimKeysByDocumentId?.[document.id] ?? []),
-      provenance: documentProvenance(document.discoveries),
+      provenance: resolveEvidenceProvenance(document.discoveries),
       traceability: degraded ? 'DEGRADED' : 'COMPLETE',
     };
   });
@@ -88,6 +92,7 @@ export async function buildEvidenceDossier(
       chunkIds: [],
       sourceId: null,
       canonicalUrl,
+      discoveredUrls: [canonicalUrl],
       domain: new URL(canonicalUrl).hostname.toLowerCase().replace(/^www\./, ''),
       title: found.title ?? null,
       role: found.role ?? 'CONTEXT',
@@ -122,7 +127,8 @@ export async function buildEvidenceDossier(
   };
 }
 
-type DiscoveryRow = {
+export type EvidenceDiscoveryRow = {
+  discoveredUrl: string;
   metadata: Prisma.JsonValue | null;
   discoverySource: {
     key: string;
@@ -131,7 +137,9 @@ type DiscoveryRow = {
   };
 };
 
-function documentProvenance(discoveries: DiscoveryRow[]): EvidenceProvenance {
+export function resolveEvidenceProvenance(
+  discoveries: EvidenceDiscoveryRow[],
+): EvidenceProvenance {
   for (const discovery of discoveries) {
     const metadata = jsonRecord(discovery.metadata);
     const configuration = jsonRecord(discovery.discoverySource.configuration);

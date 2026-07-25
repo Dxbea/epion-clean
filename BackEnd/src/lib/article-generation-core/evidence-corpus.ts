@@ -84,7 +84,6 @@ export async function prepareEvidenceCorpus(
   const dossier = await buildEvidenceDossier(dependencies.client, {
     mode: input.request.mode,
     documentIds,
-    usedDocumentIds: documentIds,
     rolesByDocumentId,
   });
   if (queueFailures.length > 0) {

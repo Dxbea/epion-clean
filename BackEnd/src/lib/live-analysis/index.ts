@@ -18,11 +18,18 @@ import {
     calculateWeightedScore,
     type FactCheckSource,
 } from './types.js';
+import {
+    extractStructuredArticleEvidenceUsage,
+    filterSourcesByEvidenceDossier,
+    markEvidenceDossierUsage,
+} from '../article-generation-core/evidence-consumption.js';
+import { normalizeArticleSourceUrl } from '../article-source-service.js';
+import type { EvidenceDossier } from '../article-generation-core/types.js';
 
 export interface LiveAnalysisGenerationOptions {
     language?: string;
     style?: string;
-    onEvidenceGathered?: (sources: FactCheckSource[]) => Promise<void>;
+    onEvidenceGathered?: (sources: FactCheckSource[]) => Promise<EvidenceDossier | void>;
 }
 
 /**
@@ -78,7 +85,14 @@ export async function runLiveAnalysisWithGeneration(
     });
 
     // STEP 2B: Primary Judge — Generate + Analyze (dual mode)
-    await options.onEvidenceGathered?.(factCheckContext.sources);
+    const evidenceDossier = await options.onEvidenceGathered?.(factCheckContext.sources);
+    if (evidenceDossier) {
+        factCheckContext.evidenceDossier = evidenceDossier;
+        factCheckContext.sources = attachDossierIdentity(
+            filterSourcesByEvidenceDossier(factCheckContext.sources, evidenceDossier),
+            evidenceDossier,
+        );
+    }
 
     const primaryVerdict = await runPrimaryJudgeWithGeneration(topic, factCheckContext, {
       language: options.language,
@@ -100,8 +114,37 @@ export async function runLiveAnalysisWithGeneration(
     // Attach generated content to the result
     result.generatedContent = primaryVerdict.generatedContent;
     result.sources = factCheckContext.sources;
+    if (evidenceDossier) {
+        result.evidenceDossier = markEvidenceDossierUsage(
+            evidenceDossier,
+            extractStructuredArticleEvidenceUsage(primaryVerdict.generatedContent?.structuredContent),
+        );
+    }
 
     return result;
+}
+
+function attachDossierIdentity(
+    sources: FactCheckSource[],
+    dossier: EvidenceDossier,
+): FactCheckSource[] {
+    const itemByUrl = new Map(dossier.items.flatMap((item) =>
+        [item.canonicalUrl, ...(item.discoveredUrls ?? [])]
+            .map(normalizeArticleSourceUrl)
+            .filter((url): url is string => Boolean(url))
+            .map((url) => [url, item] as const)));
+    return sources.map((source) => {
+        const normalizedUrl = normalizeArticleSourceUrl(source.url);
+        const item = normalizedUrl ? itemByUrl.get(normalizedUrl) : undefined;
+        return item
+            ? {
+                ...source,
+                evidenceStatus: item.status,
+                ingestedDocumentId: item.ingestedDocumentId,
+                evidenceChunkIds: item.chunkIds,
+            }
+            : source;
+    });
 }
 
 // ─── Shared synthesis logic ─────────────────────────────────────────────────

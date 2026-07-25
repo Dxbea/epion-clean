@@ -3,6 +3,7 @@ import type {
     ArticleSourceProvenanceValue,
     ArticleSourceRoleValue,
 } from '../article-source-service.js';
+import type { EvidenceDossier, EvidenceStatus } from '../article-generation-core/types.js';
 
 /**
  * Live Analysis - Shared Types & Constants
@@ -58,6 +59,9 @@ export interface FactCheckSource {
     sourceQuality?: 'full' | 'metadata_only';
     extractionFailureReason?: string;
     articleSlug?: string;
+    evidenceStatus?: EvidenceStatus;
+    ingestedDocumentId?: string | null;
+    evidenceChunkIds?: string[];
 }
 
 export interface RoutingDecision {
@@ -70,6 +74,7 @@ export interface RoutingDecision {
 export interface FactCheckContext {
     sources: FactCheckSource[];
     routingDecision: RoutingDecision;
+    evidenceDossier?: EvidenceDossier;
 }
 
 export interface PillarScore {
@@ -121,6 +126,7 @@ export interface LiveAnalysisResult {
     };
     generatedContent?: GeneratedContent;
     sources?: FactCheckSource[];
+    evidenceDossier?: EvidenceDossier;
 }
 
 export function calculateWeightedScore(
@@ -151,6 +157,12 @@ export function formatSourcesForPrompt(sources: FactCheckSource[], maxCharsPerSo
         const qualityLabel = source.extractionStatus === 'metadata_only'
             ? ' | METADATA ONLY - limited Serper snippet, full page extraction failed'
             : '';
-        return `[Source ${index + 1} | id=${id}${qualityLabel}] ${source.title} (${source.domain}${date})\nURL: ${source.url}\n${content}`;
+        const evidenceState = source.evidenceStatus
+            ? ` | evidence=${source.evidenceStatus}`
+            : '';
+        const corpusIdentity = source.ingestedDocumentId
+            ? ` | document=${source.ingestedDocumentId} | chunks=${source.evidenceChunkIds?.join(',') || 'pending'}`
+            : '';
+        return `[Source ${index + 1} | id=${id}${qualityLabel}${evidenceState}${corpusIdentity}] ${source.title} (${source.domain}${date})\nURL: ${source.url}\n${content}`;
     }).join('\n\n---\n\n');
 }

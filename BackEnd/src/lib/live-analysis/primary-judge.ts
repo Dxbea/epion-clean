@@ -96,7 +96,7 @@ async function runGenerateAndAnalyze(
 Tu as DEUX MISSIONS dans cette réponse unique :
 
 ## MISSION 1 : RÉDIGER L'ARTICLE
-À partir du sujet fourni, rédige le titre, le résumé et le texte complet de l'article en te basant UNIQUEMENT sur les sources Tavily vérifiées qui te sont fournies.
+À partir du sujet fourni, rédige le titre, le résumé et le texte complet de l'article en te basant UNIQUEMENT sur les preuves du dossier Epion qui te sont fournies.
 - N'invente AUCUNE information (zéro hallucination). Si les sources n'en parlent pas, n'en parle pas.
 - Langue : ${langLabel}
 - ${styleInstruction}
@@ -123,7 +123,7 @@ Tu réponds UNIQUEMENT en JSON valide.`;
 ## SUJET DE L'ARTICLE
 "${topic}"
 
-## DOSSIER DE SOURCES VÉRIFIÉES (${factCheckContext.sources.length} sources Tavily)
+## EVIDENCE DOSSIER EPION (${factCheckContext.sources.length} preuves utilisables)
 ${sourcesBlock}
 
 ## FORMAT DE RÉPONSE JSON STRICT

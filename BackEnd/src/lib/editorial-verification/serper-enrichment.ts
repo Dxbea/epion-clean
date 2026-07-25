@@ -170,7 +170,6 @@ export async function enrichEditorialEvidenceWithSerper(
   const dossier = await buildEvidenceDossier(client, {
     mode: 'AUTO_EDITORIAL',
     documentIds,
-    usedDocumentIds: evidence.map((item) => item.documentId),
     rolesByDocumentId: Object.fromEntries(evidence.map((item) => [
       item.documentId,
       item.lane === 'PRIMARY'

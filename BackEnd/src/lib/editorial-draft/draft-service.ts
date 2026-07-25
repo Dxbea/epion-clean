@@ -2,6 +2,15 @@ import { createHash, randomUUID } from 'node:crypto';
 import { Prisma, type PrismaClient } from '@prisma/client';
 import logger from '../logger.js';
 import type { EditorialBriefContent, EditorialEvidenceSnapshot } from '../editorial-brief/types.js';
+import {
+  buildIndexedEvidenceDossier,
+  filterIndexedSnapshotsByEvidenceDossier,
+  markEvidenceDossierUsage,
+} from '../article-generation-core/evidence-consumption.js';
+import {
+  resolveEvidenceProvenance,
+  type EvidenceDiscoveryRow,
+} from '../article-generation-core/evidence-dossier.js';
 import { OpenAIEditorialClaimCritic, OpenAIEditorialDraftGenerator } from './draft-generator.js';
 import { describeEditorialDraftValidationError, normalizeEditorialDraftArtifact, validateEditorialClaimReviews, validateEditorialDraftArtifact, validateEditorialDraftClaimDomainCoverage } from './draft-validation.js';
 import { calculateEditorialQualityGate } from './quality-gate.js';
@@ -89,7 +98,28 @@ export async function generateControlledEditorialDraft(
   const critic = options.critic ?? new OpenAIEditorialClaimCritic();
   const now = options.now ?? new Date();
   const source = await loadValidatedBrief(client, briefId);
-  const evidence = source.dossier.evidence.map(toEvidenceSnapshot);
+  const frozenEvidence = source.dossier.evidence.map(toEvidenceSnapshot);
+  const inputEvidenceDossier = buildIndexedEvidenceDossier(
+    'AUTO_EDITORIAL',
+    frozenEvidence.map((item) => ({
+      evidenceKey: item.evidenceKey,
+      documentId: item.documentId,
+      chunkId: item.chunkId,
+      sourceId: item.sourceId,
+      canonicalUrl: item.canonicalUrl,
+      domain: item.domain,
+      documentTitle: item.documentTitle,
+      role: item.role,
+      provenance: item.provenance,
+    })),
+  );
+  const evidence = filterIndexedSnapshotsByEvidenceDossier(
+    frozenEvidence,
+    inputEvidenceDossier,
+  );
+  if (evidence.length !== frozenEvidence.length || evidence.length === 0) {
+    throw new Error('Editorial draft EvidenceDossier does not match its frozen indexed evidence');
+  }
   const brief = source.structuredContent as unknown as EditorialBriefContent;
   assertBriefAudit(brief, source.dossier.id, source.dossier.evidenceHash!);
   const idempotencyKey = buildEditorialDraftIdempotencyKey({
@@ -147,15 +177,22 @@ export async function generateControlledEditorialDraft(
       brief,
       riskLevel: source.dossier.candidate.riskLevel,
       evidence,
+      evidenceDossier: inputEvidenceDossier,
     });
     const validated = await validateGeneratedArtifact(generator, generated.artifact, {
       brief,
       riskLevel: source.dossier.candidate.riskLevel,
       evidence,
+      evidenceDossier: inputEvidenceDossier,
     }, config.maximumClaims, draft.id, briefId);
     const artifact = validated.artifact;
     const criticized = await critic.review({ claims: artifact.claims, evidence });
     const reviews = validateEditorialClaimReviews(criticized.reviews, artifact);
+    const usedEvidenceDossier = markEditorialDossierUsage(
+      inputEvidenceDossier,
+      artifact,
+      evidence,
+    );
     const gate = calculateEditorialQualityGate({
       artifact,
       reviews,
@@ -248,7 +285,14 @@ export async function generateControlledEditorialDraft(
           generatedAt: completedAt,
           completedAt,
           leaseExpiresAt: null,
-          metrics: { inputTokens, outputTokens, estimatedCostMicros, claims: artifact.claims.length },
+          metrics: {
+            inputTokens,
+            outputTokens,
+            estimatedCostMicros,
+            claims: artifact.claims.length,
+            articleGenerationMode: 'AUTO_EDITORIAL',
+            evidenceDossier: usedEvidenceDossier,
+          } as unknown as Prisma.InputJsonValue,
         },
       });
     });
@@ -284,7 +328,12 @@ export async function generateControlledEditorialDraft(
 async function validateGeneratedArtifact(
   generator: EditorialDraftGenerator,
   rawArtifact: unknown,
-  input: { brief: EditorialBriefContent; riskLevel: 'LOW' | 'MEDIUM' | 'HIGH'; evidence: EditorialEvidenceSnapshot[] },
+  input: {
+    brief: EditorialBriefContent;
+    riskLevel: 'LOW' | 'MEDIUM' | 'HIGH';
+    evidence: EditorialEvidenceSnapshot[];
+    evidenceDossier: ReturnType<typeof buildIndexedEvidenceDossier>;
+  },
   maximumClaims: number,
   draftId: string,
   briefId: string,
@@ -339,7 +388,30 @@ async function loadValidatedBrief(client: PrismaClient, briefId: string) {
       dossier: {
         include: {
           candidate: true,
-          evidence: { orderBy: { position: 'asc' } },
+          evidence: {
+            orderBy: { position: 'asc' },
+            include: {
+              document: {
+                select: {
+                  sourceId: true,
+                  discoveries: {
+                    orderBy: { lastSeenAt: 'desc' },
+                    select: {
+                      discoveredUrl: true,
+                      metadata: true,
+                      discoverySource: {
+                        select: {
+                          key: true,
+                          connectorType: true,
+                          configuration: true,
+                        },
+                      },
+                    },
+                  },
+                },
+              },
+            },
+          },
         },
       },
     },
@@ -361,7 +433,44 @@ function toEvidenceSnapshot(item: {
   evidenceKey: string; documentId: string; chunkId: string; role: 'PRIMARY' | 'CONTEXT'; position: number;
   similarity: number; documentTitle: string; canonicalUrl: string; domain: string; publishedAt: Date | null;
   chunkPosition: number; contentSnapshot: string; contentHash: string;
-}): EditorialEvidenceSnapshot { return { ...item }; }
+  document?: { sourceId: string | null; discoveries: EvidenceDiscoveryRow[] };
+}): EditorialEvidenceSnapshot {
+  const { document, ...snapshot } = item;
+  return {
+    ...snapshot,
+    sourceId: document?.sourceId ?? null,
+    provenance: resolveEvidenceProvenance(document?.discoveries ?? []),
+  };
+}
+
+function markEditorialDossierUsage(
+  dossier: ReturnType<typeof buildIndexedEvidenceDossier>,
+  artifact: EditorialDraftArtifact,
+  evidence: EditorialEvidenceSnapshot[],
+) {
+  const evidenceByKey = new Map(evidence.map((item) => [item.evidenceKey, item]));
+  const documentIds = new Set<string>();
+  const claimKeysByDocumentId = new Map<string, Set<string>>();
+  for (const claim of artifact.claims) {
+    for (const evidenceKey of claim.evidenceKeys) {
+      const item = evidenceByKey.get(evidenceKey);
+      if (!item) continue;
+      documentIds.add(item.documentId);
+      const claimKeys = claimKeysByDocumentId.get(item.documentId) ?? new Set<string>();
+      claimKeys.add(claim.claimKey);
+      claimKeysByDocumentId.set(item.documentId, claimKeys);
+    }
+  }
+  return markEvidenceDossierUsage(dossier, {
+    documentIds: [...documentIds],
+    claimKeysByDocumentId: Object.fromEntries(
+      [...claimKeysByDocumentId].map(([documentId, claimKeys]) => [
+        documentId,
+        [...claimKeys],
+      ]),
+    ),
+  });
+}
 
 function qualityGateData(draftId: string, contentHash: string, gate: EditorialQualityGateResult) {
   return { draftId, gateVersion: EDITORIAL_QUALITY_GATE_VERSION, ...qualityGateUpdate(contentHash, gate), humanReviewStatus: 'PENDING' as const };

@@ -258,19 +258,12 @@ function collectMaterializedSources(draft: any): MaterializedEditorialSource[] {
   }
   const byUrl = new Map<string, MaterializedEditorialSource>();
   const snapshotAt = new Date();
-  const evidenceById = new Map<string, any>();
-  for (const proof of draft.brief?.dossier?.evidence as any[] ?? []) {
-    if (proof.id) evidenceById.set(proof.id, proof);
-  }
-  const evidence = [
-    ...(draft.brief?.dossier?.evidence as any[] ?? []).filter((proof) => proof.role === 'PRIMARY' || citedEvidenceKeys.has(proof.evidenceKey)),
-    ...citedProofs.filter((proof) => !proof.id || !evidenceById.has(proof.id)),
-  ];
+  const evidence = citedProofs;
 
   for (const proof of evidence) {
     const isPrimary = proof.role === 'PRIMARY';
     const isCited = citedEvidenceKeys.has(proof.evidenceKey);
-    if (!isPrimary && !isCited) continue;
+    if (!isCited) continue;
 
     const source = proof.document?.source;
     const sourceId = proof.document?.sourceId ?? null;

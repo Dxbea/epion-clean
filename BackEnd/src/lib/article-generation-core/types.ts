@@ -69,6 +69,7 @@ export interface EvidenceItem {
   chunkIds: string[];
   sourceId: string | null;
   canonicalUrl: string;
+  discoveredUrls?: string[];
   domain: string;
   title: string | null;
   role: EvidenceRole;

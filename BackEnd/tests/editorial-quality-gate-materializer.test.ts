@@ -159,6 +159,29 @@ describe('quality-gate Article DRAFT materialization', () => {
     await expect(materializeQualityGateArticleDraft(client, 'draft-1')).rejects.toThrow('ArticleSource repair did not materialize any source');
   });
 
+  it('does not materialize an uncited PRIMARY dossier source as ArticleSource', async () => {
+    const base = draftFixture() as any;
+    const transaction = {
+      article: { create: vi.fn(async () => ({ id: 'article-used-only' })) },
+      articleSource: { upsert: vi.fn(async () => ({})) },
+      editorialDraft: { updateMany: vi.fn(async () => ({ count: 1 })) },
+      editorialQualityGate: { update: vi.fn(async () => ({})) },
+    };
+    const client = {
+      editorialDraft: {
+        findUnique: vi.fn(async () => draftFixture({
+          claims: [base.claims[0]],
+        })),
+      },
+      $transaction: vi.fn(async (callback: any) => callback(transaction)),
+    } as unknown as PrismaClient;
+
+    await expect(materializeQualityGateArticleDraft(client, 'draft-1'))
+      .resolves.toMatchObject({ articleId: 'article-used-only' });
+    expect(transaction.articleSource.upsert).toHaveBeenCalledTimes(1);
+    expect(transaction.articleSource.upsert.mock.calls[0][0].create.sourceId).toBe('source-1');
+  });
+
   it('blocks a passed gate whose current revision is not gate-passed', async () => {
     const articleCreate = vi.fn();
     const client = {

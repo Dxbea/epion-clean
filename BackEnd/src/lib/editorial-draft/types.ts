@@ -1,5 +1,6 @@
 import type { EditorialClaimImportance, EditorialClaimVerdict, EditorialRiskLevel } from '@prisma/client';
 import type { EditorialBriefContent, EditorialEvidenceSnapshot } from '../editorial-brief/types.js';
+import type { EvidenceDossier } from '../article-generation-core/types.js';
 
 export const EDITORIAL_DRAFT_VERSION = 'controlled-draft-v1';
 export const EDITORIAL_DRAFT_PROMPT_VERSION = 'editorial-draft-v2';
@@ -71,11 +72,13 @@ export interface EditorialDraftGenerator {
     brief: EditorialBriefContent;
     riskLevel: EditorialRiskLevel;
     evidence: EditorialEvidenceSnapshot[];
+    evidenceDossier: EvidenceDossier;
   }): Promise<EditorialDraftGenerationResult>;
   repair?(input: {
     brief: EditorialBriefContent;
     riskLevel: EditorialRiskLevel;
     evidence: EditorialEvidenceSnapshot[];
+    evidenceDossier: EvidenceDossier;
     artifact: unknown;
     validationError: string;
   }): Promise<EditorialDraftGenerationResult>;

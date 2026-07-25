@@ -74,4 +74,114 @@ describe('live-analysis generation evidence hook', () => {
       { language: 'fr', style: 'neutral' },
     );
   });
+
+  it('uses the dossier as generation input and marks only cited persisted evidence USED', async () => {
+    const sources = [
+      {
+        url: 'https://one.example/story',
+        title: 'One',
+        content: 'Persisted evidence',
+        domain: 'one.example',
+        score: 0.8,
+        provider: 'web' as const,
+      },
+      {
+        url: 'https://two.example/unpersisted',
+        title: 'Two',
+        content: 'Unpersisted evidence',
+        domain: 'two.example',
+        score: 0.7,
+        provider: 'web' as const,
+      },
+    ];
+    investigateArticle.mockResolvedValue({
+      sources,
+      routingDecision: {
+        route: 'MIXED',
+        query_factual: 'facts',
+        query_critical: 'criticism',
+        query_contextual: 'context',
+      },
+    });
+    const dossier = {
+      mode: 'USER_REQUEST' as const,
+      items: [{
+        ingestedDocumentId: 'doc-1',
+        chunkIds: [],
+        sourceId: 'source-1',
+        canonicalUrl: 'https://one.example/story',
+        domain: 'one.example',
+        title: 'One',
+        role: 'PRIMARY' as const,
+        status: 'PERSISTED' as const,
+        claimKeys: [],
+        provenance: 'SERPER' as const,
+        traceability: 'COMPLETE' as const,
+      }],
+      traceability: 'COMPLETE' as const,
+      degradedReasons: [],
+      persistedDocuments: 1,
+      indexedDocuments: 0,
+      usedEvidenceItems: 0,
+    };
+    const verdict = {
+      contentIntent: 'REPORT' as const,
+      globalScore: 75,
+      pillarScores: {
+        transparency: { score: 75, quote: '', reasoning: '' },
+        editorial: { score: 75, quote: '', reasoning: '' },
+        semantic: { score: 75, quote: '', reasoning: '' },
+        logic: { score: 75, quote: '', reasoning: '' },
+      },
+    };
+    runPrimaryJudgeWithGeneration.mockImplementation(async (_topic, context) => {
+      expect(context.sources).toEqual([
+        expect.objectContaining({
+          url: 'https://one.example/story',
+          evidenceStatus: 'PERSISTED',
+          ingestedDocumentId: 'doc-1',
+        }),
+      ]);
+      return {
+        ...verdict,
+        generatedContent: {
+          title: 'Title',
+          summary: 'Summary',
+          content: 'Content',
+          tags: [],
+          imagePrompt: null,
+          wikipedia_search_query: null,
+          structuredContent: {
+            version: 1,
+            format: 'epion-article-v1',
+            lead: {},
+            sections: [{ id: 'facts', type: 'facts', title: 'Facts', body: 'Body' }],
+            claims: [{
+              id: 'claim_1',
+              text: 'Claim',
+              sourceUrls: ['https://one.example/story'],
+              support: 'strong',
+            }],
+            sources: [{ id: 'src_one', url: 'https://one.example/story' }],
+          },
+        },
+      };
+    });
+    runAuditorJudge.mockResolvedValue(verdict);
+
+    const result = await runLiveAnalysisWithGeneration('Topic', {
+      onEvidenceGathered: async () => dossier,
+    });
+
+    expect(result.sources).toHaveLength(1);
+    expect(result.evidenceDossier).toMatchObject({
+      traceability: 'DEGRADED',
+      degradedReasons: ['USED_DOCUMENT_NOT_INDEXED'],
+      usedEvidenceItems: 1,
+      items: [expect.objectContaining({
+        status: 'USED',
+        claimKeys: ['claim_1'],
+      })],
+    });
+  });
 });
