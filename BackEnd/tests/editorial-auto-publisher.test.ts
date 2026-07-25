@@ -75,7 +75,7 @@ describe('controlled editorial auto-publication', () => {
     ['human review mode', state(), input({ environment: { EDITORIAL_VALIDATION_MODE: 'human_review' } }), 'AUTOPUBLISH_VALIDATION_MODE'],
     ['incomplete verification', state({ verificationRuns: [{ id: 'run-1', revisionId: 'revision-1', articleId: 'article-1', contentHash, status: 'HUMAN_REVIEW_REQUIRED' }] }), input(), 'AUTOPUBLISH_VERIFICATION_NOT_PASSED'],
     ['one source', state({ article: { ...state().article, articleSources: [{ source: { domain: 'inserm.fr' } }] } }), input(), 'AUTOPUBLISH_SOURCES_INSUFFICIENT'],
-    ['missing category', state({ article: { ...state().article, categoryId: null } }), input(), 'AUTOPUBLISH_ARTICLE_NOT_PUBLIC_READY'],
+    ['missing category', state({ article: { ...state().article, categoryId: null } }), input(), 'AUTOPUBLISH_MISSING_CATEGORY'],
   ])('leaves the Article DRAFT when %s', async (_label, draft, request, code) => {
     const mocked = client(draft);
     await expect(autoPublishVerifiedEditorialArticle(mocked, request)).rejects.toMatchObject({ name: EditorialAutoPublicationBlockedError.name, code });
