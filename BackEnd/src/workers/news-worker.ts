@@ -4,17 +4,25 @@ import { Redis as IORedis } from 'ioredis';
 import { ArticleStatus, type Prisma } from '@prisma/client';
 import { prisma } from '../lib/db.js';
 import logger from '../lib/logger.js';
-import { newsIngestionQueue, embeddingQueue } from '../lib/queue.js';
+import { documentCorpusQueue, newsIngestionQueue, embeddingQueue } from '../lib/queue.js';
 import { extractArticle, DomainCircuitOpenError, isOperationalExtractionError } from '../lib/extractor.js';
 import { claimDiscoveredUrl, DEDUP_URLS_KEY, fetchGdeltArticleList, fetchSitemapUrls, type DiscoveredArticle } from '../lib/discovery.js';
-import {
-  persistWebEvidenceCandidates,
-  type WebEvidenceProvider,
-} from '../lib/article-generation-core/evidence-gathering.js';
+import type { WebEvidenceProvider } from '../lib/article-generation-core/evidence-gathering.js';
+import { prepareEvidenceCorpus } from '../lib/article-generation-core/evidence-corpus.js';
 
 const log = logger.child({ module: 'NewsWorker' });
 const GDELT_INTER_JOB_DELAY_MS = 2_000;
 const NEWS_WORKER_CONCURRENCY = 1;
+
+export function legacyNewsDirectArticleEnabled(
+  values: NodeJS.ProcessEnv = process.env,
+): boolean {
+  const value = values.LEGACY_NEWS_DIRECT_ARTICLE_ENABLED;
+  if (value === undefined || value === '') return true;
+  if (value === 'true') return true;
+  if (value === 'false') return false;
+  throw new Error('LEGACY_NEWS_DIRECT_ARTICLE_ENABLED must be "true" or "false"');
+}
 
 type DiscoverSitemapJob = {
   sitemapUrl: string;
@@ -119,25 +127,36 @@ async function persistLegacyNewsEvidence(
       : 'MANUAL';
 
   try {
-    const result = await persistWebEvidenceCandidates(prisma, {
-      mode: 'AUTO_EDITORIAL',
-      provider,
-      maxCandidates: 1,
-      candidates: [{
-        url: data.url,
-        title: data.title,
-        publishedAt: data.publishedAt,
-        metadata: {
-          legacyNewsBridge: true,
-          legacyDiscoverySource: data.source ?? 'manual',
-        },
-      }],
+    const result = await prepareEvidenceCorpus({
+      client: prisma,
+      documentQueue: documentCorpusQueue,
+    }, {
+      request: {
+        mode: 'AUTO_EDITORIAL',
+        topic: data.title || data.url,
+        policy: { latency: { corpusWaitMs: 0 } },
+      },
+      persistence: {
+        provider,
+        maxCandidates: 1,
+        candidates: [{
+          url: data.url,
+          title: data.title,
+          publishedAt: data.publishedAt,
+          metadata: {
+            legacyNewsBridge: true,
+            legacyDiscoverySource: data.source ?? 'manual',
+          },
+        }],
+      },
     });
-    const documentId = result.persisted[0]?.documentId ?? null;
+    const documentId = result.persistence.persisted[0]?.documentId ?? null;
 
     log.info('Legacy news discovery persisted in the document corpus', buildWorkerMeta(job.id, data.url, {
       provider,
       documentId,
+      queuedForCorpus: result.queuedForCorpus,
+      traceability: result.dossier.traceability,
     }));
     return documentId;
   } catch (error) {
@@ -223,6 +242,17 @@ async function ingestUrl(job: Job<NewsWorkerJobData>, data: IngestUrlJob): Promi
   }));
 
   const ingestedDocumentId = await persistLegacyNewsEvidence(job, data);
+  if (!legacyNewsDirectArticleEnabled()) {
+    if (!ingestedDocumentId) {
+      throw new Error('Legacy direct Article creation is disabled and corpus persistence failed');
+    }
+    log.info('Legacy direct Article creation skipped after corpus handoff', buildWorkerMeta(
+      job.id,
+      data.url,
+      { ingestedDocumentId },
+    ));
+    return;
+  }
   const extracted = await extractArticle(data.url, { jobId: job.id });
   const title = extracted.title || data.title || new URL(data.url).hostname;
   const slug = await buildUniqueSlug(title);

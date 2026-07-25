@@ -1,6 +1,7 @@
 import { Queue } from 'bullmq';
 import { env } from '../env.js';
 import { logger } from './logger.js';
+import { DOCUMENT_QUEUE_NAME } from './document-corpus/document-queue.js';
 
 const redisUrl = process.env.REDIS_URL || 'redis://localhost:6379';
 
@@ -90,3 +91,17 @@ newsIngestionQueue.on('error', (err) => {
 });
 
 logger.info('News Ingestion Queue initialized', { module: 'Queue' });
+
+export const documentCorpusQueue = new Queue(DOCUMENT_QUEUE_NAME, {
+    connection: connection as any,
+    defaultJobOptions: {
+        attempts: 3,
+        backoff: { type: 'exponential', delay: 60_000 },
+        removeOnComplete: 500,
+        removeOnFail: 500,
+    },
+});
+
+documentCorpusQueue.on('error', (err) => {
+    logger.error('Document Corpus Queue error', { module: 'Queue', error: err.message });
+});

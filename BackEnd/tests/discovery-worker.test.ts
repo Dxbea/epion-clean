@@ -84,6 +84,8 @@ describe('dedicated discovery worker processor', () => {
       'ATOM',
       'SITEMAP',
       'SITEMAP_INDEX',
+      'GDELT',
+      'GOOGLE_NEWS_RSS',
     ]);
     expect(discoveryConnectorRegistry.registeredTypes()).toEqual([]);
   });

@@ -31,7 +31,35 @@ describe('conditional editorial Serper enrichment', () => {
     })) };
     const client = {
       discoverySource,
-      ingestedDocument: { findUnique: vi.fn(async () => null) },
+      ingestedDocument: {
+        findUnique: vi.fn(async ({ where }: any) => ({
+          content: `Indexed content for ${where.id}`,
+          status: 'INDEXED',
+          isIndexed: true,
+          publishedAt: null,
+          sourceId: null,
+        })),
+        findMany: vi.fn(async () => [
+          {
+            id: 'doc-official', canonicalUrl: 'https://agency.gouv.fr/report',
+            domain: 'agency.gouv.fr', title: 'Official', sourceId: null,
+            status: 'INDEXED', isIndexed: true, chunks: [{ id: 'chunk-official' }],
+            discoveries: [{ metadata: { provider: 'serper' }, discoverySource: { key: 'internal-editorial-serper', connectorType: 'MANUAL', configuration: { provider: 'serper' } } }],
+          },
+          {
+            id: 'doc-counter', canonicalUrl: 'https://counter.example/view',
+            domain: 'counter.example', title: 'Counterpoint', sourceId: null,
+            status: 'INDEXED', isIndexed: true, chunks: [{ id: 'chunk-counter' }],
+            discoveries: [{ metadata: { provider: 'serper' }, discoverySource: { key: 'internal-editorial-serper', connectorType: 'MANUAL', configuration: { provider: 'serper' } } }],
+          },
+          {
+            id: 'doc-other', canonicalUrl: 'https://agency.gouv.fr/other',
+            domain: 'agency.gouv.fr', title: 'Other', sourceId: null,
+            status: 'INDEXED', isIndexed: true, chunks: [{ id: 'chunk-other' }],
+            discoveries: [{ metadata: { provider: 'serper' }, discoverySource: { key: 'internal-editorial-serper', connectorType: 'MANUAL', configuration: { provider: 'serper' } } }],
+          },
+        ]),
+      },
     } as any;
     const searcher = vi.fn(async (query: string) => query.includes('officielle')
       ? [
@@ -49,7 +77,17 @@ describe('conditional editorial Serper enrichment', () => {
       reasons: ['MISSING_PRIMARY_SOURCE', 'MISSING_COUNTERPOINT'],
       existingEvidence: [],
       now: new Date('2026-07-20T10:00:00.000Z'),
-    }, searcher);
+    }, searcher, vi.fn(async (documentId: string) => ({
+      documentId,
+      outcome: 'INDEXED',
+      reason: null,
+      contentHash: 'hash',
+      duplicateOfId: null,
+      extractedCharacters: 100,
+      chunks: 1,
+      inputTokens: null,
+      estimatedCostMicros: null,
+    })));
 
     expect(searcher).toHaveBeenCalledTimes(2);
     expect(discoverySource.upsert).toHaveBeenCalledWith(expect.objectContaining({
@@ -65,6 +103,11 @@ describe('conditional editorial Serper enrichment', () => {
       expect.objectContaining({ documentId: 'doc-official', origin: 'SERPER', officialStatement: true }),
       expect.objectContaining({ documentId: 'doc-counter', lane: 'COUNTERPOINT' }),
     ]));
+    expect(result.dossier).toMatchObject({
+      mode: 'AUTO_EDITORIAL',
+      traceability: 'COMPLETE',
+      indexedDocuments: 3,
+    });
   });
 
   it('does not call Serper or touch the corpus when no enrichment reason exists', async () => {
@@ -72,7 +115,20 @@ describe('conditional editorial Serper enrichment', () => {
     const result = await enrichEditorialEvidenceWithSerper({} as any, {
       topic: 'Sujet', reasons: [], existingEvidence: [],
     }, searcher);
-    expect(result).toEqual({ queries: [], evidence: [], documentIds: [] });
+    expect(result).toEqual({
+      queries: [],
+      evidence: [],
+      documentIds: [],
+      dossier: {
+        mode: 'AUTO_EDITORIAL',
+        items: [],
+        traceability: 'COMPLETE',
+        degradedReasons: [],
+        persistedDocuments: 0,
+        indexedDocuments: 0,
+        usedEvidenceItems: 0,
+      },
+    });
     expect(searcher).not.toHaveBeenCalled();
     expect(persistDiscoveredCandidate).not.toHaveBeenCalled();
   });

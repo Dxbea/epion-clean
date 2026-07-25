@@ -3,12 +3,12 @@ import { Worker, Job } from 'bullmq';
 import { Redis as IORedis } from 'ioredis';
 import { logger } from '../lib/logger.js';
 import { runLiveAnalysis, runLiveAnalysisWithGeneration } from '../lib/live-analysis/index.js';
-import { sourceEnrichmentQueue } from '../lib/queue.js';
+import { documentCorpusQueue, sourceEnrichmentQueue } from '../lib/queue.js';
 import { stableSourceId } from '../lib/structured-article.js';
 import { hashAnalysisInput } from '../lib/score-helpers.js';
 import { prisma } from '../lib/db.js';
 import { getWikipediaImage } from '../lib/images/wikipedia-fetcher.js';
-import { persistWebEvidenceCandidates } from '../lib/article-generation-core/evidence-gathering.js';
+import { prepareEvidenceCorpus } from '../lib/article-generation-core/evidence-corpus.js';
 import type { FactCheckSource } from '../lib/live-analysis/types.js';
 
 const LIVE_ANALYSIS_WORKER_CONCURRENCY = 3;
@@ -67,34 +67,54 @@ async function persistUserRequestEvidence(
     if (webSources.length === 0) return;
 
     try {
-        const result = await persistWebEvidenceCandidates(prisma, {
-            mode: 'USER_REQUEST',
-            provider: 'SERPER',
-            maxCandidates: 50,
-            candidates: webSources.map((source) => ({
-                url: source.url,
-                title: source.title,
-                snippet: source.metaDescription,
-                publishedAt: source.publishedDate,
+        const result = await prepareEvidenceCorpus({
+            client: prisma,
+            documentQueue: documentCorpusQueue,
+        }, {
+            request: {
+                mode: 'USER_REQUEST',
+                topic: webSources[0]?.title || 'User article evidence',
                 language,
-                metadata: {
-                    ...(source.searchLane ? { searchLane: source.searchLane } : {}),
-                    ...(source.role ? { role: source.role } : {}),
-                    ...(source.provenance ? { provenance: source.provenance } : {}),
-                    ...(source.extractionStatus ? { extractionStatus: source.extractionStatus } : {}),
-                    ...(source.sourceQuality ? { sourceQuality: source.sourceQuality } : {}),
-                    ...(source.officialStatement !== undefined
-                        ? { officialStatement: source.officialStatement }
-                        : {}),
-                },
-            })),
+            },
+            persistence: {
+                provider: 'SERPER',
+                maxCandidates: 50,
+                candidates: webSources.map((source) => ({
+                    url: source.url,
+                    title: source.title,
+                    snippet: source.metaDescription,
+                    publishedAt: source.publishedDate,
+                    language,
+                    metadata: {
+                        ...(source.searchLane ? { searchLane: source.searchLane } : {}),
+                        ...(source.role ? { role: source.role } : {}),
+                        ...(source.provenance ? { provenance: source.provenance } : {}),
+                        ...(source.extractionStatus ? { extractionStatus: source.extractionStatus } : {}),
+                        ...(source.sourceQuality ? { sourceQuality: source.sourceQuality } : {}),
+                        ...(source.officialStatement !== undefined
+                            ? { officialStatement: source.officialStatement }
+                            : {}),
+                    },
+                })),
+            },
+            rolesByUrl: Object.fromEntries(webSources.map((source) => [
+                source.url,
+                source.searchLane === 'FACTUAL'
+                    ? 'PRIMARY'
+                    : source.searchLane === 'CRITICAL'
+                      ? 'COUNTERPOINT'
+                      : 'CONTEXT',
+            ])),
         });
 
         logger.info('Persisted user-request web evidence in the document corpus', {
             module: 'LiveAnalysisWorker',
             articleId,
-            considered: result.considered,
-            persisted: result.persisted.length,
+            considered: result.persistence.considered,
+            persisted: result.persistence.persisted.length,
+            queuedForCorpus: result.queuedForCorpus,
+            traceability: result.dossier.traceability,
+            degradedEvidenceReasons: result.dossier.degradedReasons,
         });
     } catch (error) {
         logger.warn('Could not persist user-request web evidence; generation will continue', {

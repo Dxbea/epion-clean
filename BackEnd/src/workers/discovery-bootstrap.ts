@@ -1,6 +1,8 @@
 import { DiscoveryConnectorRegistry } from '../lib/discovery/connector-registry.js';
 import {
   AtomDiscoveryConnector,
+  GdeltDiscoveryConnector,
+  GoogleNewsRssDiscoveryConnector,
   RssDiscoveryConnector,
   SitemapDiscoveryConnector,
   SitemapIndexDiscoveryConnector,
@@ -12,5 +14,7 @@ export function createWorkerDiscoveryConnectorRegistry(): DiscoveryConnectorRegi
   registry.register(new AtomDiscoveryConnector());
   registry.register(new SitemapDiscoveryConnector());
   registry.register(new SitemapIndexDiscoveryConnector());
+  registry.register(new GdeltDiscoveryConnector());
+  registry.register(new GoogleNewsRssDiscoveryConnector());
   return registry;
 }

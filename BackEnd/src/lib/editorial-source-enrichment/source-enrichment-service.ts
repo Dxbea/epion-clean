@@ -29,6 +29,11 @@ export interface EditorialSourceEnrichmentDiagnostics {
   serperQueries: Array<{ lane: string; query: string }>;
   reusedCorpusDocuments: string[];
   newlyIngestedDocuments: string[];
+  evidenceDossierItems: number;
+  usedEvidenceItems: number;
+  persistedDocuments: number;
+  indexedDocuments: number;
+  degradedEvidenceReasons: string[];
 }
 
 export interface EditorialSourceEnrichmentDependencies {
@@ -99,6 +104,11 @@ export async function enrichEditorialTopicSources(
     serperQueries: [],
     reusedCorpusDocuments: [],
     newlyIngestedDocuments: [],
+    evidenceDossierItems: 0,
+    usedEvidenceItems: 0,
+    persistedDocuments: 0,
+    indexedDocuments: 0,
+    degradedEvidenceReasons: [],
   };
   const attached = new Set(candidate.topic.documents.map((item) => item.documentId));
   const domains = new Set(diagnostics.independentDomains);
@@ -193,6 +203,14 @@ export async function enrichEditorialTopicSources(
       now: input.now,
     });
     diagnostics.serperQueries = serper.queries.map((item) => ({ lane: item.lane, query: item.query }));
+    const dossier = serper.dossier;
+    if (dossier) {
+      diagnostics.evidenceDossierItems += dossier.items.length;
+      diagnostics.usedEvidenceItems += dossier.usedEvidenceItems;
+      diagnostics.persistedDocuments += dossier.persistedDocuments;
+      diagnostics.indexedDocuments += dossier.indexedDocuments;
+      diagnostics.degradedEvidenceReasons.push(...dossier.degradedReasons);
+    }
     diagnostics.sourcesFound += serper.evidence.length;
     for (const evidence of serper.evidence) {
       if (domains.size >= input.requiredDomains || attached.size >= input.maximumDocuments) break;

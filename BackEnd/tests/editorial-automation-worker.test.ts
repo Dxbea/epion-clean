@@ -1,11 +1,11 @@
-import { describe, expect, it, vi } from 'vitest';
+import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { resolveEditorialVerificationRuntimeFlags } from '../src/lib/editorial-verification/runtime-flags.js';
 
 const prismaMock = vi.hoisted(() => ({
   discoverySource: { findMany: vi.fn() },
   ingestedDocument: { findMany: vi.fn() },
   editorialRun: { findFirst: vi.fn(), findUnique: vi.fn() },
-  editorialCandidate: { findFirst: vi.fn() },
+  editorialCandidate: { findFirst: vi.fn(), findMany: vi.fn() },
   editorialBrief: { findFirst: vi.fn() },
   editorialDraft: { findFirst: vi.fn() },
   editorialReviewAuditLog: { count: vi.fn() },
@@ -30,6 +30,11 @@ function queues() {
 }
 
 describe('editorial automation indexing selection', () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    prismaMock.editorialCandidate.findMany.mockResolvedValue([]);
+  });
+
   it('resolves configured DiscoverySource keys to durable Source ids and queues discovered ECB documents before robots are checked', async () => {
     prismaMock.discoverySource.findMany.mockResolvedValue([
       { id: 'discovery-ecb', key: 'institution-ecb-press', sourceId: 'durable-ecb', categoryId: 'economy' },
@@ -80,6 +85,70 @@ describe('editorial automation indexing selection', () => {
     expect(report).toMatchObject({ documentsQueuedForIndexing: 0, documentsAlreadyIndexed: 2, documentsEligibleForClustering: 2, clusters: 1 });
     expect(report.blockages).not.toContain('NO_INDEXABLE_DISCOVERED_DOCUMENTS');
     expect(queue.editorialQueue.add).toHaveBeenCalledOnce();
+  });
+
+  it('starts a source-poor initial cluster with two indexed documents from one domain', async () => {
+    prismaMock.discoverySource.findMany.mockResolvedValue([
+      { id: 'discovery-ecb', key: 'institution-ecb-press', sourceId: 'durable-ecb', categoryId: 'economy', connectorType: 'RSS' },
+      { id: 'discovery-inserm', key: 'institution-inserm-actualites', sourceId: 'durable-inserm', categoryId: 'health', connectorType: 'RSS' },
+    ]);
+    prismaMock.ingestedDocument.findMany
+      .mockResolvedValueOnce([
+        { id: 'doc-1', status: 'INDEXED', isIndexed: true, robotsAllowed: true, accessPolicy: 'FULL_FETCH', storagePolicy: 'FULL' },
+        { id: 'doc-2', status: 'INDEXED', isIndexed: true, robotsAllowed: true, accessPolicy: 'FULL_FETCH', storagePolicy: 'FULL' },
+      ])
+      .mockResolvedValueOnce([
+        { id: 'doc-1', domain: 'same.example', sourceId: 'durable-ecb' },
+        { id: 'doc-2', domain: 'same.example', sourceId: 'durable-ecb' },
+      ]);
+    prismaMock.editorialRun.findUnique.mockResolvedValue(null);
+    prismaMock.editorialCandidate.findFirst.mockResolvedValue(null);
+    prismaMock.editorialCandidate.findMany.mockResolvedValue([{
+      rationale: {
+        reasons: ['SOURCE_ENRICHMENT_INSUFFICIENT'],
+        enrichment: {
+          sourcesAccepted: 1,
+          newlyIngestedDocuments: ['doc-serper'],
+          persistedDocuments: 1,
+          indexedDocuments: 1,
+          evidenceDossierItems: 1,
+          usedEvidenceItems: 1,
+          degradedEvidenceReasons: [],
+        },
+      },
+      topic: { independentDomainCount: 1, documentCount: 3 },
+      sourceDossiers: [],
+    }]);
+    prismaMock.editorialBrief.findFirst.mockResolvedValue(null);
+    prismaMock.editorialDraft.findFirst.mockResolvedValue(null);
+    prismaMock.editorialReviewAuditLog.count.mockResolvedValue(0);
+    const queue = queues();
+
+    const report = await runEditorialAutomationTick(
+      flags(),
+      queue,
+      new Date('2026-07-25T10:00:00.000Z'),
+    );
+
+    expect(queue.editorialQueue.add).toHaveBeenCalledOnce();
+    expect(report).toMatchObject({
+      clusters: 1,
+      initialDocuments: 2,
+      initialDomains: 1,
+      sourcePoorInitialClusters: 1,
+      enrichmentAttempted: true,
+      enrichmentSources: 1,
+      enrichmentPersistedDocuments: 1,
+      enrichmentIndexedDocuments: 1,
+      finalEligibleDomains: 1,
+      finalBlockage: 'ENRICHMENT_INSUFFICIENT',
+      evidenceDossierItems: 1,
+      usedEvidenceItems: 1,
+    });
+    expect(report.clusterBlockages).toEqual(expect.arrayContaining([
+      expect.objectContaining({ code: 'SOURCE_POOR_INITIAL_CLUSTER' }),
+    ]));
+    expect(report.minimumDomainsRequired).toBe(2);
   });
 
   it('requires the one-shot confirmation and honours its local kill switch', () => {

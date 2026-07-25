@@ -8,7 +8,7 @@ const articleFindUnique = vi.fn();
 const articleCreate = vi.fn();
 const embeddingAdd = vi.fn();
 const extractArticle = vi.fn();
-const persistWebEvidenceCandidates = vi.fn();
+const prepareEvidenceCorpus = vi.fn();
 const childLogger = {
   info: vi.fn(),
   warn: vi.fn(),
@@ -48,6 +48,7 @@ vi.mock('../src/lib/logger.js', () => ({
 vi.mock('../src/lib/queue.js', () => ({
   newsIngestionQueue: { add: vi.fn() },
   embeddingQueue: { add: embeddingAdd },
+  documentCorpusQueue: { add: vi.fn() },
 }));
 
 vi.mock('../src/lib/extractor.js', () => ({
@@ -63,11 +64,14 @@ vi.mock('../src/lib/discovery.js', () => ({
   fetchSitemapUrls: vi.fn(),
 }));
 
-vi.mock('../src/lib/article-generation-core/evidence-gathering.js', () => ({
-  persistWebEvidenceCandidates,
+vi.mock('../src/lib/article-generation-core/evidence-corpus.js', () => ({
+  prepareEvidenceCorpus,
 }));
 
-const { startNewsWorker } = await import('../src/workers/news-worker.js');
+const {
+  legacyNewsDirectArticleEnabled,
+  startNewsWorker,
+} = await import('../src/workers/news-worker.js');
 
 describe('legacy news corpus bridge', () => {
   beforeEach(() => {
@@ -82,11 +86,15 @@ describe('legacy news corpus bridge', () => {
       author: 'Reporter',
       siteName: 'Example News',
     });
-    persistWebEvidenceCandidates.mockResolvedValue({
-      provider: 'GDELT',
-      mode: 'AUTO_EDITORIAL',
-      considered: 1,
-      persisted: [{ documentId: 'document-gdelt-1' }],
+    prepareEvidenceCorpus.mockResolvedValue({
+      persistence: {
+        provider: 'GDELT',
+        mode: 'AUTO_EDITORIAL',
+        considered: 1,
+        persisted: [{ documentId: 'document-gdelt-1' }],
+      },
+      dossier: { traceability: 'DEGRADED' },
+      queuedForCorpus: 1,
     });
   });
 
@@ -104,21 +112,26 @@ describe('legacy news corpus bridge', () => {
       },
     });
 
-    expect(persistWebEvidenceCandidates).toHaveBeenCalledWith(
-      expect.any(Object),
+    expect(prepareEvidenceCorpus).toHaveBeenCalledWith(
       expect.objectContaining({
-        mode: 'AUTO_EDITORIAL',
-        provider: 'GDELT',
-        maxCandidates: 1,
-        candidates: [{
-          url: 'https://example.com/gdelt-story',
-          title: 'GDELT title',
-          publishedAt: '2026-07-25',
-          metadata: {
-            legacyNewsBridge: true,
-            legacyDiscoverySource: 'gdelt',
-          },
-        }],
+        client: expect.any(Object),
+        documentQueue: expect.any(Object),
+      }),
+      expect.objectContaining({
+        request: expect.objectContaining({ mode: 'AUTO_EDITORIAL' }),
+        persistence: expect.objectContaining({
+          provider: 'GDELT',
+          maxCandidates: 1,
+          candidates: [expect.objectContaining({
+            url: 'https://example.com/gdelt-story',
+            title: 'GDELT title',
+            publishedAt: '2026-07-25',
+            metadata: {
+              legacyNewsBridge: true,
+              legacyDiscoverySource: 'gdelt',
+            },
+          })],
+        }),
       }),
     );
     expect(extractArticle).toHaveBeenCalledWith(
@@ -139,7 +152,7 @@ describe('legacy news corpus bridge', () => {
 
   it('keeps legacy draft creation available when the corpus bridge fails', async () => {
     startNewsWorker();
-    persistWebEvidenceCandidates.mockRejectedValueOnce(new Error('corpus unavailable'));
+    prepareEvidenceCorpus.mockRejectedValueOnce(new Error('corpus unavailable'));
 
     await capturedProcessor({
       id: 'news-job-2',
@@ -159,5 +172,29 @@ describe('legacy news corpus bridge', () => {
         }),
       }),
     });
+  });
+
+  it('supports disabling only the legacy direct Article write after corpus handoff', async () => {
+    const previous = process.env.LEGACY_NEWS_DIRECT_ARTICLE_ENABLED;
+    process.env.LEGACY_NEWS_DIRECT_ARTICLE_ENABLED = 'false';
+    try {
+      startNewsWorker();
+      await capturedProcessor({
+        id: 'news-job-3',
+        name: 'ingest-url',
+        data: {
+          url: 'https://example.com/corpus-only',
+          source: 'gdelt',
+        },
+      });
+
+      expect(legacyNewsDirectArticleEnabled()).toBe(false);
+      expect(prepareEvidenceCorpus).toHaveBeenCalledOnce();
+      expect(extractArticle).not.toHaveBeenCalled();
+      expect(articleCreate).not.toHaveBeenCalled();
+    } finally {
+      if (previous === undefined) delete process.env.LEGACY_NEWS_DIRECT_ARTICLE_ENABLED;
+      else process.env.LEGACY_NEWS_DIRECT_ARTICLE_ENABLED = previous;
+    }
   });
 });

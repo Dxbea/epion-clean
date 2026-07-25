@@ -5,8 +5,9 @@ import {
   type CorpusPersistenceClient,
 } from '../discovery/corpus-service.js';
 import type { DiscoverySourceConfig } from '../discovery/types.js';
+import type { ArticleGenerationMode } from './types.js';
 
-export type ArticleGenerationMode = 'USER_REQUEST' | 'AUTO_EDITORIAL';
+export type { ArticleGenerationMode } from './types.js';
 export type WebEvidenceProvider = 'SERPER' | 'GDELT' | 'SITEMAP' | 'MANUAL';
 
 export interface WebEvidenceCandidate {

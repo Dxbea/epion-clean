@@ -2,6 +2,9 @@ import { createHash } from 'node:crypto';
 import type { PrismaClient } from '@prisma/client';
 import { normalizeArticleSourceUrl } from '../article-source-service.js';
 import { persistWebEvidenceCandidates } from '../article-generation-core/evidence-gathering.js';
+import { buildEvidenceDossier } from '../article-generation-core/evidence-dossier.js';
+import type { EvidenceDossier } from '../article-generation-core/types.js';
+import type { DocumentCorpusResult } from '../document-corpus/document-corpus-service.js';
 import { searchSerper, type SerperSearchResult } from '../serper.js';
 import type {
   EditorialEvidenceLane,
@@ -21,12 +24,17 @@ export interface EditorialSerperEnrichmentResult {
   queries: EditorialSerperQuery[];
   evidence: EditorialVerificationEvidence[];
   documentIds: string[];
+  dossier: EvidenceDossier;
 }
 
 export type EditorialSerperSearcher = (
   query: string,
   options?: { maxResults?: number; gl?: string; hl?: string },
 ) => Promise<SerperSearchResult[]>;
+
+export type EditorialSerperDocumentProcessor = (
+  documentId: string,
+) => Promise<DocumentCorpusResult>;
 
 export function buildEditorialSerperQueries(
   topic: string,
@@ -63,8 +71,21 @@ export async function enrichEditorialEvidenceWithSerper(
     now?: Date;
   },
   searcher: EditorialSerperSearcher = searchSerper,
+  processor: EditorialSerperDocumentProcessor = async (documentId) => {
+    const { processIngestedDocument } = await import(
+      '../document-corpus/document-corpus-service.js'
+    );
+    return processIngestedDocument({ client }, documentId);
+  },
 ): Promise<EditorialSerperEnrichmentResult> {
-  if (input.reasons.length === 0) return { queries: [], evidence: [], documentIds: [] };
+  if (input.reasons.length === 0) {
+    return {
+      queries: [],
+      evidence: [],
+      documentIds: [],
+      dossier: emptyDossier(),
+    };
+  }
   const now = input.now ?? new Date();
   const queries = buildEditorialSerperQueries(input.topic, input.reasons);
   const results = await Promise.all(queries.map(async (query) => ({
@@ -110,12 +131,25 @@ export async function enrichEditorialEvidenceWithSerper(
     const persisted = persistedByUrl.get(url);
     if (!persisted) continue;
     const domain = new URL(url).hostname.toLowerCase().replace(/^www\./, '');
+    try {
+      await processor(persisted.documentId);
+    } catch {
+      continue;
+    }
     const storedDocument = await client.ingestedDocument.findUnique({
       where: { id: persisted.documentId },
-      select: { content: true, status: true, publishedAt: true, sourceId: true },
+      select: {
+        content: true,
+        status: true,
+        isIndexed: true,
+        publishedAt: true,
+        sourceId: true,
+      },
     });
     const hasExtractedContent = Boolean(storedDocument?.content?.trim())
-      && ['EXTRACTED', 'INDEXED'].includes(storedDocument!.status);
+      && storedDocument?.status === 'INDEXED'
+      && storedDocument.isIndexed;
+    if (!hasExtractedContent) continue;
     evidence.push({
       evidenceKey: `serper_${createHash('sha256').update(url).digest('hex').slice(0, 20)}`,
       documentId: persisted.documentId,
@@ -123,16 +157,42 @@ export async function enrichEditorialEvidenceWithSerper(
       url: persisted.canonicalUrl,
       title: result.title,
       domain,
-      content: hasExtractedContent ? storedDocument!.content!.trim() : result.content,
+      content: storedDocument!.content!.trim(),
       publishedAt: storedDocument?.publishedAt ?? parseSerperDate(result.publishedDate) ?? null,
       lane: query.lane,
       origin: 'SERPER',
       query: query.query,
       officialStatement: query.lane === 'PRIMARY' && isOfficialDomain(domain),
-      extractionStatus: hasExtractedContent ? 'full' : 'metadata_only',
+      extractionStatus: 'full',
     });
   }
-  return { queries, evidence, documentIds: evidence.map((item) => item.documentId) };
+  const documentIds = persistence.persisted.map((item) => item.documentId);
+  const dossier = await buildEvidenceDossier(client, {
+    mode: 'AUTO_EDITORIAL',
+    documentIds,
+    usedDocumentIds: evidence.map((item) => item.documentId),
+    rolesByDocumentId: Object.fromEntries(evidence.map((item) => [
+      item.documentId,
+      item.lane === 'PRIMARY'
+        ? 'PRIMARY'
+        : item.lane === 'COUNTERPOINT'
+          ? 'COUNTERPOINT'
+          : 'CONTEXT',
+    ])),
+  });
+  return { queries, evidence, documentIds, dossier };
+}
+
+function emptyDossier(): EvidenceDossier {
+  return {
+    mode: 'AUTO_EDITORIAL',
+    items: [],
+    traceability: 'COMPLETE',
+    degradedReasons: [],
+    persistedDocuments: 0,
+    indexedDocuments: 0,
+    usedEvidenceItems: 0,
+  };
 }
 
 function selectDiverseResults(

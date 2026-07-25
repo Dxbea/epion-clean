@@ -12,7 +12,7 @@ const articleFindUnique = vi.fn();
 const sourceEnrichmentAdd = vi.fn();
 const runLiveAnalysis = vi.fn();
 const runLiveAnalysisWithGeneration = vi.fn();
-const persistWebEvidenceCandidates = vi.fn();
+const prepareEvidenceCorpus = vi.fn();
 
 vi.mock('bullmq', () => ({
   Worker: vi.fn().mockImplementation(function WorkerMock(_name, processor, options) {
@@ -37,6 +37,7 @@ vi.mock('../src/lib/db.js', () => ({
 
 vi.mock('../src/lib/queue.js', () => ({
   sourceEnrichmentQueue: { add: sourceEnrichmentAdd },
+  documentCorpusQueue: { add: vi.fn() },
 }));
 
 vi.mock('../src/lib/live-analysis/index.js', () => ({
@@ -44,8 +45,8 @@ vi.mock('../src/lib/live-analysis/index.js', () => ({
   runLiveAnalysisWithGeneration,
 }));
 
-vi.mock('../src/lib/article-generation-core/evidence-gathering.js', () => ({
-  persistWebEvidenceCandidates,
+vi.mock('../src/lib/article-generation-core/evidence-corpus.js', () => ({
+  prepareEvidenceCorpus,
 }));
 
 vi.mock('../src/lib/images/wikipedia-fetcher.js', () => ({
@@ -65,11 +66,20 @@ describe('live-analysis article generation worker', () => {
     });
     articleUpdate.mockResolvedValue({ id: 'article-1' });
     articleFindUnique.mockResolvedValue({ content: null, factCheckStatus: 'PENDING' });
-    persistWebEvidenceCandidates.mockResolvedValue({
-      provider: 'SERPER',
-      mode: 'USER_REQUEST',
-      considered: 1,
-      persisted: [],
+    prepareEvidenceCorpus.mockResolvedValue({
+      persistence: {
+        provider: 'SERPER',
+        mode: 'USER_REQUEST',
+        considered: 1,
+        persisted: [],
+      },
+      dossier: {
+        traceability: 'DEGRADED',
+        degradedReasons: ['USED_DOCUMENT_NOT_INDEXED'],
+      },
+      queuedForCorpus: 1,
+      queueFailures: [],
+      indexingTimedOut: false,
     });
     sourceEnrichmentAdd.mockImplementation(async (_name: string, _data: unknown, options: { jobId?: string }) => {
       if (options.jobId?.includes(':')) throw new Error('Custom Id cannot contain :');
@@ -193,23 +203,28 @@ describe('live-analysis article generation worker', () => {
       },
     ])).resolves.toBeUndefined();
 
-    expect(persistWebEvidenceCandidates).toHaveBeenCalledWith(
-      expect.any(Object),
+    expect(prepareEvidenceCorpus).toHaveBeenCalledWith(
       expect.objectContaining({
-        mode: 'USER_REQUEST',
-        provider: 'SERPER',
-        maxCandidates: 50,
-        candidates: [{
-          url: 'https://example.com/story?utm_source=test',
-          title: 'Story title',
-          snippet: 'Search result excerpt',
-          publishedAt: '2026-07-25',
-          language: 'fr',
-          metadata: expect.objectContaining({
-            searchLane: 'FACTUAL',
-            provenance: 'WEB_SEARCH',
-          }),
-        }],
+        client: expect.any(Object),
+        documentQueue: expect.any(Object),
+      }),
+      expect.objectContaining({
+        request: expect.objectContaining({ mode: 'USER_REQUEST', language: 'fr' }),
+        persistence: expect.objectContaining({
+          provider: 'SERPER',
+          maxCandidates: 50,
+          candidates: [expect.objectContaining({
+            url: 'https://example.com/story?utm_source=test',
+            title: 'Story title',
+            snippet: 'Search result excerpt',
+            publishedAt: '2026-07-25',
+            language: 'fr',
+            metadata: expect.objectContaining({
+              searchLane: 'FACTUAL',
+              provenance: 'WEB_SEARCH',
+            }),
+          })],
+        }),
       }),
     );
 
@@ -237,7 +252,7 @@ describe('live-analysis article generation worker', () => {
 
   it('does not fail user generation when corpus persistence is unavailable', async () => {
     startLiveAnalysisWorker();
-    persistWebEvidenceCandidates.mockRejectedValueOnce(new Error('corpus unavailable'));
+    prepareEvidenceCorpus.mockRejectedValueOnce(new Error('corpus unavailable'));
 
     await capturedProcessor({
       id: 'job-2',

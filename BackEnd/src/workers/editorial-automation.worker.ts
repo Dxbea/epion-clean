@@ -43,6 +43,27 @@ export interface EditorialAutomationReport {
   verifications: number;
   publications: number;
   blockages: string[];
+  discoveredByLowCost: number;
+  discoveredByGdelt: number;
+  discoveredByGoogleNews: number;
+  discoveredBySerper: number;
+  persistedDocuments: number;
+  queuedForCorpus: number;
+  indexedDocuments: number;
+  evidenceDossierItems: number;
+  usedEvidenceItems: number;
+  degradedEvidenceReasons: string[];
+  initialDomains: number;
+  initialDocuments: number;
+  sourcePoorInitialClusters: number;
+  enrichmentAttempted: boolean;
+  enrichmentSources: number;
+  enrichmentPersistedDocuments: number;
+  enrichmentIndexedDocuments: number;
+  finalEligibleDomains: number;
+  finalEligibleDocuments: number;
+  finalBlockage: string | null;
+  publicationBlockedReason: string | null;
 }
 
 export async function runEditorialAutomationTick(
@@ -55,7 +76,7 @@ export async function runEditorialAutomationTick(
   const { windowStart, windowEnd } = editorialAutomationWindow(now);
   const sources = await prisma.discoverySource.findMany({
     where: { key: { in: flags.automationSourceKeys }, enabled: true, disabledReason: null, accessPolicy: { not: 'BLOCKED' } },
-    select: { id: true, key: true, sourceId: true, categoryId: true },
+    select: { id: true, key: true, sourceId: true, categoryId: true, connectorType: true },
   });
   if (sources.length !== flags.automationSourceKeys.length) throw new Error('Configured editorial automation sources must exist, be enabled and not blocked');
   const durableSourceIds = sources.map((source) => source.sourceId).filter((sourceId): sourceId is string => Boolean(sourceId));
@@ -81,7 +102,8 @@ export async function runEditorialAutomationTick(
   const sourceById = new Map(sources.filter((source) => source.sourceId).map((source) => [source.sourceId!, source]));
   const indexedDomains = new Set(indexed.map((document) => document.domain.toLowerCase()));
   const clusterInputDocumentIds = indexed.map((document) => document.id).sort();
-  const clusterJob = indexed.length >= 2 && indexedDomains.size >= 2
+  const sourcePoorInitialCluster = indexed.length >= 2 && indexedDomains.size < 2;
+  const clusterJob = indexed.length >= 2
     ? prepareEditorialShadowJob({ windowStart, windowEnd, embeddingModel: DOCUMENT_EMBEDDING_MODEL, documentIds: clusterInputDocumentIds, trigger: 'SCHEDULED', requestedAt: now, config: { maxDocuments: flags.automationMaximumDocuments, minProposalDocuments: 2, minProposalDomains: 2 } })
     : null;
   const existingRun = clusterJob
@@ -104,10 +126,64 @@ export async function runEditorialAutomationTick(
   const readyDraft = await prisma.editorialDraft.findFirst({ where: { status: 'ARTICLE_DRAFT_CREATED', article: { is: { status: 'DRAFT' } }, verificationRuns: { none: {} }, brief: { dossier: { candidate: { topic: { run: { windowStart, windowEnd, status: 'COMPLETED' } } } } } }, select: { id: true, currentRevisionId: true, contentHash: true }, orderBy: { createdAt: 'asc' } });
   let verification = false;
   if (readyDraft?.currentRevisionId && readyDraft.contentHash) { await enqueueEditorialVerificationJob(queues.verificationQueue, prepareEditorialVerificationJob({ draftId: readyDraft.id, revisionId: readyDraft.currentRevisionId, expectedContentHash: readyDraft.contentHash, trigger: 'AUTOMATION', requestedAt: now })); verification = true; }
+  const candidateDiagnostics = await prisma.editorialCandidate.findMany({
+    where: { topic: { run: { windowStart, windowEnd } } },
+    select: {
+      rationale: true,
+      topic: { select: { independentDomainCount: true, documentCount: true } },
+      sourceDossiers: {
+        select: {
+          selectedChunkCount: true,
+          brief: { select: { id: true } },
+        },
+      },
+    },
+  });
+  const enrichmentDiagnostics = candidateDiagnostics
+    .map((item) => jsonRecord(jsonRecord(item.rationale).enrichment))
+    .filter((item) => Object.keys(item).length > 0);
+  const degradedEvidenceReasons = [...new Set([
+    ...candidateDiagnostics.flatMap((item) => {
+    const reasons = jsonRecord(item.rationale).reasons;
+    return Array.isArray(reasons)
+      ? reasons.filter((reason): reason is string => typeof reason === 'string')
+      : [];
+    }),
+    ...uniqueJsonStrings(enrichmentDiagnostics, 'degradedEvidenceReasons'),
+  ])].sort();
+  const evidenceDossierItems = candidateDiagnostics.reduce((total, item) =>
+    total + item.sourceDossiers.reduce((sum, dossier) => sum + dossier.selectedChunkCount, 0), 0)
+    + sumNumeric(enrichmentDiagnostics, 'evidenceDossierItems');
+  const usedEvidenceItems = candidateDiagnostics.reduce((total, item) =>
+    total + item.sourceDossiers.reduce((sum, dossier) =>
+      sum + (dossier.brief ? dossier.selectedChunkCount : 0), 0), 0)
+    + sumNumeric(enrichmentDiagnostics, 'usedEvidenceItems');
+  const finalEligibleDomains = Math.max(
+    indexedDomains.size,
+    ...candidateDiagnostics.map((item) => item.topic.independentDomainCount),
+  );
+  const finalEligibleDocuments = Math.max(
+    indexed.length,
+    ...candidateDiagnostics.map((item) => item.topic.documentCount),
+  );
+  const enrichmentAttempted = enrichmentDiagnostics.length > 0;
+  const enrichmentSources = sumNumeric(enrichmentDiagnostics, 'sourcesAccepted');
+  const enrichmentPersistedDocuments = Math.max(
+    uniqueJsonStrings(enrichmentDiagnostics, 'newlyIngestedDocuments').length,
+    sumNumeric(enrichmentDiagnostics, 'persistedDocuments'),
+  );
+  const enrichmentIndexedDocuments = Math.max(
+    enrichmentSources,
+    sumNumeric(enrichmentDiagnostics, 'indexedDocuments'),
+  );
+  const finalBlockage = enrichmentAttempted
+    && (finalEligibleDomains < 2 || finalEligibleDocuments < 2)
+    ? 'ENRICHMENT_INSUFFICIENT'
+    : null;
   const clusterBlockages = [
     ...(indexed.length === 0 ? [{ code: 'NO_CLUSTERABLE_DOCUMENTS', detail: { documents: [] } }] : []),
     ...(indexed.length > 0 && indexed.length < 2 ? [{ code: 'NOT_ENOUGH_CLUSTERABLE_DOCUMENTS', detail: { present: indexed.length, required: 2, documentIds: clusterInputDocumentIds } }] : []),
-    ...(indexed.length >= 2 && indexedDomains.size < 2 ? [{ code: 'NOT_ENOUGH_DOMAINS', detail: { presentDomains: [...indexedDomains].sort(), present: indexedDomains.size, required: 2, documentIds: clusterInputDocumentIds } }] : []),
+    ...(sourcePoorInitialCluster ? [{ code: 'SOURCE_POOR_INITIAL_CLUSTER', detail: { informational: true, presentDomains: [...indexedDomains].sort(), present: indexedDomains.size, required: 2, documentIds: clusterInputDocumentIds } }] : []),
     ...(existingRun ? [{ code: existingRun.status === 'COMPLETED' ? 'RUN_SKIPPED_ALREADY_COMPLETED' : `RUN_ALREADY_${existingRun.status}`, detail: { runId: existingRun.id, status: existingRun.status, completedAt: existingRun.completedAt, updatedAt: existingRun.updatedAt, informational: existingRun.status === 'COMPLETED' } }] : []),
   ];
   const blockages = [
@@ -140,7 +216,55 @@ export async function runEditorialAutomationTick(
     verifications: verification ? 1 : 0,
     publications,
     blockages,
+    discoveredByLowCost: scopedDocuments.filter((document) => {
+      const type = sourceById.get(document.sourceId ?? '')?.connectorType;
+      return type !== 'GDELT' && type !== 'GOOGLE_NEWS_RSS'
+        && sourceById.get(document.sourceId ?? '')?.key !== 'internal-editorial-serper';
+    }).length,
+    discoveredByGdelt: scopedDocuments.filter((document) =>
+      sourceById.get(document.sourceId ?? '')?.connectorType === 'GDELT').length,
+    discoveredByGoogleNews: scopedDocuments.filter((document) =>
+      sourceById.get(document.sourceId ?? '')?.connectorType === 'GOOGLE_NEWS_RSS').length,
+    discoveredBySerper: scopedDocuments.filter((document) =>
+      sourceById.get(document.sourceId ?? '')?.key === 'internal-editorial-serper').length,
+    persistedDocuments: scopedDocuments.length + enrichmentPersistedDocuments,
+    queuedForCorpus: documents.length,
+    indexedDocuments: indexed.length + enrichmentIndexedDocuments,
+    evidenceDossierItems,
+    usedEvidenceItems,
+    degradedEvidenceReasons,
+    initialDomains: indexedDomains.size,
+    initialDocuments: indexed.length,
+    sourcePoorInitialClusters: sourcePoorInitialCluster ? 1 : 0,
+    enrichmentAttempted,
+    enrichmentSources,
+    enrichmentPersistedDocuments,
+    enrichmentIndexedDocuments,
+    finalEligibleDomains,
+    finalEligibleDocuments,
+    finalBlockage,
+    publicationBlockedReason: publications > 0
+      ? null
+      : finalBlockage ?? blockages[0] ?? 'AUTOPUBLISH_DISABLED_OR_NOT_REACHED',
   };
+}
+
+function jsonRecord(value: unknown): Record<string, unknown> {
+  return value && typeof value === 'object' && !Array.isArray(value)
+    ? value as Record<string, unknown>
+    : {};
+}
+
+function sumNumeric(rows: Array<Record<string, unknown>>, key: string): number {
+  return rows.reduce((sum, row) =>
+    sum + (typeof row[key] === 'number' ? row[key] : 0), 0);
+}
+
+function uniqueJsonStrings(rows: Array<Record<string, unknown>>, key: string): string[] {
+  return [...new Set(rows.flatMap((row) =>
+    Array.isArray(row[key])
+      ? row[key].filter((value): value is string => typeof value === 'string')
+      : []))];
 }
 
 export async function startEditorialAutomationWorker() {
