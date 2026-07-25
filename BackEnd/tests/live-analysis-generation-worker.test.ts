@@ -12,6 +12,7 @@ const articleFindUnique = vi.fn();
 const sourceEnrichmentAdd = vi.fn();
 const runLiveAnalysis = vi.fn();
 const runLiveAnalysisWithGeneration = vi.fn();
+const persistWebEvidenceCandidates = vi.fn();
 
 vi.mock('bullmq', () => ({
   Worker: vi.fn().mockImplementation(function WorkerMock(_name, processor, options) {
@@ -43,6 +44,10 @@ vi.mock('../src/lib/live-analysis/index.js', () => ({
   runLiveAnalysisWithGeneration,
 }));
 
+vi.mock('../src/lib/article-generation-core/evidence-gathering.js', () => ({
+  persistWebEvidenceCandidates,
+}));
+
 vi.mock('../src/lib/images/wikipedia-fetcher.js', () => ({
   getWikipediaImage: vi.fn(async () => 'https://images.example/cover.jpg'),
 }));
@@ -60,6 +65,12 @@ describe('live-analysis article generation worker', () => {
     });
     articleUpdate.mockResolvedValue({ id: 'article-1' });
     articleFindUnique.mockResolvedValue({ content: null, factCheckStatus: 'PENDING' });
+    persistWebEvidenceCandidates.mockResolvedValue({
+      provider: 'SERPER',
+      mode: 'USER_REQUEST',
+      considered: 1,
+      persisted: [],
+    });
     sourceEnrichmentAdd.mockImplementation(async (_name: string, _data: unknown, options: { jobId?: string }) => {
       if (options.jobId?.includes(':')) throw new Error('Custom Id cannot contain :');
       return { id: 'enrich-1' };
@@ -149,6 +160,58 @@ describe('live-analysis article generation worker', () => {
     });
     expect(result.articleId).toBe('article-1');
     expect(result.citationUrls).toEqual(['https://example.com/story']);
+    const generationOptions = runLiveAnalysisWithGeneration.mock.calls[0]?.[1];
+    expect(generationOptions).toMatchObject({
+      language: 'fr',
+      style: 'neutral',
+      onEvidenceGathered: expect.any(Function),
+    });
+
+    await expect(generationOptions.onEvidenceGathered([
+      {
+        url: 'https://example.com/story?utm_source=test',
+        title: 'Story title',
+        content: 'Extracted content is not persisted by this hook.',
+        metaDescription: 'Search result excerpt',
+        publishedDate: '2026-07-25',
+        domain: 'example.com',
+        score: 0.8,
+        provider: 'web',
+        searchLane: 'FACTUAL',
+        role: 'PRIMARY_EVIDENCE',
+        provenance: 'WEB_SEARCH',
+        extractionStatus: 'metadata_only',
+      },
+      {
+        url: 'https://internal.example/document',
+        title: 'Internal document',
+        content: 'Internal corpus content',
+        domain: 'internal.example',
+        score: 0.7,
+        provider: 'rag',
+        provenance: 'INTERNAL_RAG',
+      },
+    ])).resolves.toBeUndefined();
+
+    expect(persistWebEvidenceCandidates).toHaveBeenCalledWith(
+      expect.any(Object),
+      expect.objectContaining({
+        mode: 'USER_REQUEST',
+        provider: 'SERPER',
+        maxCandidates: 50,
+        candidates: [{
+          url: 'https://example.com/story?utm_source=test',
+          title: 'Story title',
+          snippet: 'Search result excerpt',
+          publishedAt: '2026-07-25',
+          language: 'fr',
+          metadata: expect.objectContaining({
+            searchLane: 'FACTUAL',
+            provenance: 'WEB_SEARCH',
+          }),
+        }],
+      }),
+    );
 
     await workerEvents.completed(
       { id: 'job-1', data: { articleId: 'article-1', mode: 'article-generation', requestedByUserId: 'user-1' } },
@@ -170,6 +233,32 @@ describe('live-analysis article generation worker', () => {
       }),
       expect.objectContaining({ jobId: 'source-enrichment-article-1' }),
     );
+  });
+
+  it('does not fail user generation when corpus persistence is unavailable', async () => {
+    startLiveAnalysisWorker();
+    persistWebEvidenceCandidates.mockRejectedValueOnce(new Error('corpus unavailable'));
+
+    await capturedProcessor({
+      id: 'job-2',
+      data: {
+        articleId: 'article-1',
+        requestedByUserId: 'user-1',
+        mode: 'article-generation',
+        topic: 'Media literacy',
+        citationUrls: [],
+      },
+    });
+
+    const generationOptions = runLiveAnalysisWithGeneration.mock.calls[0]?.[1];
+    await expect(generationOptions.onEvidenceGathered([{
+      url: 'https://example.com/story',
+      title: 'Story title',
+      content: 'Content',
+      domain: 'example.com',
+      score: 0.8,
+      provider: 'web',
+    }])).resolves.toBeUndefined();
   });
 });
 

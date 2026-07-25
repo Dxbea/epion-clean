@@ -7,6 +7,10 @@ import logger from '../lib/logger.js';
 import { newsIngestionQueue, embeddingQueue } from '../lib/queue.js';
 import { extractArticle, DomainCircuitOpenError, isOperationalExtractionError } from '../lib/extractor.js';
 import { claimDiscoveredUrl, DEDUP_URLS_KEY, fetchGdeltArticleList, fetchSitemapUrls, type DiscoveredArticle } from '../lib/discovery.js';
+import {
+  persistWebEvidenceCandidates,
+  type WebEvidenceProvider,
+} from '../lib/article-generation-core/evidence-gathering.js';
 
 const log = logger.child({ module: 'NewsWorker' });
 const GDELT_INTER_JOB_DELAY_MS = 2_000;
@@ -104,6 +108,51 @@ function buildSummary(content: string): string {
   return normalized.slice(0, 280);
 }
 
+async function persistLegacyNewsEvidence(
+  job: Job<NewsWorkerJobData>,
+  data: IngestUrlJob,
+): Promise<string | null> {
+  const provider: WebEvidenceProvider = data.source === 'gdelt'
+    ? 'GDELT'
+    : data.source === 'sitemap'
+      ? 'SITEMAP'
+      : 'MANUAL';
+
+  try {
+    const result = await persistWebEvidenceCandidates(prisma, {
+      mode: 'AUTO_EDITORIAL',
+      provider,
+      maxCandidates: 1,
+      candidates: [{
+        url: data.url,
+        title: data.title,
+        publishedAt: data.publishedAt,
+        metadata: {
+          legacyNewsBridge: true,
+          legacyDiscoverySource: data.source ?? 'manual',
+        },
+      }],
+    });
+    const documentId = result.persisted[0]?.documentId ?? null;
+
+    log.info('Legacy news discovery persisted in the document corpus', buildWorkerMeta(job.id, data.url, {
+      provider,
+      documentId,
+    }));
+    return documentId;
+  } catch (error) {
+    log.warn('Could not persist legacy news discovery; compatibility ingestion will continue', buildWorkerMeta(
+      job.id,
+      data.url,
+      {
+        provider,
+        error: error instanceof Error ? error.message : String(error),
+      },
+    ));
+    return null;
+  }
+}
+
 async function enqueueDiscoveredArticles(
   articles: DiscoveredArticle[],
   discoveryJobId?: string,
@@ -173,6 +222,7 @@ async function ingestUrl(job: Job<NewsWorkerJobData>, data: IngestUrlJob): Promi
     source: data.source,
   }));
 
+  const ingestedDocumentId = await persistLegacyNewsEvidence(job, data);
   const extracted = await extractArticle(data.url, { jobId: job.id });
   const title = extracted.title || data.title || new URL(data.url).hostname;
   const slug = await buildUniqueSlug(title);
@@ -184,6 +234,7 @@ async function ingestUrl(job: Job<NewsWorkerJobData>, data: IngestUrlJob): Promi
     publishedAt: data.publishedAt || null,
     extractedAuthor: extracted.author || null,
     extractedSiteName: extracted.siteName || null,
+    ingestedDocumentId,
   } satisfies Record<string, string | null>;
 
   const article = await prisma.article.create({

@@ -1,8 +1,7 @@
 import { createHash } from 'node:crypto';
 import type { PrismaClient } from '@prisma/client';
-import { persistDiscoveredCandidate } from '../discovery/corpus-service.js';
-import type { DiscoverySourceConfig } from '../discovery/types.js';
 import { normalizeArticleSourceUrl } from '../article-source-service.js';
+import { persistWebEvidenceCandidates } from '../article-generation-core/evidence-gathering.js';
 import { searchSerper, type SerperSearchResult } from '../serper.js';
 import type {
   EditorialEvidenceLane,
@@ -10,7 +9,6 @@ import type {
   EditorialVerificationEvidence,
 } from './types.js';
 
-const EDITORIAL_SERPER_DISCOVERY_KEY = 'internal-editorial-serper';
 const MAX_RESULTS_PER_QUERY = 4;
 const MAX_PERSISTED_RESULTS = 10;
 
@@ -84,28 +82,34 @@ export async function enrichEditorialEvidenceWithSerper(
     const url = normalizeArticleSourceUrl(result.url);
     return Boolean(url && !existingUrls.has(url));
   }).slice(0, MAX_PERSISTED_RESULTS);
-  const discoverySource = await ensureEditorialSerperDiscoverySource(client);
-  const evidence: EditorialVerificationEvidence[] = [];
-  for (const { query, result } of candidates) {
-    const url = normalizeArticleSourceUrl(result.url);
-    if (!url) continue;
-    const domain = new URL(url).hostname.toLowerCase().replace(/^www\./, '');
-    const persisted = await persistDiscoveredCandidate(client, discoverySource, {
-      externalId: url,
-      url,
-      canonicalHint: url,
+  const persistence = await persistWebEvidenceCandidates(client, {
+    mode: 'AUTO_EDITORIAL',
+    provider: 'SERPER',
+    maxCandidates: MAX_PERSISTED_RESULTS,
+    now,
+    candidates: candidates.map(({ query, result }) => ({
+      url: result.url,
       title: result.title,
       snippet: result.content,
-      publishedAt: parseSerperDate(result.publishedDate),
-      language: input.language ?? undefined,
+      publishedAt: result.publishedDate,
+      language: input.language,
       metadata: {
-        provider: 'serper',
         editorialLane: query.lane,
         editorialQuery: query.query,
         serperScore: result.score,
       },
-    }, { now });
-    if (persisted.dryRun) continue;
+    })),
+  });
+  const persistedByUrl = new Map(
+    persistence.persisted.map((item) => [item.requestedUrl, item]),
+  );
+  const evidence: EditorialVerificationEvidence[] = [];
+  for (const { query, result } of candidates) {
+    const url = normalizeArticleSourceUrl(result.url);
+    if (!url) continue;
+    const persisted = persistedByUrl.get(url);
+    if (!persisted) continue;
+    const domain = new URL(url).hostname.toLowerCase().replace(/^www\./, '');
     const storedDocument = await client.ingestedDocument.findUnique({
       where: { id: persisted.documentId },
       select: { content: true, status: true, publishedAt: true, sourceId: true },
@@ -129,34 +133,6 @@ export async function enrichEditorialEvidenceWithSerper(
     });
   }
   return { queries, evidence, documentIds: evidence.map((item) => item.documentId) };
-}
-
-async function ensureEditorialSerperDiscoverySource(client: PrismaClient): Promise<DiscoverySourceConfig> {
-  return client.discoverySource.upsert({
-    where: { key: EDITORIAL_SERPER_DISCOVERY_KEY },
-    create: {
-      key: EDITORIAL_SERPER_DISCOVERY_KEY,
-      name: 'Editorial Serper enrichment',
-      connectorType: 'MANUAL',
-      endpoint: 'internal://editorial-serper',
-      enabled: false,
-      priority: 0,
-      language: 'fr',
-      country: 'FR',
-      maxItemsPerRun: MAX_PERSISTED_RESULTS,
-      requestTimeoutMs: 8_000,
-      accessPolicy: 'ROBOTS_ALLOWED',
-      storagePolicy: 'EXCERPT_ONLY',
-      configuration: { provider: 'serper', internalOnly: true },
-    },
-    update: { accessPolicy: 'ROBOTS_ALLOWED', storagePolicy: 'EXCERPT_ONLY' },
-    select: {
-      id: true, key: true, name: true, connectorType: true, endpoint: true, enabled: true,
-      priority: true, language: true, country: true, sourceId: true, maxItemsPerRun: true,
-      requestTimeoutMs: true, rateLimitPerHour: true, configuration: true, cursor: true,
-      etag: true, lastModified: true, accessPolicy: true, storagePolicy: true,
-    },
-  }) as unknown as Promise<DiscoverySourceConfig>;
 }
 
 function selectDiverseResults(

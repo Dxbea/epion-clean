@@ -8,6 +8,8 @@ import { stableSourceId } from '../lib/structured-article.js';
 import { hashAnalysisInput } from '../lib/score-helpers.js';
 import { prisma } from '../lib/db.js';
 import { getWikipediaImage } from '../lib/images/wikipedia-fetcher.js';
+import { persistWebEvidenceCandidates } from '../lib/article-generation-core/evidence-gathering.js';
+import type { FactCheckSource } from '../lib/live-analysis/types.js';
 
 const LIVE_ANALYSIS_WORKER_CONCURRENCY = 3;
 const LIVE_ANALYSIS_LOCK_DURATION_MS = 10 * 60 * 1000;
@@ -55,6 +57,54 @@ async function withTimeout<T>(promise: Promise<T>, timeoutMs: number, label: str
         if (timeout) clearTimeout(timeout);
     }
 }
+
+async function persistUserRequestEvidence(
+    articleId: string,
+    sources: FactCheckSource[],
+    language?: string,
+): Promise<void> {
+    const webSources = sources.filter((source) => source.provider === 'web');
+    if (webSources.length === 0) return;
+
+    try {
+        const result = await persistWebEvidenceCandidates(prisma, {
+            mode: 'USER_REQUEST',
+            provider: 'SERPER',
+            maxCandidates: 50,
+            candidates: webSources.map((source) => ({
+                url: source.url,
+                title: source.title,
+                snippet: source.metaDescription,
+                publishedAt: source.publishedDate,
+                language,
+                metadata: {
+                    ...(source.searchLane ? { searchLane: source.searchLane } : {}),
+                    ...(source.role ? { role: source.role } : {}),
+                    ...(source.provenance ? { provenance: source.provenance } : {}),
+                    ...(source.extractionStatus ? { extractionStatus: source.extractionStatus } : {}),
+                    ...(source.sourceQuality ? { sourceQuality: source.sourceQuality } : {}),
+                    ...(source.officialStatement !== undefined
+                        ? { officialStatement: source.officialStatement }
+                        : {}),
+                },
+            })),
+        });
+
+        logger.info('Persisted user-request web evidence in the document corpus', {
+            module: 'LiveAnalysisWorker',
+            articleId,
+            considered: result.considered,
+            persisted: result.persisted.length,
+        });
+    } catch (error) {
+        logger.warn('Could not persist user-request web evidence; generation will continue', {
+            module: 'LiveAnalysisWorker',
+            articleId,
+            error: error instanceof Error ? error.message : String(error),
+        });
+    }
+}
+
 type SourcePipelineMetadata = {
     extractionStatus?: string;
     provider?: 'web' | 'rag';
@@ -227,7 +277,11 @@ export function startLiveAnalysisWorker(): Worker<LiveAnalysisJobData> {
                 }
 
                 result = await withTimeout(
-                    runLiveAnalysisWithGeneration(topic, { language, style }),
+                    runLiveAnalysisWithGeneration(topic, {
+                        language,
+                        style,
+                        onEvidenceGathered: (sources) => persistUserRequestEvidence(articleId, sources, language),
+                    }),
                     timeoutMs,
                     'Article generation live analysis',
                 );

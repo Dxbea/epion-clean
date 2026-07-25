@@ -11,7 +11,19 @@ import { logger } from '../logger.js';
 import { investigateArticle } from './fact-investigator.js';
 import { runPrimaryJudge, runPrimaryJudgeWithGeneration } from './primary-judge.js';
 import { runAuditorJudge } from './auditor-judge.js';
-import { LiveAnalysisResult, PillarScore, ContentIntent, calculateWeightedScore } from './types.js';
+import {
+    LiveAnalysisResult,
+    PillarScore,
+    ContentIntent,
+    calculateWeightedScore,
+    type FactCheckSource,
+} from './types.js';
+
+export interface LiveAnalysisGenerationOptions {
+    language?: string;
+    style?: string;
+    onEvidenceGathered?: (sources: FactCheckSource[]) => Promise<void>;
+}
 
 /**
  * Run the full live analysis pipeline on an EXISTING article.
@@ -51,7 +63,7 @@ export async function runLiveAnalysis(
  */
 export async function runLiveAnalysisWithGeneration(
     topic: string,
-    options: { language?: string; style?: string } = {}
+    options: LiveAnalysisGenerationOptions = {}
 ): Promise<LiveAnalysisResult> {
     const startTime = Date.now();
     logger.info(`🚀 Live Analysis Pipeline v3.0 (GENERATE) starting for topic: "${topic.slice(0, 60)}..."`, {
@@ -66,7 +78,12 @@ export async function runLiveAnalysisWithGeneration(
     });
 
     // STEP 2B: Primary Judge — Generate + Analyze (dual mode)
-    const primaryVerdict = await runPrimaryJudgeWithGeneration(topic, factCheckContext, options);
+    await options.onEvidenceGathered?.(factCheckContext.sources);
+
+    const primaryVerdict = await runPrimaryJudgeWithGeneration(topic, factCheckContext, {
+      language: options.language,
+      style: options.style,
+    });
     logger.info(`⚖️📝 Primary Judge (Generate + DISARM) complete (${Date.now() - startTime}ms)`, { module: 'LiveAnalysis' });
 
     // Use the generated article content for the auditor (if available)
