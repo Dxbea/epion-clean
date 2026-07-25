@@ -148,8 +148,11 @@ function validateState(
     throw new EditorialAutoPublicationBlockedError('AUTOPUBLISH_QUALITY_GATE_INVALID', 'Quality gate is not valid for the current draft');
   }
   const article = state.article;
-  if (article.status !== 'DRAFT' || article.publishedAt || !article.categoryId) {
-    throw new EditorialAutoPublicationBlockedError('AUTOPUBLISH_ARTICLE_NOT_PUBLIC_READY', 'Article must remain an uncategorized-free DRAFT');
+  if (!article.categoryId) {
+    throw new EditorialAutoPublicationBlockedError('AUTOPUBLISH_MISSING_CATEGORY', 'Auto-publication requires an Article category for public visibility');
+  }
+  if (article.status !== 'DRAFT' || article.publishedAt) {
+    throw new EditorialAutoPublicationBlockedError('AUTOPUBLISH_ARTICLE_NOT_PUBLIC_READY', 'Article must remain an unpublished DRAFT');
   }
   const score = jsonRecord(article.factCheckData);
   if (article.factCheckStatus !== 'COMPLETED' || typeof article.factCheckScore !== 'number' || !article.factCheckContentHash || score.status !== 'COMPLETED' || score.score !== article.factCheckScore || score.contentHash !== article.factCheckContentHash) {

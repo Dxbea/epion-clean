@@ -1,6 +1,6 @@
 # Epion editorial shadow staging runbook
 
-This runbook activates the PR1–PR14 editorial pipeline in staging only. It must never publish an Article. The controlled E2E stops for human approval before verification and only records a shadow decision.
+This runbook activates the PR1–PR14 editorial pipeline in staging only. It must never publish an Article. The controlled E2E follows `EDITORIAL_VALIDATION_MODE`: the default human workflow stops for approval, while the explicit `quality_gate` mode can advance a passed gate automatically and only records a shadow decision.
 
 ## Safety contract
 
@@ -177,7 +177,7 @@ npm run staging:editorial:e2e -- --run-id=<EditorialRun.id> --brief-id=<Editoria
 npm run staging:editorial:e2e -- --run-id=<EditorialRun.id> --brief-id=<EditorialBrief.id> --draft-id=<EditorialDraft.id> --advance --confirm=EPION_STAGING_SHADOW
 ```
 
-The draft stage stops at `WAITING_HUMAN_APPROVAL`. An ADMIN must inspect and approve the current revision through the private admin workflow. Rerun the CLI with the same IDs; it then enqueues asynchronous verification. Completion requires an `EditorialVerificationRun.shadowDecision` of `WOULD_AUTO_PUBLISH`, `WOULD_REQUIRE_HUMAN` or `WOULD_REJECT`. The Article must remain `DRAFT` throughout.
+With the default `EDITORIAL_VALIDATION_MODE=human_review`, the draft stage stops at `WAITING_HUMAN_APPROVAL`; an ADMIN must inspect and approve the current revision through the private admin workflow before verification can be enqueued. With `EDITORIAL_VALIDATION_MODE=quality_gate`, a `PASSED` quality gate and `GATE_PASSED` current revision materialize an Article in `DRAFT` and allow verification to be enqueued without human approval; a failed gate remains `QUALITY_GATE_BLOCKED`. The CLI process must inherit the same validation-mode environment as the workers. Completion requires an `EditorialVerificationRun.shadowDecision` of `WOULD_AUTO_PUBLISH`, `WOULD_REQUIRE_HUMAN` or `WOULD_REJECT`. The Article must remain `DRAFT` throughout.
 
 ## Tests and observations
 
