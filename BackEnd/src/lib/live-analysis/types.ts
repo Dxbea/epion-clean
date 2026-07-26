@@ -48,6 +48,7 @@ export interface FactCheckSource {
     author?: string;
     siteName?: string;
     publishedDate?: string;
+    sourceUpdatedAt?: string;
     domain: string;
     score: number;
     provider?: 'web' | 'rag';
@@ -152,7 +153,8 @@ export function formatSourcesForPrompt(sources: FactCheckSource[], maxCharsPerSo
         const content = source.content.length > maxCharsPerSource
             ? `${source.content.slice(0, maxCharsPerSource)}\n[... tronque ...]`
             : source.content;
-        const date = source.publishedDate ? ` | ${source.publishedDate}` : '';
+        const date = source.publishedDate ? ` | publishedAt=${source.publishedDate}` : '';
+        const updated = source.sourceUpdatedAt ? ` | sourceUpdatedAt=${source.sourceUpdatedAt}` : '';
         const id = source.sourceId || `source_${index + 1}`;
         const qualityLabel = source.extractionStatus === 'metadata_only'
             ? ' | METADATA ONLY - limited Serper snippet, full page extraction failed'
@@ -163,6 +165,6 @@ export function formatSourcesForPrompt(sources: FactCheckSource[], maxCharsPerSo
         const corpusIdentity = source.ingestedDocumentId
             ? ` | document=${source.ingestedDocumentId} | chunks=${source.evidenceChunkIds?.join(',') || 'pending'}`
             : '';
-        return `[Source ${index + 1} | id=${id}${qualityLabel}${evidenceState}${corpusIdentity}] ${source.title} (${source.domain}${date})\nURL: ${source.url}\n${content}`;
+        return `[Source ${index + 1} | id=${id}${qualityLabel}${evidenceState}${corpusIdentity}] ${source.title} (${source.domain}${date}${updated})\nURL: ${source.url}\n${content}`;
     }).join('\n\n---\n\n');
 }

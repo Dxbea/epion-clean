@@ -11,6 +11,7 @@ export interface EditorialEvidenceRow {
   canonicalUrl: string;
   domain: string;
   publishedAt: Date | null;
+  sourceUpdatedAt: Date | null;
   chunkId: string;
   chunkPosition: number;
   content: string;
@@ -39,6 +40,7 @@ export async function loadEditorialEvidenceRows(
         d."canonicalUrl",
         d.domain,
         d."publishedAt",
+        d."sourceUpdatedAt",
         dc.id AS "chunkId",
         dc.position AS "chunkPosition",
         dc.content,
@@ -62,7 +64,7 @@ export async function loadEditorialEvidenceRows(
     )
     SELECT
       "topicRole", "documentId", "documentTitle", "canonicalUrl", domain,
-      "publishedAt", "chunkId", "chunkPosition", content, "contentHash", similarity
+      "publishedAt", "sourceUpdatedAt", "chunkId", "chunkPosition", content, "contentHash", similarity
     FROM ranked_chunks
     WHERE chunk_rank <= ${maxChunksPerDocument}
     ORDER BY
@@ -145,6 +147,7 @@ export function selectEditorialEvidence(
         canonicalUrl: row.canonicalUrl,
         domain: row.domain,
         publishedAt: row.publishedAt,
+        sourceUpdatedAt: row.sourceUpdatedAt,
         chunkPosition: row.chunkPosition,
         contentSnapshot: row.content.trim(),
         contentHash: row.contentHash,

@@ -31,6 +31,7 @@ import {
     structuredArticleToMarkdown,
 } from '../structured-article.js';
 import { extractStructuredArticleEvidenceUsage } from '../article-generation-core/evidence-consumption.js';
+import { temporalContextPrompt } from '../article-generation-core/temporal-context.js';
 
 interface GenerationEvidenceCoverage {
     sources: number;
@@ -139,6 +140,8 @@ async function runGenerateAndAnalyze(
     const langLabel = options.language === 'en' ? 'ANGLAIS' : 'FRANÇAIS';
 
     const systemPrompt = `Tu es le Juge-Rédacteur d'Epion — un analyste éditorial expert, rigoureusement impartial, et un rédacteur de premier plan.
+
+${temporalContextPrompt()}
 
 Tu as DEUX MISSIONS dans cette réponse unique :
 
@@ -296,6 +299,8 @@ async function runAnalyzeOnly(
     const sourcesBlock = formatSourcesForPrompt(factCheckContext.sources);
 
     const systemPrompt = `Tu es le Juge Primaire d'Epion — un analyste éditorial expert et rigoureusement impartial.
+
+${temporalContextPrompt()}
 
 ## FRAMEWORK DISARM (Techniques de manipulation à détecter)
 ${DISARM_REFERENCE}

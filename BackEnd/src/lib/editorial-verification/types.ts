@@ -2,7 +2,7 @@ import type { EditorialClaimImportance, EditorialClaimVerdict } from '@prisma/cl
 import type { SourceScoreEntry } from '../score-types.js';
 
 export const EDITORIAL_VERIFICATION_VERSION = 'editorial-verification-v1';
-export const EDITORIAL_MISTRAL_PROMPT_VERSION = 'editorial-mistral-audit-v2';
+export const EDITORIAL_MISTRAL_PROMPT_VERSION = 'editorial-mistral-audit-v3';
 export type EditorialVerificationRetryReason = 'ARTICLE_SOURCES_INCOMPLETE' | 'VERIFICATION_PROMPT_UPGRADE' | 'TERMINAL_RUN_RETRY';
 
 export class RetryableEditorialVerificationDependencyError extends Error {
@@ -30,6 +30,7 @@ export interface EditorialVerificationEvidence {
   domain: string;
   content: string;
   publishedAt: Date | null;
+  sourceUpdatedAt?: Date | null;
   lane: EditorialEvidenceLane;
   origin: 'CORPUS' | 'SERPER';
   query?: string;

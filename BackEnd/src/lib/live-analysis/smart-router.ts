@@ -1,6 +1,7 @@
 import OpenAI from 'openai';
 import { logger } from '../logger.js';
 import { RoutingDecision } from './types.js';
+import { temporalContextPrompt } from '../article-generation-core/temporal-context.js';
 
 const openai = new OpenAI({
     apiKey: process.env.OPENAI_API_KEY,
@@ -97,7 +98,7 @@ export async function classifyAndRoute(
         const response = await openai.chat.completions.create({
             model: 'gpt-4o-mini',
             messages: [
-                { role: 'system', content: SYSTEM_PROMPT },
+                { role: 'system', content: `${SYSTEM_PROMPT}\n\n${temporalContextPrompt()}` },
                 { role: 'user', content: `Question : "${title}"\n\nContexte :\n${excerpt}` },
             ],
             temperature: 0.1,

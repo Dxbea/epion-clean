@@ -31,7 +31,7 @@ describe('editorial verification queue', () => {
       draftId: 'draft-1', revisionId: 'revision-1', expectedContentHash: 'hash-1', trigger: 'ADMIN',
       retryReason: 'ARTICLE_SOURCES_INCOMPLETE', retryAttempt: 1,
     });
-    expect(retry.mistralPromptVersion).toBe('editorial-mistral-audit-v2');
+    expect(retry.mistralPromptVersion).toBe('editorial-mistral-audit-v3');
     expect(buildEditorialVerificationJobId(retry)).not.toBe(buildEditorialVerificationJobId(first));
   });
 });

@@ -21,6 +21,7 @@ import {
     calculateWeightedScore,
     formatSourcesForPrompt,
 } from './types.js';
+import { temporalContextPrompt } from '../article-generation-core/temporal-context.js';
 
 const mistral = new Mistral({
     apiKey: process.env.MISTRAL_API_KEY || '',
@@ -46,6 +47,8 @@ export async function runAuditorJudge(
     const sourcesBlock = formatSourcesForPrompt(factCheckContext.sources);
 
     const systemPrompt = `Tu es l'Auditeur Garde-Fou d'Epion — un vérificateur anti-hallucination rigoureux.
+
+${temporalContextPrompt()}
 
 ## TA MISSION UNIQUE
 Vérifier que chaque citation (champ "quote") utilisée par le Juge Primaire existe réellement dans :

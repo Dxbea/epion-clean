@@ -3,8 +3,8 @@ import type { EditorialBriefContent, EditorialEvidenceSnapshot } from '../editor
 import type { EvidenceDossier } from '../article-generation-core/types.js';
 
 export const EDITORIAL_DRAFT_VERSION = 'controlled-draft-v1';
-export const EDITORIAL_DRAFT_PROMPT_VERSION = 'editorial-draft-v2';
-export const EDITORIAL_CRITIC_PROMPT_VERSION = 'claim-critic-v1';
+export const EDITORIAL_DRAFT_PROMPT_VERSION = 'editorial-draft-v3';
+export const EDITORIAL_CRITIC_PROMPT_VERSION = 'claim-critic-v2';
 export const EDITORIAL_QUALITY_GATE_VERSION = 'quality-gate-v2';
 
 export interface EditorialDraftConfig {

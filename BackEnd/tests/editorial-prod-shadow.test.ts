@@ -47,7 +47,7 @@ const complete: ProdShadowE2EState = {
     id: 'draft-1', briefId: 'brief-1', status: 'ARTICLE_DRAFT_CREATED', currentRevisionStatus: 'APPROVED', contentHash: 'hash-1',
     articleStatus: 'DRAFT', publishedAt: null, humanReviewStatus: 'APPROVED', qualityGateDecision: 'PASSED', qualityGateReasons: [], publicationAuditCount: 0, articleSourcesComplete: true,
   },
-  verification: { id: 'verification-1', status: 'PASSED', shadowDecision: 'WOULD_AUTO_PUBLISH', mistralPromptVersion: 'editorial-mistral-audit-v2' },
+  verification: { id: 'verification-1', status: 'PASSED', shadowDecision: 'WOULD_AUTO_PUBLISH', mistralPromptVersion: 'editorial-mistral-audit-v3' },
 };
 
 describe('production-shadow editorial safety', () => {

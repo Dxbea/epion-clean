@@ -72,7 +72,7 @@ describe('editorial verification enqueue transition', () => {
 
     expect(result).toMatchObject({ outcome: 'VERIFICATION_QUEUED', retryReason: 'ARTICLE_SOURCES_INCOMPLETE' });
     expect(queue.add).toHaveBeenCalledWith('verify-editorial-draft', expect.objectContaining({
-      mistralPromptVersion: 'editorial-mistral-audit-v2',
+      mistralPromptVersion: 'editorial-mistral-audit-v3',
       retryReason: 'ARTICLE_SOURCES_INCOMPLETE',
       retryAttempt: 1,
     }), expect.objectContaining({ jobId: expect.not.stringContaining('eb337473572061ea2245675d37495df6') }));

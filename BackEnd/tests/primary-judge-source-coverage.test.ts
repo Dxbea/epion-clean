@@ -96,4 +96,38 @@ describe('primary judge multi-source coverage', () => {
     );
     expect(verdict.generatedContent?.structuredContent?.claims).toHaveLength(6);
   });
+
+  it('anchors a 2026 current-affairs generation away from a 2023 main event unless requested', async () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date('2026-07-26T10:30:00.000Z'));
+    try {
+      const sources = [{
+        url: 'https://publisher.example/current-story',
+        title: 'Current source',
+        content: 'Current evidence',
+        domain: 'publisher.example',
+        score: 0.9,
+        provider: 'web' as const,
+      }];
+      createCompletion.mockResolvedValueOnce(completion([sources[0].url]));
+
+      await runPrimaryJudgeWithGeneration('Grand Prix de Hongrie', {
+        sources,
+        routingDecision: {
+          route: 'HOT_NEWS',
+          query_factual: 'facts',
+          query_critical: 'criticism',
+          query_contextual: 'context',
+        },
+      });
+
+      const systemPrompt = createCompletion.mock.calls[0][0].messages[0].content;
+      expect(systemPrompt).toContain('currentDate ISO: 2026-07-26');
+      expect(systemPrompt).toContain('currentYear: 2026');
+      expect(systemPrompt).toContain('événement ancien (par exemple une édition 2023)');
+      expect(systemPrompt).toContain('sauf si la demande mentionne explicitement cet événement');
+    } finally {
+      vi.useRealTimers();
+    }
+  });
 });

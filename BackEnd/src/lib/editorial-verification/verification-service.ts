@@ -414,6 +414,7 @@ function buildCorpusEvidence(evidence: Array<any>, brief: EditorialBriefContent)
     domain: normalizeSourceDomain(item.domain) ?? item.domain.trim().toLowerCase(),
     content: item.contentSnapshot,
     publishedAt: item.publishedAt,
+    sourceUpdatedAt: item.sourceUpdatedAt ?? null,
     lane: counterpointKeys.has(item.evidenceKey) ? 'COUNTERPOINT' : item.role === 'PRIMARY' ? 'PRIMARY' : 'CONTEXT',
     origin: 'CORPUS',
     officialStatement: false,

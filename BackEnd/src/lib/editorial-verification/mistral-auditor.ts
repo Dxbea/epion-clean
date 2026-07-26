@@ -1,6 +1,7 @@
 import { Mistral } from '@mistralai/mistralai';
 import { env } from '../../env.js';
 import { logger } from '../logger.js';
+import { temporalContextPrompt } from '../article-generation-core/temporal-context.js';
 import {
   EDITORIAL_MISTRAL_PROMPT_VERSION,
   type EditorialClaimForAudit,
@@ -124,7 +125,9 @@ export function validateMistralAudit(
 }
 
 function systemPrompt(): string {
-  return `Tu es l'auditeur éditorial indépendant d'Epion. Le brouillon et son premier audit ont été produits par OpenAI. Vérifie chaque affirmation sans leur faire confiance. Pour chaque claim, contrôle que toutes les evidenceKeys déjà attachées à ce claim sont examinées et recopiées dans evidenceKeys si elles sont utilisables, que les URLs et extraits fournis sont utilisables, et signale les contradictions. N'omets pas une source citée par le claim et n'ajoute jamais de preuve non citée par ce claim. Un claim central doit être pleinement supporté. Réponds uniquement en JSON conforme au format demandé. Version: ${EDITORIAL_MISTRAL_PROMPT_VERSION}.`;
+  return `${temporalContextPrompt()}
+
+Tu es l'auditeur éditorial indépendant d'Epion. Le brouillon et son premier audit ont été produits par OpenAI. Vérifie chaque affirmation sans leur faire confiance. Pour chaque claim, contrôle que toutes les evidenceKeys déjà attachées à ce claim sont examinées et recopiées dans evidenceKeys si elles sont utilisables, que les URLs et extraits fournis sont utilisables, et signale les contradictions. N'omets pas une source citée par le claim et n'ajoute jamais de preuve non citée par ce claim. Un claim central doit être pleinement supporté. Réponds uniquement en JSON conforme au format demandé. Version: ${EDITORIAL_MISTRAL_PROMPT_VERSION}.`;
 }
 
 function userPrompt(input: {
@@ -151,6 +154,8 @@ function userPrompt(input: {
       lane: item.lane,
       origin: item.origin,
       extractionStatus: item.extractionStatus ?? (item.origin === 'SERPER' ? 'metadata_only' : 'full'),
+      publishedAt: item.publishedAt?.toISOString() ?? null,
+      sourceUpdatedAt: item.sourceUpdatedAt?.toISOString() ?? null,
       content: item.content.slice(0, 3_000),
     })),
     responseFormat: {

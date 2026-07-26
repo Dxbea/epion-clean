@@ -15,6 +15,7 @@ export interface WebEvidenceCandidate {
   title?: string;
   snippet?: string;
   publishedAt?: Date | string | null;
+  sourceUpdatedAt?: Date | string | null;
   language?: string | null;
   metadata?: Record<string, unknown>;
 }
@@ -76,6 +77,7 @@ export async function persistWebEvidenceCandidates(
       title: candidate.title,
       snippet: candidate.snippet,
       publishedAt: parseDate(candidate.publishedAt),
+      sourceUpdatedAt: parseDate(candidate.sourceUpdatedAt),
       language: candidate.language ?? discoverySource.language ?? undefined,
       metadata: {
         ...candidate.metadata,
