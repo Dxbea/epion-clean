@@ -5,7 +5,9 @@ import { createDiscoveryQueues, buildDiscoveryJobId, DISCOVERY_JOB_NAME } from '
 import { createDocumentQueues, enqueueDocumentJob } from '../lib/document-corpus/document-queue.js';
 import { DOCUMENT_EMBEDDING_MODEL } from '../lib/document-corpus/document-rag-service.js';
 import { createEditorialShadowQueues, enqueueEditorialShadowJob, prepareEditorialShadowJob } from '../lib/editorial-shadow/editorial-queue.js';
+import { DEFAULT_EDITORIAL_CLUSTERING_CONFIG } from '../lib/editorial-shadow/types.js';
 import { createEditorialBriefQueues, enqueueEditorialBriefJob, prepareEditorialBriefJob } from '../lib/editorial-brief/brief-queue.js';
+import { DEFAULT_EDITORIAL_BRIEF_CONFIG } from '../lib/editorial-brief/types.js';
 import { createEditorialDraftQueues, enqueueEditorialDraftJob, prepareEditorialDraftJob } from '../lib/editorial-draft/draft-queue.js';
 import { createEditorialVerificationQueues, createEditorialVerificationRedisConnection, enqueueEditorialVerificationJob, prepareEditorialVerificationJob } from '../lib/editorial-verification/verification-queue.js';
 import { isRedisKillSwitchActive, type DiscoveryRedis } from '../lib/discovery/redis-lock.js';
@@ -38,6 +40,8 @@ export interface EditorialAutomationReport {
   documentsIndexed: number;
   documentsBlocked: Array<{ documentId: string; reason: string }>;
   clusters: number;
+  clusterOutcomes: EditorialClusterOutcome[];
+  briefBlockages: Array<{ code: string; detail: Record<string, unknown> }>;
   briefs: number;
   drafts: number;
   verifications: number;
@@ -64,6 +68,33 @@ export interface EditorialAutomationReport {
   finalEligibleDocuments: number;
   finalBlockage: string | null;
   publicationBlockedReason: string | null;
+}
+
+export interface EditorialClusterOutcome {
+  runId: string;
+  runStatus: string;
+  topicId: string;
+  clusterKey: string;
+  label: string;
+  status: 'proposed' | 'suppressed' | 'skipped';
+  candidateId: string | null;
+  candidateStatus: string | null;
+  editorialScore: number | null;
+  proposalMinimumEditorialScore: number;
+  riskLevel: string | null;
+  domains: string[];
+  domainCount: number;
+  documents: Array<{ id: string; role: string; domain: string; sourceId: string | null }>;
+  documentCount: number;
+  evidenceDocumentCount: number;
+  sources: string[];
+  sourceCount: number;
+  suppressionReasons: string[];
+  dossiers: Array<{ id: string; status: string; briefId: string | null }>;
+  briefMinimumEditorialScore: number;
+  briefRequiredDomains: number;
+  briefDisposition: 'eligible' | 'suppressed' | 'skipped' | 'already_processed';
+  briefReasons: string[];
 }
 
 export async function runEditorialAutomationTick(
@@ -177,6 +208,127 @@ export async function runEditorialAutomationTick(
   const readyDraft = await prisma.editorialDraft.findFirst({ where: { status: 'ARTICLE_DRAFT_CREATED', article: { is: { status: 'DRAFT' } }, verificationRuns: { none: {} }, brief: { dossier: { candidate: { topic: { run: { windowStart, windowEnd, status: 'COMPLETED' } } } } } }, select: { id: true, currentRevisionId: true, contentHash: true }, orderBy: { createdAt: 'asc' } });
   let verification = false;
   if (readyDraft?.currentRevisionId && readyDraft.contentHash) { await enqueueEditorialVerificationJob(queues.verificationQueue, prepareEditorialVerificationJob({ draftId: readyDraft.id, revisionId: readyDraft.currentRevisionId, expectedContentHash: readyDraft.contentHash, trigger: 'AUTOMATION', requestedAt: now })); verification = true; }
+  const topicDiagnostics = await prisma.editorialTopic.findMany({
+    where: { run: { windowStart, windowEnd } },
+    select: {
+      id: true,
+      runId: true,
+      clusterKey: true,
+      label: true,
+      documentCount: true,
+      independentDomainCount: true,
+      run: { select: { status: true } },
+      documents: {
+        select: {
+          documentId: true,
+          role: true,
+          document: { select: { domain: true, sourceId: true } },
+        },
+      },
+      candidate: {
+        select: {
+          id: true,
+          status: true,
+          editorialScore: true,
+          riskLevel: true,
+          rationale: true,
+          sourceDossiers: {
+            select: {
+              id: true,
+              status: true,
+              brief: { select: { id: true } },
+            },
+          },
+        },
+      },
+    },
+    orderBy: [{ run: { createdAt: 'asc' } }, { createdAt: 'asc' }],
+  });
+  const clusterOutcomes = topicDiagnostics.map((topic): EditorialClusterOutcome => {
+    const evidenceDocuments = topic.documents.filter((document) => document.role !== 'QUASI_DUPLICATE');
+    const domains = [...new Set(evidenceDocuments.map((document) =>
+      document.document.domain.toLowerCase()))].sort();
+    const sources = [...new Set(evidenceDocuments.map((document) =>
+      document.document.sourceId ?? `domain:${document.document.domain.toLowerCase()}`))].sort();
+    const reasons = jsonStringArray(jsonRecord(topic.candidate?.rationale).reasons);
+    const requiredDomains = topic.candidate?.riskLevel === 'HIGH'
+      ? DEFAULT_EDITORIAL_BRIEF_CONFIG.highRiskMinimumDomains
+      : DEFAULT_EDITORIAL_BRIEF_CONFIG.minimumDomains;
+    const dossiers = (topic.candidate?.sourceDossiers ?? []).map((dossier) => ({
+      id: dossier.id,
+      status: dossier.status,
+      briefId: dossier.brief?.id ?? null,
+    }));
+    const briefReasons = !topic.candidate
+      ? ['candidate_not_created']
+      : topic.candidate.status !== 'SHADOW_PROPOSED'
+        ? (reasons.length > 0 ? reasons : ['candidate_suppressed'])
+        : [
+            ...(topic.candidate.editorialScore < DEFAULT_EDITORIAL_BRIEF_CONFIG.minimumEditorialScore
+              ? ['editorial_score_below_brief_threshold']
+              : []),
+            ...(domains.length < requiredDomains
+              ? ['insufficient_domains_for_brief']
+              : []),
+            ...(dossiers.length > 0
+              ? [dossiers.some((dossier) => dossier.briefId)
+                  ? 'brief_already_exists'
+                  : `source_dossier_already_exists:${[...new Set(dossiers.map((dossier) =>
+                      dossier.status.toLowerCase()))].sort().join(',')}`]
+              : []),
+          ];
+    const status = !topic.candidate
+      ? 'skipped'
+      : topic.candidate.status === 'SHADOW_PROPOSED'
+        ? 'proposed'
+        : 'suppressed';
+    const briefDisposition = !topic.candidate
+      ? 'skipped'
+      : topic.candidate.status !== 'SHADOW_PROPOSED'
+        ? 'suppressed'
+        : topic.candidate.sourceDossiers.length > 0
+          ? 'already_processed'
+          : briefReasons.length > 0
+            ? 'skipped'
+            : 'eligible';
+    return {
+      runId: topic.runId,
+      runStatus: topic.run.status,
+      topicId: topic.id,
+      clusterKey: topic.clusterKey,
+      label: topic.label,
+      status,
+      candidateId: topic.candidate?.id ?? null,
+      candidateStatus: topic.candidate?.status ?? null,
+      editorialScore: topic.candidate?.editorialScore ?? null,
+      proposalMinimumEditorialScore: DEFAULT_EDITORIAL_CLUSTERING_CONFIG.proposalScoreThreshold,
+      riskLevel: topic.candidate?.riskLevel ?? null,
+      domains,
+      domainCount: topic.independentDomainCount,
+      documents: topic.documents.map((document) => ({
+        id: document.documentId,
+        role: document.role,
+        domain: document.document.domain,
+        sourceId: document.document.sourceId,
+      })),
+      documentCount: topic.documentCount,
+      evidenceDocumentCount: evidenceDocuments.length,
+      sources,
+      sourceCount: sources.length,
+      suppressionReasons: status === 'suppressed' ? reasons : [],
+      dossiers,
+      briefMinimumEditorialScore: DEFAULT_EDITORIAL_BRIEF_CONFIG.minimumEditorialScore,
+      briefRequiredDomains: requiredDomains,
+      briefDisposition,
+      briefReasons,
+    };
+  });
+  const briefBlockages = buildBriefBlockages({
+    briefQueued: brief,
+    clustered,
+    existingRun,
+    clusterOutcomes,
+  });
   const degradedEvidenceReasons = [...new Set([
     ...candidateDiagnostics.flatMap((item) => {
     const reasons = jsonRecord(item.rationale).reasons;
@@ -248,6 +400,8 @@ export async function runEditorialAutomationTick(
     documentsIndexed: indexed.length,
     documentsBlocked: blocked,
     clusters: clustered ? 1 : 0,
+    clusterOutcomes,
+    briefBlockages,
     briefs: brief ? 1 : 0,
     drafts: draft ? 1 : 0,
     verifications: verification ? 1 : 0,
@@ -290,6 +444,60 @@ function jsonRecord(value: unknown): Record<string, unknown> {
   return value && typeof value === 'object' && !Array.isArray(value)
     ? value as Record<string, unknown>
     : {};
+}
+
+function jsonStringArray(value: unknown): string[] {
+  return Array.isArray(value)
+    ? value.filter((item): item is string => typeof item === 'string')
+    : [];
+}
+
+function buildBriefBlockages(input: {
+  briefQueued: boolean;
+  clustered: boolean;
+  existingRun: { id: string; status: string; completedAt: Date | null; updatedAt: Date } | null;
+  clusterOutcomes: EditorialClusterOutcome[];
+}): Array<{ code: string; detail: Record<string, unknown> }> {
+  if (input.briefQueued) return [];
+  if (input.clusterOutcomes.length === 0) {
+    if (input.clustered) {
+      return [{ code: 'CLUSTER_ENQUEUED_AWAITING_RESULTS', detail: {} }];
+    }
+    if (input.existingRun && input.existingRun.status !== 'COMPLETED') {
+      return [{
+        code: 'CLUSTER_RUN_NOT_COMPLETED',
+        detail: { runId: input.existingRun.id, status: input.existingRun.status },
+      }];
+    }
+    return [{
+      code: input.existingRun?.status === 'COMPLETED'
+        ? 'CLUSTER_COMPLETED_WITHOUT_TOPICS'
+        : 'NO_CLUSTER_TOPICS',
+      detail: input.existingRun ? { runId: input.existingRun.id } : {},
+    }];
+  }
+  return input.clusterOutcomes.map((outcome) => ({
+    code: outcome.briefDisposition === 'suppressed'
+      ? 'CANDIDATE_SUPPRESSED'
+      : outcome.briefDisposition === 'already_processed'
+        ? 'CANDIDATE_ALREADY_PROCESSED'
+        : outcome.briefDisposition === 'eligible'
+          ? 'ELIGIBLE_CANDIDATE_NOT_QUEUED'
+          : 'CANDIDATE_SKIPPED',
+    detail: {
+      runId: outcome.runId,
+      topicId: outcome.topicId,
+      candidateId: outcome.candidateId,
+      editorialScore: outcome.editorialScore,
+      proposalMinimumEditorialScore: outcome.proposalMinimumEditorialScore,
+      briefMinimumEditorialScore: outcome.briefMinimumEditorialScore,
+      briefRequiredDomains: outcome.briefRequiredDomains,
+      domainCount: outcome.domainCount,
+      documentCount: outcome.documentCount,
+      sourceCount: outcome.sourceCount,
+      reasons: outcome.briefReasons,
+    },
+  }));
 }
 
 function sumNumeric(rows: Array<Record<string, unknown>>, key: string): number {
