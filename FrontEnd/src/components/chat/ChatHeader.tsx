@@ -34,7 +34,7 @@ export default function ChatHeader({ title = 'Epion Chat' }: Props) {
               className="absolute right-0 mt-2 w-56 rounded-xl border border-black/10 bg-white p-2 shadow-xl dark:border-white/10 dark:bg-neutral-900"
               onMouseLeave={() => setOpen(false)}
             >
-              <label className="flex cursor-pointer items-center justify-between rounded-md px-3 py-2 hover:bg-black/5 dark:hover:bg:white/10">
+              <label className="flex cursor-pointer items-center justify-between rounded-md px-3 py-2 hover:bg-black/5 dark:hover:bg-white/10">
                 <span>Hide app header</span>
                 <input
                   type="checkbox"
@@ -42,7 +42,7 @@ export default function ChatHeader({ title = 'Epion Chat' }: Props) {
                   onChange={(e) => setAppHeaderVisible(!e.target.checked)}
                 />
               </label>
-              <label className="mt-1 flex cursor-pointer items-center justify-between rounded-md px-3 py-2 hover:bg-black/5 dark:hover:bg:white/10">
+              <label className="mt-1 flex cursor-pointer items-center justify-between rounded-md px-3 py-2 hover:bg-black/5 dark:hover:bg-white/10">
                 <span>Hide footer</span>
                 <input
                   type="checkbox"

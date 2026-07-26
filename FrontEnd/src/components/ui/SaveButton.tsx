@@ -48,7 +48,7 @@ export default function SaveButton({ articleId, className = '', onToggle, iconOn
     return "inline-flex h-9 items-center justify-center rounded-full px-4 text-sm transition-all active:scale-95 border cursor-pointer gap-2";
   };
 
-  const savedStyles = "border-[#FFB017]/30 bg-[#FFF9ED] dark:bg-[#FFB017]/10 text-[#C46101] dark:text-[#FFB017]";
+  const savedStyles = "border-amber-700 bg-amber-700 text-white dark:border-amber-600 dark:bg-amber-600 dark:text-white";
   const unsavedStyles = !iconOnly
     ? "border-black/5 dark:border-white/5 bg-white/90 dark:bg-neutral-900/90 hover:bg-white dark:hover:bg-neutral-900 text-neutral-800 dark:text-neutral-200"
     : "text-neutral-400 hover:text-black dark:text-neutral-500 dark:hover:text-white";

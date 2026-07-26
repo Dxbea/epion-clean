@@ -40,7 +40,7 @@ export default function EpionSelect({ label, value, options, onChange, placehold
                 onClick={() => !disabled && setIsOpen(!isOpen)}
                 disabled={disabled}
                 className={`flex w-full items-center justify-between rounded-2xl border px-4 py-2.5 text-left text-sm transition-all duration-200
-          ${isOpen ? 'border-black ring-1 ring-black dark:border-white dark:ring-white' : 'border-black/5 hover:border-black/20 hover:shadow-md dark:border-white/10 dark:hover:border-white/30'}
+          ${isOpen ? 'border-epion-turquoise ring-1 ring-epion-turquoise dark:border-epion-cyan dark:ring-epion-cyan' : 'border-black/5 hover:border-black/20 hover:shadow-md dark:border-white/10 dark:hover:border-white/30'}
           bg-white dark:bg-neutral-900 shadow-sm
           ${disabled ? 'cursor-not-allowed opacity-50 bg-neutral-100 dark:bg-neutral-800 shadow-none' : ''}
         `}

@@ -18,12 +18,12 @@ describe('getPublicSupportLabel', () => {
 
 describe('getPublicSupportBadgeClass', () => {
   it.each([
-    ['very_strong', 'from-emerald-500'],
-    ['strong', 'from-teal-500'],
-    ['nuanced', 'from-yellow-400'],
-    ['fragile', 'from-amber-500'],
-    ['unverified', 'from-rose-500'],
-    ['unsourced', 'from-gray-400'],
+    ['very_strong', 'bg-emerald-700'],
+    ['strong', 'bg-teal-700'],
+    ['nuanced', 'bg-amber-300'],
+    ['fragile', 'bg-orange-700'],
+    ['unverified', 'bg-red-700'],
+    ['unsourced', 'bg-neutral-500'],
   ] as const)('uses a distinct gradient for %s', (level, expectedClass) => {
     expect(getPublicSupportBadgeClass(level)).toContain(expectedClass);
   });

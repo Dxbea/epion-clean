@@ -880,7 +880,7 @@ export default function Article() {
       >
         <div className="text-sm text-black/70 dark:text-white/70 h-full">
           {selectedClaim && (
-            <div className="mb-4 rounded-xl border border-[#00dc82]/40 bg-[#00dc82]/10 p-3 text-black dark:text-white">
+            <div className="mb-4 rounded-xl border border-[#38A6A6]/40 bg-[#38A6A6]/10 p-3 text-black dark:text-white">
               <div className="text-xs font-semibold uppercase tracking-wide opacity-70">{t('article_claim')}</div>
               <p className="mt-1 leading-6">{selectedClaim.text}</p>
             </div>
@@ -916,7 +916,7 @@ export default function Article() {
                       setFocusedSourceKey(key);
                     }
                   }}
-                  className="block w-full rounded-xl text-left focus:outline-none focus:ring-2 focus:ring-[#00dc82]"
+                  className="block w-full rounded-xl text-left focus:outline-none focus:ring-2 focus:ring-[#38A6A6]"
                 >
                   <SourceCard source={s} isFocused={key === focusedSourceKey || String(s.id) === focusedSourceKey} />
                 </div>

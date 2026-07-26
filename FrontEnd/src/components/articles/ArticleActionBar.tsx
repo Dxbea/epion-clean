@@ -240,16 +240,16 @@ export default function ArticleActionBar({
             <svg width="0" height="0" className="absolute">
                 <defs>
                     <linearGradient id="grad-chat" x1="0" y1="0" x2="24" y2="24" gradientUnits="userSpaceOnUse">
-                        <stop offset="0%" stopColor="#34d399" />
-                        <stop offset="100%" stopColor="#14b8a6" />
+                        <stop offset="0%" stopColor="#38A6A6" />
+                        <stop offset="100%" stopColor="#78DCE3" />
                     </linearGradient>
                     <linearGradient id="grad-check" x1="0" y1="0" x2="24" y2="24" gradientUnits="userSpaceOnUse">
-                        <stop offset="0%" stopColor="#3b82f6" />
-                        <stop offset="100%" stopColor="#4f46e5" />
+                        <stop offset="0%" stopColor="#78DCE3" />
+                        <stop offset="100%" stopColor="#CBEA62" />
                     </linearGradient>
                     <linearGradient id="grad-highlight" x1="0" y1="0" x2="24" y2="24" gradientUnits="userSpaceOnUse">
-                        <stop offset="0%" stopColor="#14b8a6" />
-                        <stop offset="100%" stopColor="#3b82f6" />
+                        <stop offset="0%" stopColor="#38A6A6" />
+                        <stop offset="100%" stopColor="#CBEA62" />
                     </linearGradient>
                 </defs>
             </svg>

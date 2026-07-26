@@ -29,12 +29,12 @@ const SUPPORT_LABELS: Record<SupportLevel, { fr: string; en: string }> = {
 };
 
 const SUPPORT_BADGE_CLASSES: Record<SupportLevel, string> = {
-  very_strong: 'border-emerald-400/60 bg-gradient-to-r from-emerald-500 to-green-500 text-white shadow-sm',
-  strong: 'border-teal-400/60 bg-gradient-to-r from-teal-500 to-emerald-500 text-white shadow-sm',
-  nuanced: 'border-yellow-400/70 bg-gradient-to-r from-yellow-400 to-amber-400 text-gray-900 shadow-sm',
-  fragile: 'border-amber-500/60 bg-gradient-to-r from-amber-500 to-orange-500 text-white shadow-sm',
-  unverified: 'border-rose-500/60 bg-gradient-to-r from-rose-500 to-red-500 text-white shadow-sm',
-  unsourced: 'border-gray-400/60 bg-gradient-to-r from-gray-400 to-slate-500 text-white shadow-sm',
+  very_strong: 'border-emerald-700 bg-emerald-700 text-white shadow-sm',
+  strong: 'border-teal-700 bg-teal-700 text-white shadow-sm',
+  nuanced: 'border-amber-400 bg-amber-300 text-neutral-950 shadow-sm',
+  fragile: 'border-orange-700 bg-orange-700 text-white shadow-sm',
+  unverified: 'border-red-700 bg-red-700 text-white shadow-sm',
+  unsourced: 'border-neutral-500 bg-neutral-500 text-white shadow-sm',
 };
 
 export function getPublicSupportBadgeClass(level: SupportLevel): string {
@@ -105,11 +105,11 @@ export function isScoreDisplayable(status: ScoreStatus): boolean {
 
 export function getScoreColor(score: number | null): string {
   if (score === null) return 'var(--score-neutral, #888)';
-  if (score >= 90) return 'var(--score-very-strong, #00dc82)';
-  if (score >= 70) return 'var(--score-strong, #00dc82)';
-  if (score >= 50) return 'var(--score-nuanced, #f59e0b)';
-  if (score >= 30) return 'var(--score-fragile, #f97316)';
-  return 'var(--score-unverified, #ef4444)';
+  if (score >= 90) return 'var(--score-very-strong, #16806F)';
+  if (score >= 70) return 'var(--score-strong, #16806F)';
+  if (score >= 50) return 'var(--score-nuanced, #B7791F)';
+  if (score >= 30) return 'var(--score-fragile, #B45309)';
+  return 'var(--score-unverified, #B42318)';
 }
 
 // ---------------------------------------------------------------------------

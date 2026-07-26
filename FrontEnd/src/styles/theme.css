@@ -21,18 +21,27 @@
 }
 
 :root {
-  --bg: #FAFAF5; --fg: #000000; --muted: #6B7280;
+  /* Canonical Epion palette: structure stays neutral; the gradient is a signature, not a status. */
+  --epion-ivory: #FAFAF5;
+  --epion-ink: #0B0B0A;
+  --epion-turquoise: #38A6A6;
+  --epion-turquoise-light: #58C6C6;
+  --epion-cyan: #78DCE3;
+  --epion-lime: #CBEA62;
+  --epion-lime-light: #B7E87C;
+  --epion-gradient: linear-gradient(135deg, var(--epion-turquoise) 0%, var(--epion-cyan) 40%, var(--epion-lime) 100%);
 
-  /* Brand palette (claire) */
-  --brand-white:    #FAFAF5;
-  --brand-black:    #111111;
-  --brand-gray:     #EDEDED;
-
-  --brand-turquoise:       #38A6A6;
-  --brand-turquoise-light: #58C6C6;
-  --brand-cyan:            #78DCE3;
-  --brand-lime:            #CBEA62;
-  --brand-lime-light:      #B7E87C;
+  --bg: var(--epion-ivory);
+  --fg: var(--epion-ink);
+  --muted: #6B7280;
+  --brand-white: var(--epion-ivory);
+  --brand-black: var(--epion-ink);
+  --brand-gray: #EDEDED;
+  --brand-turquoise: var(--epion-turquoise);
+  --brand-turquoise-light: var(--epion-turquoise-light);
+  --brand-cyan: var(--epion-cyan);
+  --brand-lime: var(--epion-lime);
+  --brand-lime-light: var(--epion-lime-light);
 }
 .dark {
   --bg: #0A0A0A; --fg: #F4F4F5; --muted: #9CA3AF;
@@ -84,11 +93,12 @@ html[data-hide-footer] { --footer-visible-h: 0px !important; }
 
 /* ================= Components (Tailwind layer) ================= */
 @layer components {
-  .form-input {
+.form-input {
     @apply w-full rounded-xl border px-3 py-2
            bg-white text-neutral-900
            border-black/10
            placeholder:opacity-60
+           transition-colors focus:border-epion-turquoise focus:ring-2 focus:ring-epion-turquoise/20
            dark:bg-neutral-900 dark:text-neutral-100 dark:border-white/10;
   }
   .form-textarea {
@@ -96,12 +106,14 @@ html[data-hide-footer] { --footer-visible-h: 0px !important; }
            bg-white text-neutral-900
            border-black/10
            placeholder:opacity-60
+           transition-colors focus:border-epion-turquoise focus:ring-2 focus:ring-epion-turquoise/20
            dark:bg-neutral-900 dark:text-neutral-100 dark:border-white/10;
   }
   .form-select {
     @apply w-full rounded-xl border px-3 py-2
            bg-white text-neutral-900
            border-black/10
+           transition-colors focus:border-epion-turquoise focus:ring-2 focus:ring-epion-turquoise/20
            dark:bg-neutral-900 dark:text-neutral-100 dark:border-white/10;
   }
   .chip {
@@ -114,9 +126,11 @@ html[data-hide-footer] { --footer-visible-h: 0px !important; }
            backdrop-blur-sm dark:border-white/10 dark:bg-neutral-950/70 dark:shadow-[0_8px_24px_rgba(0,0,0,0.2)] sm:p-5;
   }
   .btn-primary {
-  @apply rounded-xl px-4 py-2 text-white disabled:opacity-60;
-  background: var(--brand-turquoise);
-}
+    @apply rounded-xl px-4 py-2 text-white transition-all disabled:opacity-60;
+    background: var(--epion-ink);
+    border: 1px solid transparent;
+    background-clip: padding-box;
+  }
   .btn-ghost {
     @apply rounded-xl border px-4 py-2 text-sm
            hover:bg-black/5
@@ -178,13 +192,18 @@ html[data-hide-footer] { --footer-visible-h: 0px !important; }
 .thin-scroll::-webkit-scrollbar-button{ width:0; height:0; display:none; }
 :root { color-scheme: light; }
 .dark { color-scheme: dark; }
-.btn-primary:hover { background: var(--brand-turquoise-light); }
+.btn-primary:hover { background: var(--epion-gradient); color: var(--epion-ink); }
+.button-primary {
+  border: 1px solid transparent;
+  background-clip: padding-box;
+}
+.button-primary:hover {
+  background: var(--epion-gradient);
+  color: var(--epion-ink);
+  box-shadow: none;
+}
 .bg-epion {
-  background: linear-gradient(135deg,
-    var(--brand-turquoise) 0%,
-    var(--brand-cyan) 40%,
-    var(--brand-lime) 100%
-  );
+  background: var(--epion-gradient);
 }
 /* Hide the browser's built-in password reveal/clear buttons (Edge/IE/Chromium Edge) */
 .no-native-reveal::-ms-reveal,

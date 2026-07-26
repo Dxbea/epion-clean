@@ -21,7 +21,7 @@ export function MagnifierDefs() {
     <svg className="w-0 h-0 absolute pointer-events-none">
       <defs>
         <linearGradient id="epion-magnifier-grad" x1="0%" y1="0%" x2="100%" y2="100%">
-          <stop offset="0%" stopColor="#00dc82" />
+          <stop offset="0%" stopColor="#38A6A6" />
           <stop offset="50%" stopColor="#38a6a6" />
           <stop offset="100%" stopColor="#78dce3" />
         </linearGradient>

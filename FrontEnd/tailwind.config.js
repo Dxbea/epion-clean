@@ -10,14 +10,20 @@ export default {
     extend: {
       fontFamily: {
         sans: [
+          'Roboto',
+          'ui-sans-serif',
+          'system-ui',
+          'Segoe UI',
+          'Inter',
+          'Apple Color Emoji',
+          'Segoe UI Emoji'
+        ],
+        display: [
           'Thermal-variable',
           'ui-sans-serif',
           'system-ui',
           'Segoe UI',
-          'Roboto',
-          'Inter',
-          'Apple Color Emoji',
-          'Segoe UI Emoji'
+          'sans-serif',
         ],
         serif: [
           'Thermal-variable',
@@ -29,11 +35,24 @@ export default {
       colors: {
         brand: {
           white: '#FAFAF5',
-          black: '#000000',
-          blue: '#2563EB',
-          blueDeep: '#1D4ED8',
-          lightBlue: '#85CCFF',
-          indigo: '#222C66',
+          black: '#0B0B0A',
+          turquoise: '#38A6A6',
+          turquoiseLight: '#58C6C6',
+          cyan: '#78DCE3',
+          lime: '#CBEA62',
+          limeLight: '#B7E87C',
+          // Legacy aliases: retain current call sites while using the Epion accent.
+          blue: '#38A6A6',
+          blueDeep: '#2C8585',
+          lightBlue: '#78DCE3',
+          indigo: '#0B0B0A',
+        },
+        epion: {
+          ivory: '#FAFAF5',
+          ink: '#0B0B0A',
+          turquoise: '#38A6A6',
+          cyan: '#78DCE3',
+          lime: '#CBEA62',
         },
         surface: {
           50: '#FAFAF5',

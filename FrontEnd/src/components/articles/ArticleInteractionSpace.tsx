@@ -176,7 +176,7 @@ function OpinionSlider({ positions, selected, disabled, onSelect }: OpinionSlide
                 left: `${percent}%`,
                 width: isSelected ? '13px' : '9px',
                 height: isSelected ? '13px' : '9px',
-                backgroundColor: isSelected ? '#00dc82' : undefined,
+                backgroundColor: isSelected ? '#38A6A6' : undefined,
                 transition: 'width 0.25s ease, height 0.25s ease, background-color 0.25s ease',
               }}
             />
@@ -193,14 +193,14 @@ function OpinionSlider({ positions, selected, disabled, onSelect }: OpinionSlide
             }}
           >
             <span
-              className="flex items-center justify-center rounded-full border-2 border-[#00dc82] bg-white transition-[width,height,box-shadow] duration-200 ease-out motion-reduce:transition-none dark:bg-neutral-900"
+              className="flex items-center justify-center rounded-full border-2 border-[#38A6A6] bg-white transition-[width,height,box-shadow] duration-200 ease-out motion-reduce:transition-none dark:bg-neutral-900"
               style={{
                 width: dragRatio !== null ? '30px' : '24px',
                 height: dragRatio !== null ? '30px' : '24px',
                 boxShadow: dragRatio !== null ? '0 3px 14px rgba(0,220,130,0.34)' : '0 2px 10px rgba(0,220,130,0.24)',
               }}
             >
-              <span className="h-2.5 w-2.5 rounded-full bg-[#00dc82]" />
+              <span className="h-2.5 w-2.5 rounded-full bg-[#38A6A6]" />
             </span>
           </span>
         )}
@@ -478,7 +478,7 @@ export default function ArticleInteractionSpace({ articleSlug }: Props) {
 
       <div className={`rounded-2xl border bg-white p-4 shadow-sm transition-colors duration-300 dark:bg-neutral-900 sm:p-5 ${
         isConfirmed
-          ? 'border-[#00dc82]/40 dark:border-[#00dc82]/30'
+          ? 'border-[#38A6A6]/40 dark:border-[#38A6A6]/30'
           : 'border-black/10 dark:border-white/10'
       }`}>
         <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
@@ -491,7 +491,7 @@ export default function ArticleInteractionSpace({ articleSlug }: Props) {
             </p>
           </div>
           {isConfirmed && (
-            <span className="inline-flex w-fit items-center gap-1.5 rounded-full border border-[#00dc82]/40 bg-[#00dc82]/10 px-3 py-1 text-xs font-semibold text-emerald-700 dark:text-emerald-300">
+            <span className="inline-flex w-fit items-center gap-1.5 rounded-full border border-[#38A6A6]/40 bg-[#38A6A6]/10 px-3 py-1 text-xs font-semibold text-[#2C8585] dark:text-[#78DCE3]">
               <Lock className="h-3.5 w-3.5" />
               {t('article_interactions_position_confirmed')}
             </span>
@@ -542,7 +542,7 @@ export default function ArticleInteractionSpace({ articleSlug }: Props) {
               {positionValues.map((_, i) => (
                 <div
                   key={positionValues[i]}
-                  className="flex-1 animate-in fade-in slide-in-from-bottom-1 rounded-sm bg-[#00dc82]/20 dark:bg-[#00dc82]/15"
+                  className="flex-1 animate-in fade-in slide-in-from-bottom-1 rounded-sm bg-[#38A6A6]/20 dark:bg-[#38A6A6]/15"
                   style={{
                     height: `${Math.max(8, ((opinionCounts[String(positionValues[i])] ?? 0) / maxOpinionCount) * 100)}%`,
                     animationDelay: `${i * 80}ms`,
@@ -708,7 +708,7 @@ export default function ArticleInteractionSpace({ articleSlug }: Props) {
                         onChange={(event) => { setDraftText(event.target.value); setFieldError(null); }}
                         rows={4}
                         disabled={isSubmittingContribution}
-                        className="mt-2 w-full resize-y rounded-xl border border-black/10 bg-white px-3 py-2.5 text-sm text-neutral-900 outline-none transition-all duration-200 placeholder:text-black/30 focus:border-[#00dc82]/50 focus:ring-2 focus:ring-[#00dc82]/15 disabled:opacity-50 dark:border-white/10 dark:bg-neutral-950 dark:text-neutral-100 dark:placeholder:text-white/25 dark:focus:border-[#00dc82]/40"
+                        className="mt-2 w-full resize-y rounded-xl border border-black/10 bg-white px-3 py-2.5 text-sm text-neutral-900 outline-none transition-all duration-200 placeholder:text-black/30 focus:border-[#38A6A6]/50 focus:ring-2 focus:ring-[#38A6A6]/15 disabled:opacity-50 dark:border-white/10 dark:bg-neutral-950 dark:text-neutral-100 dark:placeholder:text-white/25 dark:focus:border-[#38A6A6]/40"
                         placeholder={t('article_interactions_text_placeholder')}
                       />
                     </label>
@@ -730,7 +730,7 @@ export default function ArticleInteractionSpace({ articleSlug }: Props) {
                       value={draftSourceUrl}
                       onChange={(event) => { setDraftSourceUrl(event.target.value); setFieldError(null); }}
                       disabled={isSubmittingContribution}
-                      className="mt-2 w-full rounded-xl border border-black/10 bg-white px-3 py-2.5 text-sm text-neutral-900 outline-none transition-all duration-200 placeholder:text-black/30 focus:border-[#00dc82]/50 focus:ring-2 focus:ring-[#00dc82]/15 disabled:opacity-50 dark:border-white/10 dark:bg-neutral-950 dark:text-neutral-100 dark:placeholder:text-white/25 dark:focus:border-[#00dc82]/40"
+                      className="mt-2 w-full rounded-xl border border-black/10 bg-white px-3 py-2.5 text-sm text-neutral-900 outline-none transition-all duration-200 placeholder:text-black/30 focus:border-[#38A6A6]/50 focus:ring-2 focus:ring-[#38A6A6]/15 disabled:opacity-50 dark:border-white/10 dark:bg-neutral-950 dark:text-neutral-100 dark:placeholder:text-white/25 dark:focus:border-[#38A6A6]/40"
                       placeholder="https://"
                     />
                   </label>
@@ -899,7 +899,7 @@ export default function ArticleInteractionSpace({ articleSlug }: Props) {
                               value={editingText}
                               onChange={(event) => { setEditingText(event.target.value); setFieldError(null); }}
                               rows={4}
-                              className="w-full resize-y rounded-xl border border-black/10 bg-white px-3 py-2.5 text-sm text-neutral-900 outline-none transition focus:border-[#00dc82]/50 focus:ring-2 focus:ring-[#00dc82]/15 dark:border-white/10 dark:bg-neutral-950 dark:text-neutral-100"
+                              className="w-full resize-y rounded-xl border border-black/10 bg-white px-3 py-2.5 text-sm text-neutral-900 outline-none transition focus:border-[#38A6A6]/50 focus:ring-2 focus:ring-[#38A6A6]/15 dark:border-white/10 dark:bg-neutral-950 dark:text-neutral-100"
                             />
                           )}
                           <input
@@ -907,7 +907,7 @@ export default function ArticleInteractionSpace({ articleSlug }: Props) {
                             value={editingSourceUrl}
                             onChange={(event) => { setEditingSourceUrl(event.target.value); setFieldError(null); }}
                             placeholder="https://"
-                            className="mt-3 w-full rounded-xl border border-black/10 bg-white px-3 py-2.5 text-sm text-neutral-900 outline-none transition focus:border-[#00dc82]/50 focus:ring-2 focus:ring-[#00dc82]/15 dark:border-white/10 dark:bg-neutral-950 dark:text-neutral-100"
+                            className="mt-3 w-full rounded-xl border border-black/10 bg-white px-3 py-2.5 text-sm text-neutral-900 outline-none transition focus:border-[#38A6A6]/50 focus:ring-2 focus:ring-[#38A6A6]/15 dark:border-white/10 dark:bg-neutral-950 dark:text-neutral-100"
                           />
                           <div className="mt-3 flex justify-end gap-2">
                             <Button type="button" variant="ghost" onClick={() => setEditingContributionId(null)}>
@@ -1053,7 +1053,7 @@ export default function ArticleInteractionSpace({ articleSlug }: Props) {
                           onClick={() => toggleValidation(contribution.id, vType)}
                           className={`rounded-full border px-3 py-1.5 text-xs font-medium transition-all duration-200 disabled:cursor-not-allowed disabled:opacity-45 disabled:hover:bg-transparent ${
                             isActive
-                              ? 'border-[#00dc82]/40 bg-[#00dc82]/10 text-emerald-700 dark:border-[#00dc82]/30 dark:bg-[#00dc82]/10 dark:text-emerald-300'
+                              ? 'border-[#38A6A6]/40 bg-[#38A6A6]/10 text-[#2C8585] dark:border-[#38A6A6]/30 dark:bg-[#38A6A6]/10 dark:text-[#78DCE3]'
                               : 'border-black/10 text-black/65 hover:border-black/20 hover:bg-black/5 dark:border-white/10 dark:text-white/65 dark:hover:border-white/20 dark:hover:bg-white/10'
                           }`}
                         >

@@ -28,8 +28,7 @@ const sizeStyles: Record<Size, string> = {
 
 const styles: Record<Variant, string> = {
   primary:
-    'border border-black bg-black text-white hover:scale-[0.98] hover:border-[#D9E0E4] active:border-[#c5ced3] hover:text-neutral-950 focus-visible:ring-brand-blue dark:border-white/12 dark:bg-white dark:text-black dark:hover:border-white/20 dark:hover:text-black dark:focus-visible:ring-brand-blue ' +
-    'before:absolute before:-inset-[2px] before:z-[-1] before:rounded-[inherit] before:bg-[linear-gradient(135deg,rgba(255,255,255,0.98)_0%,rgba(231,250,251,0.98)_52%,rgba(244,251,226,0.98)_100%)] dark:before:bg-[linear-gradient(135deg,rgba(255,255,255,0.05)_0%,rgba(44,152,160,0.16)_52%,rgba(183,232,124,0.12)_100%)] before:opacity-0 hover:before:opacity-100 before:transition-opacity before:duration-300',
+    'button-primary bg-epion-ink text-white hover:scale-[0.98] focus-visible:ring-epion-turquoise dark:bg-white dark:text-epion-ink dark:focus-visible:ring-epion-turquoise',
   secondary:
     'border border-black/10 bg-white/70 text-neutral-900 hover:scale-[0.98] hover:bg-white focus-visible:ring-neutral-300 dark:border-white/10 dark:bg-neutral-900/80 dark:text-neutral-100 dark:hover:bg-neutral-800 dark:focus-visible:ring-neutral-700',
   ghost:

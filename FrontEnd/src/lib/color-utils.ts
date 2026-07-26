@@ -1,17 +1,17 @@
 // Frontend/src/lib/color-utils.ts
 
 // PALETTE VIVID (Couleurs vives type néon/saturées)
-export const VIVID_RED_START = '#EF4444';    // Red 500
-export const VIVID_RED_END = '#F87171';      // Red 400
+export const VIVID_RED_START = '#B42318';
+export const VIVID_RED_END = VIVID_RED_START;
 
-export const VIVID_ORANGE_START = '#F97316'; // Orange 500
-export const VIVID_ORANGE_END = '#FB923C';   // Orange 400
+export const VIVID_ORANGE_START = '#B45309';
+export const VIVID_ORANGE_END = VIVID_ORANGE_START;
 
-export const VIVID_YELLOW_START = '#EAB308'; // Yellow 500 (NEW: Medium)
-export const VIVID_YELLOW_END = '#FACC15';   // Yellow 400
+export const VIVID_YELLOW_START = '#B7791F';
+export const VIVID_YELLOW_END = VIVID_YELLOW_START;
 
-export const VIVID_GREEN_START = '#10B981';  // Emerald 500
-export const VIVID_GREEN_END = '#34D399';    // Emerald 400
+export const VIVID_GREEN_START = '#16806F';
+export const VIVID_GREEN_END = VIVID_GREEN_START;
 
 import { TRUST_SCORE_RANGES } from "../config/trust-constants";
 
@@ -77,7 +77,7 @@ export function getScoreGradient(score: number): string {
  */
 export function getBadgeStyle(score: number): React.CSSProperties {
     return {
-        backgroundImage: getVividGradient(score),
+        backgroundColor: getScoreColor(score),
         color: '#FFFFFF',
         fontWeight: 700,
         border: 'none', // Pas de bordure
@@ -129,7 +129,7 @@ export function getScoreColorWithOpacity(score: number, opacity: number = 0.15):
  * Fin : Emerald-400 (#34D399) - Un vert menthe plus doux.
  */
 export function getEpionBrandGradient(): string {
-    return 'linear-gradient(90deg, #0EA5E9 0%, #2DD4BF 50%, #34D399 100%)';
+    return 'linear-gradient(90deg, #38A6A6 0%, #78DCE3 40%, #CBEA62 100%)';
 }
 
 /**

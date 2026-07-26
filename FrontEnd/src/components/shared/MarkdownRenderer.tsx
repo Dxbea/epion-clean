@@ -69,8 +69,8 @@ export default function MarkdownRenderer({ content, className = '', isHighlightA
                                                 if (onSourceClick) onSourceClick(idVal);
                                             }}
                                             className={`text-[10px] font-bold transition-colors ${isActive
-                                                ? 'text-[#00dc82] underline decoration-2 underline-offset-2'
-                                                : 'text-[#00dc82] hover:text-[#00dc82]/80'
+                                                ? 'text-[#38A6A6] underline decoration-2 underline-offset-2'
+                                                : 'text-[#38A6A6] hover:text-[#38A6A6]/80'
                                                 }`}
                                             title={`Voir la source ${num}`}
                                         >
@@ -114,8 +114,8 @@ export default function MarkdownRenderer({ content, className = '', isHighlightA
 
             const highlightClasses = isSourced && isHighlightActive
                 ? isActive
-                    ? 'bg-[#00dc82]/30 border-[#00dc82] ring-1 ring-[#00dc82] text-gray-900 dark:text-white'
-                    : 'bg-[#00dc82]/10 border-[#00dc82]/40 text-gray-900 dark:text-gray-100 hover:bg-[#00dc82]/20'
+                    ? 'bg-[#38A6A6]/30 border-[#38A6A6] ring-1 ring-[#38A6A6] text-gray-900 dark:text-white'
+                    : 'bg-[#38A6A6]/10 border-[#38A6A6]/40 text-gray-900 dark:text-gray-100 hover:bg-[#38A6A6]/20'
                 : '';
 
             const wrapperClasses = isSourced && isHighlightActive
@@ -141,7 +141,7 @@ export default function MarkdownRenderer({ content, className = '', isHighlightA
                                                 onClick={() => onSourceClick && onSourceClick(id)}
                                                 className="flex items-center gap-3 hover:bg-white/10 p-2 rounded-lg transition-colors text-left group w-full"
                                             >
-                                                <span className="flex h-5 w-5 shrink-0 items-center justify-center rounded-full bg-[#00dc82] text-[10px] text-black font-bold">
+                                                <span className="flex h-5 w-5 shrink-0 items-center justify-center rounded-full bg-[#38A6A6] text-[10px] text-black font-bold">
                                                     {id}
                                                 </span>
                                                 <span className="flex flex-col overflow-hidden">

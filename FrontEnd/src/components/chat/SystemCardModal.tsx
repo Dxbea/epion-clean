@@ -39,7 +39,7 @@ export default function SystemCardModal({
                     <div className="flex-1">
                         <h4 className="mb-1 text-base font-bold text-neutral-800 dark:text-neutral-200">
                             Filtre de Sources
-                            {sourceRestricted && <span className="ml-2 text-[#00dc82]">Restrictif</span>}
+                            {sourceRestricted && <span className="ml-2 text-[#38A6A6]">Restrictif</span>}
                         </h4>
                         <p className="text-sm text-neutral-500 leading-snug">
                             {sourceRestricted
@@ -60,7 +60,7 @@ export default function SystemCardModal({
                     <div className="flex-1">
                         <h4 className="mb-1 text-base font-bold text-neutral-800 dark:text-neutral-200">
                             Neutralité
-                            {neutralityForced && <span className="ml-2 text-[#00dc82]">Forcée</span>}
+                            {neutralityForced && <span className="ml-2 text-[#38A6A6]">Forcée</span>}
                         </h4>
                         <p className="text-sm text-neutral-500 leading-snug">
                             {neutralityForced
@@ -81,7 +81,7 @@ export default function SystemCardModal({
                     <div className="flex-1">
                         <h4 className="mb-1 text-base font-bold text-neutral-800 dark:text-neutral-200">
                             News Récentes
-                            {timeRecent && <span className="ml-2 text-xs uppercase tracking-wider text-[#00dc82] font-bold">&lt; 48H</span>}
+                            {timeRecent && <span className="ml-2 text-xs uppercase tracking-wider text-[#38A6A6] font-bold">&lt; 48H</span>}
                         </h4>
                         <p className="text-sm text-neutral-500 leading-snug">
                             {timeRecent

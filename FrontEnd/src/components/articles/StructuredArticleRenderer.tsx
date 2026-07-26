@@ -59,7 +59,7 @@ function ClaimButton({
       onClick={() => onClick?.(claim)}
       className={`inline-flex items-center gap-1 rounded-full border px-2 py-1 text-xs transition-colors ${
         active || selectedBySource
-          ? 'border-[#00dc82] bg-[#00dc82]/15 text-black dark:text-white'
+          ? 'border-[#38A6A6] bg-[#38A6A6]/15 text-black dark:text-white'
           : 'border-black/10 bg-black/[0.03] text-black/70 hover:bg-black/[0.06] dark:border-white/10 dark:bg-white/[0.06] dark:text-white/70 dark:hover:bg-white/[0.1]'
       }`}
     >
@@ -123,7 +123,7 @@ function SectionBlock({
                 key={item.id || index}
                 className={`rounded-md border-l-2 py-1 pl-3 text-base leading-7 ${
                   active
-                    ? 'border-[#00dc82] bg-[#00dc82]/10'
+                    ? 'border-[#38A6A6] bg-[#38A6A6]/10'
                     : 'border-black/10 dark:border-white/10'
                 }`}
               >

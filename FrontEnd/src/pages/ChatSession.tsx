@@ -468,7 +468,7 @@ export default function ChatSession() {
               value={searchQuery}
               onChange={(e) => setSearchQuery(e.target.value)}
               placeholder="Tape un titre…"
-              className="w-full rounded-xl border border-black/10 bg:white px-3 py-2 text-sm outline-none focus:ring-2 focus:ring-black/10 dark:border-white/10 dark:bg-neutral-800"
+              className="w-full rounded-xl border border-black/10 bg-white px-3 py-2 text-sm outline-none focus:ring-2 focus:ring-epion-turquoise/30 dark:border-white/10 dark:bg-neutral-800"
             />
             <div className="mt-3 max-h-72 overflow-y-auto divide-y divide-black/5 dark:divide-white/5">
               {filteredConvos.map((c) => (
@@ -493,7 +493,7 @@ export default function ChatSession() {
             <div className="mt-4 flex justify-end gap-2">
               <button
                 onClick={() => setSearchOpen(false)}
-                className="rounded-lg border border-black/10 px-3 py-1.5 text-sm hover:bg-black/5 dark:border-white/10 dark:hover:bg:white/10"
+                className="rounded-lg border border-black/10 px-3 py-1.5 text-sm hover:bg-black/5 dark:border-white/10 dark:hover:bg-white/10"
               >
                 Fermer
               </button>
@@ -508,7 +508,7 @@ export default function ChatSession() {
           onClick={() => setFolderOpen(false)}
         >
           <div
-            className="absolute left-1/2 top-28 w-full max-w-md -translate-x-1/2 rounded-2xl border border-black/10 bg:white p-4 shadow-2xl dark:border-white/10 dark:bg-neutral-900"
+            className="absolute left-1/2 top-28 w-full max-w-md -translate-x-1/2 rounded-2xl border border-black/10 bg-white p-4 shadow-2xl dark:border-white/10 dark:bg-neutral-900"
             onClick={(e) => e.stopPropagation()}
           >
             <div className="mb-3 text-lg font-semibold">Nouveau dossier</div>
@@ -525,24 +525,24 @@ export default function ChatSession() {
               <input
                 name="name"
                 placeholder="Nom du dossier"
-                className="flex-1 rounded-xl border border-black/10 bg:white px-3 py-2 text-sm outline-none focus:ring-2 focus:ring-black/10 dark:border-white/10 dark:bg-neutral-800"
+                className="flex-1 rounded-xl border border-black/10 bg-white px-3 py-2 text-sm outline-none focus:ring-2 focus:ring-epion-turquoise/30 dark:border-white/10 dark:bg-neutral-800"
               />
               <button
                 type="button"
                 onClick={() => setFolderOpen(false)}
-                className="rounded-lg border border-black/10 px-3 py-2 text-sm hover:bg-black/5 dark:border-white/10 dark:hover:bg:white/10"
+                className="rounded-lg border border-black/10 px-3 py-2 text-sm hover:bg-black/5 dark:border-white/10 dark:hover:bg-white/10"
               >
                 Annuler
               </button>
               <button
                 type="submit"
-                className="rounded-lg bg:black px-3 py-2 text-sm text:white hover:bg-black/90 dark:bg:white dark:text-black dark:hover:bg:white/90"
+                className="button-primary rounded-lg bg-black px-3 py-2 text-sm text-white dark:bg-white dark:text-black"
               >
                 Créer
               </button>
             </form>
             {folders.length > 0 && (
-              <div className="mt-4 text-xs text-black/60 dark:text:white/60">
+              <div className="mt-4 text-xs text-black/60 dark:text-white/60">
                 Dossiers créés : {folders.join(' • ')}
               </div>
             )}
@@ -557,7 +557,7 @@ export default function ChatSession() {
           {toasts.map((t) => (
             <div
               key={t.id}
-              className="rounded-lg border border-surface-200 bg:white/95 px-3 py-2 text-sm shadow-lg backdrop-blur
+              className="rounded-lg border border-surface-200 bg-white/95 px-3 py-2 text-sm shadow-lg backdrop-blur
                          dark:border-neutral-800 dark:bg-neutral-900"
             >
               {t.text}

@@ -180,8 +180,8 @@ export default function ChatMessage({ message }: { message: Msg }) {
                       key={idx}
                       onClick={(e) => { e.stopPropagation(); handleSourceClick(idVal); }}
                       className={`text-[9px] font-bold px-1 rounded-sm transition-colors ${isActive
-                        ? 'bg-black text-[#00dc82]'
-                        : 'text-[#00dc82] bg-[#00dc82]/10'
+                        ? 'bg-black text-[#38A6A6]'
+                        : 'text-[#38A6A6] bg-[#38A6A6]/10'
                         }`}
                       title={`Voir la source ${num}`}
                     >
@@ -231,8 +231,8 @@ export default function ChatMessage({ message }: { message: Msg }) {
 
       const highlightClasses = isSourced && highlightEnabled
         ? isActive
-          ? 'bg-[#00dc82]/30 border-[#00dc82] ring-1 ring-[#00dc82] text-gray-900 dark:text-white' // Actif
-          : 'bg-[#00dc82]/10 border-[#00dc82]/40 text-gray-900 dark:text-gray-100 hover:bg-[#00dc82]/20' // Repos
+          ? 'bg-[#38A6A6]/30 border-[#38A6A6] ring-1 ring-[#38A6A6] text-gray-900 dark:text-white' // Actif
+          : 'bg-[#38A6A6]/10 border-[#38A6A6]/40 text-gray-900 dark:text-gray-100 hover:bg-[#38A6A6]/20' // Repos
         : '';
 
       const wrapperClasses = isSourced && highlightEnabled
@@ -263,7 +263,7 @@ export default function ChatMessage({ message }: { message: Msg }) {
                         className="flex items-center gap-3 hover:bg-white/10 p-2 rounded-lg transition-colors text-left group w-full"
                       >
                         {/* Badge ID (Même vert que le surlignage) */}
-                        <span className="flex h-5 w-5 shrink-0 items-center justify-center rounded-full bg-[#00dc82] text-[10px] text-black font-bold">
+                        <span className="flex h-5 w-5 shrink-0 items-center justify-center rounded-full bg-[#38A6A6] text-[10px] text-black font-bold">
                           {id}
                         </span>
                         <span className="flex flex-col overflow-hidden">
@@ -306,8 +306,8 @@ export default function ChatMessage({ message }: { message: Msg }) {
 
       const highlightClasses = isSourced && highlightEnabled
         ? isActive
-          ? 'bg-[#00dc82]/30 border-[#00dc82] ring-1 ring-[#00dc82] text-gray-900 dark:text-white' // Actif
-          : 'bg-[#00dc82]/10 border-[#00dc82]/40 text-gray-900 dark:text-gray-100 hover:bg-[#00dc82]/20' // Repos
+          ? 'bg-[#38A6A6]/30 border-[#38A6A6] ring-1 ring-[#38A6A6] text-gray-900 dark:text-white' // Actif
+          : 'bg-[#38A6A6]/10 border-[#38A6A6]/40 text-gray-900 dark:text-gray-100 hover:bg-[#38A6A6]/20' // Repos
         : '';
 
       const wrapperClasses = isSourced && highlightEnabled
@@ -336,7 +336,7 @@ export default function ChatMessage({ message }: { message: Msg }) {
                         onClick={() => handleSourceClick(id)}
                         className="flex items-center gap-3 hover:bg-white/10 p-2 rounded-lg transition-colors text-left group w-full"
                       >
-                        <span className="flex h-5 w-5 shrink-0 items-center justify-center rounded-full bg-[#00dc82] text-[10px] text-black font-bold">
+                        <span className="flex h-5 w-5 shrink-0 items-center justify-center rounded-full bg-[#38A6A6] text-[10px] text-black font-bold">
                           {id}
                         </span>
                         <span className="flex flex-col overflow-hidden">
@@ -358,7 +358,7 @@ export default function ChatMessage({ message }: { message: Msg }) {
         </li>
       );
     },
-    a: ({ node, ...props }: any) => <a className="text-[#00dc82] hover:underline" {...props} />, // Also updated link color to match
+    a: ({ node, ...props }: any) => <a className="text-[#38A6A6] hover:underline" {...props} />, // Also updated link color to match
     ul: ({ node, ...props }: any) => <ul className="list-disc pl-4 mb-4" {...props} />,
     ol: ({ node, ...props }: any) => <ol className="list-decimal pl-4 mb-4" {...props} />,
   };

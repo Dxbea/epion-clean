@@ -6,7 +6,7 @@
 
 .topo-container {
   /* Epion gradient applied to the lines */
-  background: linear-gradient(135deg, #00dc82, #38a6a6, #78dce3);
+  background: linear-gradient(135deg, #38a6a6, #78dce3, #cbea62);
   
   /* Mask to only show thin concentric rings */
   -webkit-mask-image: repeating-radial-gradient(

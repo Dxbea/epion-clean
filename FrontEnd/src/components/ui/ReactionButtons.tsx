@@ -42,7 +42,7 @@ export default function ReactionButtons({ articleId, variant = 'default' }: { ar
                 title="Like"
                 className={`${baseClasses} 
           ${userReaction === 'LIKE'
-                        ? 'border-emerald-200 dark:border-emerald-500/30 bg-gradient-to-br from-emerald-50 to-teal-100 dark:from-emerald-500/10 dark:to-teal-500/5 text-emerald-700 dark:text-emerald-400'
+                        ? 'border-emerald-700 bg-emerald-700 text-white dark:border-emerald-600 dark:bg-emerald-600 dark:text-white'
                         : 'border-black/5 dark:border-white/5 bg-transparent hover:bg-black/5 dark:hover:bg-white/10 text-neutral-800 dark:text-neutral-200'
                     }
         `}
@@ -65,7 +65,7 @@ export default function ReactionButtons({ articleId, variant = 'default' }: { ar
                 title="Dislike"
                 className={`${baseClasses} 
           ${userReaction === 'DISLIKE'
-                        ? 'border-red-200 dark:border-red-500/30 bg-gradient-to-br from-red-50 to-orange-100 dark:from-red-500/10 dark:to-orange-500/5 text-red-700 dark:text-red-400'
+                        ? 'border-red-700 bg-red-700 text-white dark:border-red-600 dark:bg-red-600 dark:text-white'
                         : 'border-black/5 dark:border-white/5 bg-transparent hover:bg-black/5 dark:hover:bg-white/10 text-neutral-800 dark:text-neutral-200'
                     }
         `}
@@ -88,7 +88,7 @@ export default function ReactionButtons({ articleId, variant = 'default' }: { ar
                 title="Repost"
                 className={`${baseClasses} 
           ${userReposted
-                        ? 'border-violet-200 dark:border-violet-500/30 bg-gradient-to-br from-violet-50 to-purple-100 dark:from-violet-500/10 dark:to-purple-500/5 text-violet-700 dark:text-violet-400'
+                        ? 'border-violet-700 bg-violet-700 text-white dark:border-violet-600 dark:bg-violet-600 dark:text-white'
                         : 'border-black/5 dark:border-white/5 bg-transparent hover:bg-black/5 dark:hover:bg-white/10 text-neutral-800 dark:text-neutral-200'
                     }
         `}
