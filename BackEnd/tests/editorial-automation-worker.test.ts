@@ -380,6 +380,38 @@ describe('editorial automation indexing selection', () => {
     });
   });
 
+  it('keeps a controlled publication pass alive until a publication audit is visible', async () => {
+    const reports = [
+      { clusters: 1, publications: 0 },
+      { clusters: 0, publications: 0 },
+      { clusters: 0, publications: 1 },
+    ];
+    const runTick = vi.fn(async () => ({
+      documentsQueuedForIndexing: 0,
+      documentsAlreadyIndexed: 2,
+      documentsIndexedThisRun: 0,
+      clusters: 0,
+      briefs: 0,
+      drafts: 0,
+      verifications: 0,
+      publications: 0,
+      existingRun: { status: 'COMPLETED' },
+      ...reports.shift(),
+    } as any));
+    let clock = 0;
+
+    const report = await runEditorialAutomationPasses(runTick, {
+      waitMs: 10_000,
+      pollMs: 1_000,
+      now: () => clock,
+      sleep: async (milliseconds) => { clock += milliseconds; },
+      until: (current) => current.publications > 0,
+    });
+
+    expect(runTick).toHaveBeenCalledTimes(3);
+    expect(report.publications).toBe(1);
+  });
+
   it('requires the one-shot confirmation and honours its local kill switch', () => {
     expect(() => assertEditorialAutomationOnceSafety([], flags())).toThrow('Confirmation required');
     expect(() => assertEditorialAutomationOnceSafety(['--confirm=EPION_EDITORIAL_AUTOMATION'], resolveEditorialVerificationRuntimeFlags({ EDITORIAL_AUTOMATION_ENABLED: 'true', EDITORIAL_AUTOMATION_KILL_SWITCH: 'true' }))).toThrow('kill-switched');

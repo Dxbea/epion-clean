@@ -43,13 +43,17 @@ function input(overrides: Partial<Parameters<typeof autoPublishVerifiedEditorial
 
 function client(draft = state(), publishedToday = 0) {
   const transaction = {
+    $queryRaw: vi.fn(async () => [{ pg_advisory_xact_lock: null }]),
     article: { updateMany: vi.fn(async () => ({ count: 1 })), findUnique: vi.fn() },
-    editorialReviewAuditLog: { create: vi.fn(async () => ({})), findUnique: vi.fn() },
+    editorialReviewAuditLog: {
+      count: vi.fn(async () => publishedToday),
+      create: vi.fn(async () => ({})),
+      findUnique: vi.fn(),
+    },
   };
   return {
     user: { findUnique: vi.fn(async () => ({ id: 'system-admin', role: 'ADMIN' })) },
     editorialDraft: { findUnique: vi.fn(async () => draft) },
-    editorialReviewAuditLog: { count: vi.fn(async () => publishedToday) },
     $transaction: vi.fn(async (callback: any) => callback(transaction)),
     transaction,
   } as unknown as PrismaClient & { transaction: typeof transaction };
@@ -65,6 +69,12 @@ describe('controlled editorial auto-publication', () => {
   it('publishes only a current PASSED verification with complete sources, FactScore and category', async () => {
     const mocked = client();
     await expect(autoPublishVerifiedEditorialArticle(mocked, input())).resolves.toMatchObject({ outcome: 'ARTICLE_PUBLISHED', articleId: 'article-1', publishedAt: now });
+    expect(mocked.transaction.$queryRaw).toHaveBeenCalledOnce();
+    expect(mocked.transaction.editorialReviewAuditLog.count).toHaveBeenCalledOnce();
+    expect(mocked.transaction.$queryRaw.mock.invocationCallOrder[0])
+      .toBeLessThan(mocked.transaction.editorialReviewAuditLog.count.mock.invocationCallOrder[0]);
+    expect(mocked.transaction.editorialReviewAuditLog.count.mock.invocationCallOrder[0])
+      .toBeLessThan(mocked.transaction.article.updateMany.mock.invocationCallOrder[0]);
     expect(mocked.transaction.article.updateMany).toHaveBeenCalledWith({ where: { id: 'article-1', status: 'DRAFT', publishedAt: null }, data: { status: 'PUBLISHED', publishedAt: now } });
     expect(mocked.transaction.editorialReviewAuditLog.create).toHaveBeenCalledWith(expect.objectContaining({
       data: expect.objectContaining({ action: 'ARTICLE_PUBLISHED', actorUserId: 'system-admin', operationKey: expect.stringContaining('editorial-autopublish:') }),
@@ -85,6 +95,7 @@ describe('controlled editorial auto-publication', () => {
   it('honours the daily quota before mutating the Article', async () => {
     const mocked = client(state(), 1);
     await expect(autoPublishVerifiedEditorialArticle(mocked, input())).rejects.toMatchObject({ code: 'AUTOPUBLISH_DAILY_QUOTA_REACHED' });
-    expect(mocked.$transaction).not.toHaveBeenCalled();
+    expect(mocked.$transaction).toHaveBeenCalledOnce();
+    expect(mocked.transaction.article.updateMany).not.toHaveBeenCalled();
   });
 });

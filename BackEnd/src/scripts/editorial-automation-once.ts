@@ -36,6 +36,7 @@ export async function runEditorialAutomationPasses(
     pollMs?: number;
     sleep?: (milliseconds: number) => Promise<void>;
     now?: () => number;
+    until?: (report: EditorialAutomationReport) => boolean;
   },
 ): Promise<EditorialAutomationOneShotResult> {
   const now = options.now ?? Date.now;
@@ -54,7 +55,12 @@ export async function runEditorialAutomationPasses(
     verifications: initial.verifications,
   };
 
-  while (options.waitMs > 0 && automationPassNeedsFollowUp(current) && now() < deadline) {
+  while (
+    options.waitMs > 0
+    && now() < deadline
+    && !options.until?.(current)
+    && (Boolean(options.until) || automationPassNeedsFollowUp(current))
+  ) {
     await sleep(Math.min(pollMs, Math.max(1, deadline - now())));
     current = await runTick();
     passes++;

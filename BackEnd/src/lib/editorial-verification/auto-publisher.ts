@@ -51,14 +51,19 @@ export async function autoPublishVerifiedEditorialArticle(
   const now = input.now ?? new Date();
   const operationKey = buildAutoPublicationOperationKey(draft.id, revision.id, contentHash);
   const dayStart = startOfUtcDay(now);
-  const publishedToday = await client.editorialReviewAuditLog.count({
-    where: { action: 'ARTICLE_PUBLISHED', operationKey: { startsWith: OPERATION_PREFIX }, createdAt: { gte: dayStart } },
-  });
-  if (publishedToday >= input.flags.autoPublishMaxPerDay) {
-    throw new EditorialAutoPublicationBlockedError('AUTOPUBLISH_DAILY_QUOTA_REACHED', 'Auto-publication daily quota has been reached');
-  }
 
   return client.$transaction(async (transaction) => {
+    await transaction.$queryRaw`
+      SELECT pg_advisory_xact_lock(
+        hashtext('epion:editorial-autopublish:daily-quota')
+      )::text AS "locked"
+    `;
+    const publishedToday = await transaction.editorialReviewAuditLog.count({
+      where: { action: 'ARTICLE_PUBLISHED', operationKey: { startsWith: OPERATION_PREFIX }, createdAt: { gte: dayStart } },
+    });
+    if (publishedToday >= input.flags.autoPublishMaxPerDay) {
+      throw new EditorialAutoPublicationBlockedError('AUTOPUBLISH_DAILY_QUOTA_REACHED', 'Auto-publication daily quota has been reached');
+    }
     const claim = await transaction.article.updateMany({
       where: { id: article.id, status: 'DRAFT', publishedAt: null },
       data: { status: 'PUBLISHED', publishedAt: now },
