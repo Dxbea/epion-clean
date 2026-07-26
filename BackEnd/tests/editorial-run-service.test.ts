@@ -200,6 +200,48 @@ describe('editorial shadow run persistence', () => {
       domain: 'delta.example',
       sourceId: 'source-d',
       embedding: vector(0.96, 0.15),
+    }, {
+      ...initial,
+      id: 'document-e',
+      title: 'Cinquieme confirmation independante',
+      domain: 'epsilon.example',
+      sourceId: 'source-e',
+      embedding: vector(0.95, 0.18),
+    }, {
+      ...initial,
+      id: 'document-f',
+      title: 'Sixieme confirmation independante',
+      domain: 'zeta.example',
+      sourceId: 'source-f',
+      embedding: vector(0.94, 0.2),
+    }, {
+      ...initial,
+      id: 'document-g',
+      title: 'Analyse institutionnelle complementaire',
+      domain: 'eta.example',
+      sourceId: 'source-g',
+      embedding: vector(0.93, 0.22),
+    }, {
+      ...initial,
+      id: 'document-h',
+      title: 'Donnees publiques de corroboration',
+      domain: 'theta.example',
+      sourceId: 'source-h',
+      embedding: vector(0.92, 0.24),
+    }, {
+      ...initial,
+      id: 'document-i',
+      title: 'Eclairage scientifique distinct',
+      domain: 'iota.example',
+      sourceId: 'source-i',
+      embedding: vector(0.91, 0.26),
+    }, {
+      ...initial,
+      id: 'document-j',
+      title: 'Verification factuelle additionnelle',
+      domain: 'kappa.example',
+      sourceId: 'source-j',
+      embedding: vector(0.9, 0.28),
     }];
     const transaction = {
       editorialTopic: {
@@ -232,14 +274,25 @@ describe('editorial shadow run persistence', () => {
     } as unknown as PrismaClient;
     const enrichTopicSources = vi.fn(async () => ({
       enrichmentStatus: 'SUFFICIENT' as const,
-      sourcesFound: 4,
-      sourcesAccepted: 3,
+      sourcesFound: 10,
+      sourcesAccepted: 9,
       sourcesRejected: 0,
       independentDomainsBefore: 1,
-      independentDomainsAfter: 4,
+      independentDomainsAfter: 10,
       documentsBefore: 1,
-      documentsAfter: 4,
-      independentDomains: ['alpha.example', 'beta.example', 'delta.example', 'gamma.example'],
+      documentsAfter: 10,
+      independentDomains: [
+        'alpha.example',
+        'beta.example',
+        'delta.example',
+        'epsilon.example',
+        'eta.example',
+        'gamma.example',
+        'iota.example',
+        'kappa.example',
+        'theta.example',
+        'zeta.example',
+      ],
       rejectionReasons: [],
       serperQueries: [],
       reusedCorpusDocuments: enriched.map((document) => document.id),
@@ -262,7 +315,7 @@ describe('editorial shadow run persistence', () => {
 
     expect(enrichTopicSources).toHaveBeenCalledWith(expect.anything(), 'candidate-1', expect.objectContaining({
       requiredDomains: 2,
-      minimumDocuments: 4,
+      minimumDocuments: 10,
       promoteCandidate: false,
     }));
     expect(result.proposedCandidates).toBe(1);

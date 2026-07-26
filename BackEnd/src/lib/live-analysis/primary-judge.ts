@@ -37,15 +37,17 @@ interface GenerationEvidenceCoverage {
     domains: number;
 }
 
+const MAX_GENERATION_EVIDENCE_REPAIRS = 2;
+
 function generationEvidenceTarget(factCheckContext: FactCheckContext): GenerationEvidenceCoverage {
     const urls = new Set(factCheckContext.sources.map((source) => source.url).filter(Boolean));
     const domains = new Set(factCheckContext.sources
         .map((source) => source.domain.trim().toLowerCase())
         .filter(Boolean));
-    const sources = urls.size >= 8 ? 4 : urls.size >= 4 ? 3 : Math.min(urls.size, 2);
+    const sources = urls.size >= 8 ? 6 : urls.size >= 4 ? 3 : Math.min(urls.size, 2);
     return {
         sources,
-        domains: Math.min(domains.size, sources, 3),
+        domains: Math.min(domains.size, sources, urls.size >= 12 ? 4 : 3),
     };
 }
 
@@ -235,34 +237,50 @@ ${sourcesBlock}
 
 Réponds UNIQUEMENT le JSON.`;
 
-    const firstVerdict = await executeJudgeCall(systemPrompt, userPrompt, topic, true);
-    if (meetsGenerationEvidenceTarget(firstVerdict.generatedContent, evidenceTarget)
-        || evidenceTarget.sources <= 1) {
-        return firstVerdict;
-    }
-
-    const firstCoverage = generatedEvidenceCoverage(firstVerdict.generatedContent);
-    logger.warn('Generated article evidence coverage is insufficient; retrying once', {
-        module: 'PrimaryJudge',
-        availableSources: factCheckContext.sources.length,
-        usedSources: firstCoverage.sources,
-        usedDomains: firstCoverage.domains,
-        requiredSources: evidenceTarget.sources,
-        requiredDomains: evidenceTarget.domains,
-    });
-    const repairedVerdict = await executeJudgeCall(
-        systemPrompt,
-        `${userPrompt}
+    let bestVerdict = await executeJudgeCall(systemPrompt, userPrompt, topic, true);
+    for (let attempt = 1;
+        attempt <= MAX_GENERATION_EVIDENCE_REPAIRS
+        && !meetsGenerationEvidenceTarget(bestVerdict.generatedContent, evidenceTarget)
+        && evidenceTarget.sources > 1;
+        attempt++) {
+        const bestCoverage = generatedEvidenceCoverage(bestVerdict.generatedContent);
+        logger.warn('Generated article evidence coverage is insufficient; retrying', {
+            module: 'PrimaryJudge',
+            code: 'GENERATION_EVIDENCE_COVERAGE_BELOW_TARGET',
+            attempt,
+            availableSources: factCheckContext.sources.length,
+            citedSources: bestCoverage.sources,
+            citedDomains: bestCoverage.domains,
+            requiredSources: evidenceTarget.sources,
+            requiredDomains: evidenceTarget.domains,
+        });
+        const repairedVerdict = await executeJudgeCall(
+            systemPrompt,
+            `${userPrompt}
 
 ## CORRECTION OBLIGATOIRE
-La reponse precedente ne couvrait pas assez de preuves. Regenere l'objet complet en utilisant au moins ${evidenceTarget.sources} sources distinctes issues d'au moins ${evidenceTarget.domains} domaines distincts dans structuredContent.claims ou structuredContent.sections[].items. N'ajoute jamais une source a une affirmation qu'elle n'etaye pas.`,
-        topic,
-        true,
-    );
-    return generationEvidenceCoverageRank(repairedVerdict.generatedContent)
-        > generationEvidenceCoverageRank(firstVerdict.generatedContent)
-        ? repairedVerdict
-        : firstVerdict;
+La reponse precedente ne couvrait que ${bestCoverage.sources} sources et ${bestCoverage.domains} domaines. Regenere l'objet complet en utilisant au moins ${evidenceTarget.sources} sources distinctes issues d'au moins ${evidenceTarget.domains} domaines distincts dans structuredContent.claims ou structuredContent.sections[].items. N'ajoute jamais une source a une affirmation qu'elle n'etaye pas.`,
+            topic,
+            true,
+        );
+        if (generationEvidenceCoverageRank(repairedVerdict.generatedContent)
+            > generationEvidenceCoverageRank(bestVerdict.generatedContent)) {
+            bestVerdict = repairedVerdict;
+        }
+    }
+    if (!meetsGenerationEvidenceTarget(bestVerdict.generatedContent, evidenceTarget)) {
+        const finalCoverage = generatedEvidenceCoverage(bestVerdict.generatedContent);
+        logger.warn('Generated article evidence coverage remains below target after bounded repairs', {
+            module: 'PrimaryJudge',
+            code: 'GENERATION_EVIDENCE_COVERAGE_REPAIR_EXHAUSTED',
+            availableSources: factCheckContext.sources.length,
+            citedSources: finalCoverage.sources,
+            citedDomains: finalCoverage.domains,
+            requiredSources: evidenceTarget.sources,
+            requiredDomains: evidenceTarget.domains,
+        });
+    }
+    return bestVerdict;
 }
 
 // ─── Mode: Analyze only (existing article) ──────────────────────────────────

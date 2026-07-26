@@ -267,8 +267,10 @@ export async function verifyEditorialDraftForFinalization(
       contentHash: draft.contentHash,
       editorialVerificationRunId: run.id,
     } as unknown as typeof publicStructuredContent;
-    const auditedUrls = new Set(auditedEvidence.map((item) => item.url));
-    const finalSources = sources.filter((source) => auditedUrls.has(source.url));
+    // All hydrated sources were transmitted to Mistral and therefore form the
+    // consulted source set. auditedEvidence remains the narrower, exact input
+    // for structured claimEvidence and publication gates.
+    const finalSources = sources;
     const finalization = await dependencies.finalizeArticle(client, {
       articleId: draft.article.id,
       title: draft.title,

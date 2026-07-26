@@ -285,6 +285,49 @@ describe('article detail fact-check payloads', () => {
     expect(response.body.factCheckData.sources).toEqual(response.body.sources);
   });
 
+  it('keeps 12 consulted USER_REQUEST sources visible when only three have ArticleSource relations', async () => {
+    const sources = Array.from({ length: 12 }, (_, index) => ({
+      id: index + 1,
+      sourceId: `src_${index + 1}`,
+      domain: `publisher-${index + 1}.example`,
+      url: `https://publisher-${index + 1}.example/story`,
+      trustScore: 80 - index,
+      analysisStatus: 'ANALYZED',
+    }));
+    articleFindUnique.mockResolvedValueOnce(publishedArticle({
+      factCheckData: {
+        ...publishedArticle().factCheckData,
+        sources,
+      },
+    }));
+    articleSourceFindMany.mockResolvedValueOnce(sources.slice(0, 3).map((source, index) => ({
+      sourceId: `durable-${index + 1}`,
+      sourceUrl: source.url,
+      role: index === 0 ? 'PRIMARY_EVIDENCE' : 'CONTEXT',
+      supportStrength: 'STRONG',
+      provenance: 'WEB_SEARCH',
+      profileSnapshot: null,
+      profileVersion: null,
+      snapshotAt: null,
+      position: index,
+      createdAt: new Date(),
+      source: {
+        id: `durable-${index + 1}`,
+        domain: source.domain,
+        name: source.domain,
+        type: 'MEDIA',
+        trustScore: source.trustScore,
+      },
+    })));
+
+    const response = await request(buildApp()).get('/api/articles/article-id');
+
+    expect(response.status).toBe(200);
+    expect(response.body.sources).toHaveLength(12);
+    expect(new Set(response.body.sources.map((source: any) => source.domain)).size).toBe(12);
+    expect(response.body.factCheckData.sources).toEqual(response.body.sources);
+  });
+
   it('does not break when the legacy fact-check JSON is malformed', async () => {
     articleFindUnique.mockResolvedValueOnce(publishedArticle({ factCheckData: 'malformed' }));
 

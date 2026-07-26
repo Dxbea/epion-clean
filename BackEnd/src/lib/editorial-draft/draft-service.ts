@@ -463,6 +463,10 @@ function markEditorialDossierUsage(
   }
   return markEvidenceDossierUsage(dossier, {
     documentIds: [...documentIds],
+    // The complete frozen evidence set was transmitted to the writer and
+    // critic. Exact claim associations remain limited to documentIds and
+    // claimKeysByDocumentId above.
+    consultedDocumentIds: evidence.map((item) => item.documentId),
     claimKeysByDocumentId: Object.fromEntries(
       [...claimKeysByDocumentId].map(([documentId, claimKeys]) => [
         documentId,

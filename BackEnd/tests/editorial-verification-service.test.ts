@@ -46,6 +46,7 @@ function draftFixture() {
         evidence: [
           { evidenceKey: 'ev_1', documentId: 'doc-1', canonicalUrl: 'https://one.example/a', documentTitle: 'One', domain: 'one.example', contentSnapshot: 'Central fact', publishedAt: null, role: 'PRIMARY', document: { sourceId: 'source-1', source: {} } },
           { evidenceKey: 'ev_2', documentId: 'doc-2', canonicalUrl: 'https://two.example/b', documentTitle: 'Two', domain: 'two.example', contentSnapshot: 'Alternative', publishedAt: null, role: 'CONTEXT', document: { sourceId: 'source-2', source: {} } },
+          { evidenceKey: 'ev_3', documentId: 'doc-3', canonicalUrl: 'https://three.example/c', documentTitle: 'Three', domain: 'three.example', contentSnapshot: 'Additional verification context', publishedAt: null, role: 'CONTEXT', document: { sourceId: 'source-3', source: {} } },
         ],
       },
     },
@@ -130,6 +131,7 @@ describe('editorial verification orchestration', () => {
       sources: expect.arrayContaining([
         expect.objectContaining({ durableSourceId: 'source-1' }),
         expect.objectContaining({ durableSourceId: 'source-2' }),
+        expect.objectContaining({ durableSourceId: 'source-3' }),
       ]),
     }), expect.objectContaining({ afterPersist: expect.any(Function) }));
     expect(client.article.updateMany).toHaveBeenCalledWith(expect.objectContaining({

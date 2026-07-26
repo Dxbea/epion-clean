@@ -66,8 +66,8 @@ describe('primary judge multi-source coverage', () => {
     vi.clearAllMocks();
   });
 
-  it('repairs a 9-source USER_REQUEST generation that initially cites only one source', async () => {
-    const sources = Array.from({ length: 9 }, (_, index) => ({
+  it('repairs a 12+ source USER_REQUEST generation until six precise citations span four domains', async () => {
+    const sources = Array.from({ length: 14 }, (_, index) => ({
       url: `https://publisher-${index + 1}.example/story`,
       title: `Publisher ${index + 1}`,
       content: `Evidence ${index + 1}`,
@@ -77,7 +77,8 @@ describe('primary judge multi-source coverage', () => {
     }));
     createCompletion
       .mockResolvedValueOnce(completion([sources[0].url]))
-      .mockResolvedValueOnce(completion(sources.slice(0, 4).map((source) => source.url)));
+      .mockResolvedValueOnce(completion(sources.slice(0, 3).map((source) => source.url)))
+      .mockResolvedValueOnce(completion(sources.slice(0, 6).map((source) => source.url)));
 
     const verdict = await runPrimaryJudgeWithGeneration('Topic', {
       sources,
@@ -89,10 +90,10 @@ describe('primary judge multi-source coverage', () => {
       },
     });
 
-    expect(createCompletion).toHaveBeenCalledTimes(2);
+    expect(createCompletion).toHaveBeenCalledTimes(3);
     expect(createCompletion.mock.calls[1][0].messages[1].content).toContain(
-      'au moins 4 sources distinctes issues d\'au moins 3 domaines distincts',
+      'au moins 6 sources distinctes issues d\'au moins 4 domaines distincts',
     );
-    expect(verdict.generatedContent?.structuredContent?.claims).toHaveLength(4);
+    expect(verdict.generatedContent?.structuredContent?.claims).toHaveLength(6);
   });
 });

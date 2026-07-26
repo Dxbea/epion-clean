@@ -266,6 +266,40 @@ describe('Article Generation Core', () => {
     ]);
   });
 
+  it('marks consulted evidence USED without inventing a claim association', () => {
+    const dossier = markEvidenceDossierUsage({
+      mode: 'USER_REQUEST',
+      items: [{
+        ingestedDocumentId: 'doc-consulted',
+        chunkIds: ['chunk-consulted'],
+        sourceId: 'source-consulted',
+        canonicalUrl: 'https://consulted.example/story',
+        domain: 'consulted.example',
+        title: 'Consulted source',
+        role: 'CONTEXT',
+        status: 'INDEXED',
+        claimKeys: [],
+        provenance: 'SERPER',
+        traceability: 'COMPLETE',
+      }],
+      traceability: 'COMPLETE',
+      degradedReasons: [],
+      persistedDocuments: 1,
+      indexedDocuments: 1,
+      usedEvidenceItems: 0,
+    }, {
+      consultedDocumentIds: ['doc-consulted'],
+    });
+
+    expect(dossier).toMatchObject({
+      usedEvidenceItems: 1,
+      items: [expect.objectContaining({
+        status: 'USED',
+        claimKeys: [],
+      })],
+    });
+  });
+
   it('counts source references attached to structured section items as USED evidence', () => {
     const usage = extractStructuredArticleEvidenceUsage({
       version: 1,

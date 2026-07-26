@@ -115,13 +115,64 @@ export async function runLiveAnalysisWithGeneration(
     result.generatedContent = primaryVerdict.generatedContent;
     result.sources = factCheckContext.sources;
     if (evidenceDossier) {
+        const citedUsage = extractStructuredArticleEvidenceUsage(
+            primaryVerdict.generatedContent?.structuredContent,
+        );
         result.evidenceDossier = markEvidenceDossierUsage(
             evidenceDossier,
-            extractStructuredArticleEvidenceUsage(primaryVerdict.generatedContent?.structuredContent),
+            {
+                ...citedUsage,
+                // Every eligible source in this context was transmitted to both
+                // the generator and the auditor. It is therefore USED even when
+                // the model did not attach it to an exact claim.
+                consultedSourceUrls: factCheckContext.sources.map((source) => source.url),
+            },
         );
+        logConsultedSourceCoverage(factCheckContext.sources);
     }
 
     return result;
+}
+
+function logConsultedSourceCoverage(sources: FactCheckSource[]): void {
+    const normalizedUrls = new Set(sources
+        .map((source) => normalizeArticleSourceUrl(source.url))
+        .filter((url): url is string => Boolean(url)));
+    const domains = new Set(sources
+        .map((source) => source.domain.trim().toLowerCase().replace(/^www\./, ''))
+        .filter(Boolean));
+    const requiredSources = normalizedUrls.size >= 12
+        ? 10
+        : normalizedUrls.size >= 8
+            ? 6
+            : normalizedUrls.size >= 4
+                ? 3
+                : Math.min(normalizedUrls.size, 2);
+    const requiredDomains = normalizedUrls.size >= 12
+        ? 4
+        : normalizedUrls.size >= 8
+            ? 3
+            : Math.min(domains.size, requiredSources, 2);
+    const coverage = {
+        module: 'LiveAnalysis',
+        code: normalizedUrls.size >= requiredSources && domains.size >= requiredDomains
+            ? 'USER_CONSULTED_SOURCE_COVERAGE_TARGET_MET'
+            : 'USER_CONSULTED_SOURCE_COVERAGE_BELOW_TARGET',
+        consultedSources: normalizedUrls.size,
+        consultedDomains: domains.size,
+        requiredSources,
+        requiredDomains,
+        reason: normalizedUrls.size < requiredSources
+            ? 'INSUFFICIENT_ELIGIBLE_EVIDENCE_AFTER_DOSSIER_FILTER'
+            : domains.size < requiredDomains
+                ? 'INSUFFICIENT_INDEPENDENT_DOMAINS_AFTER_DOSSIER_FILTER'
+                : null,
+    };
+    if (coverage.reason) {
+        logger.warn('USER_REQUEST consulted source coverage remains below target', coverage);
+    } else {
+        logger.info('USER_REQUEST consulted source coverage target met', coverage);
+    }
 }
 
 function attachDossierIdentity(

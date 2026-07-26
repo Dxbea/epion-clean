@@ -19,6 +19,11 @@ describe('conditional editorial Serper enrichment', () => {
         expect.objectContaining({ lane: 'PRIMARY' }),
         expect.objectContaining({ lane: 'COUNTERPOINT' }),
       ]);
+    expect(buildEditorialSerperQueries('Sujet', ['INSUFFICIENT_CLAIM_COVERAGE']))
+      .toEqual([
+        expect.objectContaining({ lane: 'PRIMARY' }),
+        expect.objectContaining({ lane: 'CONTEXT' }),
+      ]);
   });
 
   it('persists diverse Serper results through the idempotent corpus service', async () => {

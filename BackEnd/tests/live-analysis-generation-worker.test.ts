@@ -253,6 +253,84 @@ describe('live-analysis article generation worker', () => {
     );
   });
 
+  it('passes 12+ consulted USER_REQUEST sources through factCheckData for API visibility', async () => {
+    const sources = Array.from({ length: 14 }, (_, index) => ({
+      url: `https://publisher-${index + 1}.example/story`,
+      title: `Publisher ${index + 1}`,
+      content: `Evidence ${index + 1}`,
+      domain: `publisher-${index + 1}.example`,
+      extractionStatus: 'full',
+      provider: 'web',
+      searchLane: index === 0 ? 'FACTUAL' : 'CONTEXTUAL',
+      role: index === 0 ? 'PRIMARY_EVIDENCE' : 'CONTEXT',
+      provenance: 'WEB_SEARCH',
+    }));
+    runLiveAnalysisWithGeneration.mockResolvedValueOnce({
+      globalScore: 84,
+      contentIntent: 'REPORT',
+      pillarScores: {
+        transparency: { score: 84 },
+        editorial: { score: 84 },
+        semantic: { score: 84 },
+        logic: { score: 84 },
+      },
+      judges: { primary: {}, auditor: {} },
+      sources,
+      evidenceDossier: {
+        mode: 'USER_REQUEST',
+        items: sources.map((source, index) => ({
+          ingestedDocumentId: `doc-${index + 1}`,
+          chunkIds: [],
+          canonicalUrl: source.url,
+          discoveredUrls: [source.url],
+          domain: source.domain,
+          title: source.title,
+          role: index === 0 ? 'PRIMARY' : 'CONTEXT',
+          status: 'USED',
+          claimKeys: index < 6 ? [`claim-${index + 1}`] : [],
+          provenance: 'SERPER',
+          traceability: 'DEGRADED',
+        })),
+        traceability: 'DEGRADED',
+        degradedReasons: ['USED_DOCUMENT_NOT_INDEXED'],
+        persistedDocuments: 14,
+        indexedDocuments: 0,
+        usedEvidenceItems: 14,
+      },
+      generatedContent: {
+        title: 'Rich generated title',
+        summary: 'Rich generated summary',
+        content: 'Rich generated content',
+        structuredContent: { blocks: [] },
+        imagePrompt: null,
+        wikipedia_search_query: null,
+        tags: ['media'],
+        opinionQuestion: null,
+      },
+    });
+    startLiveAnalysisWorker();
+
+    const result = await capturedProcessor({
+      id: 'job-rich',
+      data: {
+        articleId: 'article-1',
+        requestedByUserId: 'user-1',
+        mode: 'article-generation',
+        topic: 'Rich evidence topic',
+        language: 'fr',
+        style: 'indepth',
+        citationUrls: [],
+      },
+    });
+
+    const completedUpdate = articleUpdate.mock.calls
+      .map(([input]) => input)
+      .find((input) => input.data?.factCheckStatus === 'COMPLETED');
+    expect(result.citationUrls).toHaveLength(14);
+    expect(completedUpdate.data.factCheckData.sources).toHaveLength(14);
+    expect(new Set(completedUpdate.data.factCheckData.sources.map((source: any) => source.domain)).size).toBe(14);
+  });
+
   it('does not fail user generation when corpus persistence is unavailable', async () => {
     startLiveAnalysisWorker();
     prepareEvidenceCorpus.mockRejectedValueOnce(new Error('corpus unavailable'));

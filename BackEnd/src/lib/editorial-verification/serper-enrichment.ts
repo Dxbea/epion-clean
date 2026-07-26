@@ -1,6 +1,7 @@
 import { createHash } from 'node:crypto';
 import type { PrismaClient } from '@prisma/client';
 import { normalizeArticleSourceUrl } from '../article-source-service.js';
+import { resolveArticleGenerationPolicy } from '../article-generation-core/policy.js';
 import { persistWebEvidenceCandidates } from '../article-generation-core/evidence-gathering.js';
 import { buildEvidenceDossier } from '../article-generation-core/evidence-dossier.js';
 import type { EvidenceDossier } from '../article-generation-core/types.js';
@@ -12,8 +13,10 @@ import type {
   EditorialVerificationEvidence,
 } from './types.js';
 
-const MAX_RESULTS_PER_QUERY = 4;
+const MAX_RESULTS_PER_QUERY = 5;
 const MAX_PERSISTED_RESULTS = 10;
+const MAX_SERPER_QUERIES = resolveArticleGenerationPolicy('AUTO_EDITORIAL')
+  .evidence.maximumPaidQueries;
 
 export interface EditorialSerperQuery {
   lane: EditorialEvidenceLane;
@@ -44,6 +47,12 @@ export function buildEditorialSerperQueries(
   const queries: EditorialSerperQuery[] = [];
   if (reasons.includes('MISSING_PRIMARY_SOURCE')) {
     queries.push({ lane: 'PRIMARY', query: `${normalizedTopic} source officielle communiqué rapport données` });
+  }
+  if (
+    reasons.includes('INSUFFICIENT_CLAIM_COVERAGE')
+    && !reasons.includes('MISSING_PRIMARY_SOURCE')
+  ) {
+    queries.push({ lane: 'PRIMARY', query: `${normalizedTopic} rapport données étude document source` });
   }
   if (reasons.includes('MISSING_COUNTERPOINT')) {
     queries.push({ lane: 'COUNTERPOINT', query: `${normalizedTopic} réaction critique contradiction contrepoint` });
@@ -87,7 +96,8 @@ export async function enrichEditorialEvidenceWithSerper(
     };
   }
   const now = input.now ?? new Date();
-  const queries = buildEditorialSerperQueries(input.topic, input.reasons);
+  const queries = buildEditorialSerperQueries(input.topic, input.reasons)
+    .slice(0, MAX_SERPER_QUERIES);
   const results = await Promise.all(queries.map(async (query) => ({
     query,
     results: await searcher(query.query, {

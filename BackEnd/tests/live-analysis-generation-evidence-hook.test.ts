@@ -23,6 +23,7 @@ vi.mock('../src/lib/live-analysis/auditor-judge.js', () => ({
 vi.mock('../src/lib/logger.js', () => ({
   logger: {
     info: vi.fn(),
+    warn: vi.fn(),
     error: vi.fn(),
   },
 }));
@@ -75,7 +76,7 @@ describe('live-analysis generation evidence hook', () => {
     );
   });
 
-  it('uses the dossier as generation input and marks only cited persisted evidence USED', async () => {
+  it('uses the dossier as generation input and marks consulted persisted evidence USED', async () => {
     const sources = [
       {
         url: 'https://one.example/story',
@@ -185,8 +186,8 @@ describe('live-analysis generation evidence hook', () => {
     });
   });
 
-  it('keeps a rich USER_REQUEST dossier and exposes several genuinely cited sources', async () => {
-    const sources = Array.from({ length: 9 }, (_, index) => ({
+  it('keeps 12+ consulted USER_REQUEST sources visible while claim evidence stays exact', async () => {
+    const sources = Array.from({ length: 14 }, (_, index) => ({
       url: `https://source-${index + 1}.example/story`,
       title: `Source ${index + 1}`,
       content: `Evidence ${index + 1}`,
@@ -248,7 +249,7 @@ describe('live-analysis generation evidence hook', () => {
           format: 'epion-article-v1',
           lead: {},
           sections: [{ id: 'facts', type: 'facts', title: 'Facts', body: 'Body' }],
-          claims: sources.slice(0, 4).map((source, index) => ({
+          claims: sources.slice(0, 6).map((source, index) => ({
             id: `claim-${index + 1}`,
             text: `Supported claim ${index + 1}`,
             sourceUrls: [source.url],
@@ -267,12 +268,20 @@ describe('live-analysis generation evidence hook', () => {
       onEvidenceGathered: async () => dossier,
     });
 
-    expect(result.sources).toHaveLength(9);
-    expect(result.evidenceDossier?.usedEvidenceItems).toBe(4);
-    expect(result.evidenceDossier?.items.filter((item) => item.status === 'USED')).toEqual(
-      sources.slice(0, 4).map((source, index) => expect.objectContaining({
+    expect(result.sources).toHaveLength(14);
+    expect(result.evidenceDossier?.usedEvidenceItems).toBe(14);
+    expect(result.evidenceDossier?.items.slice(0, 6)).toEqual(
+      sources.slice(0, 6).map((source, index) => expect.objectContaining({
         canonicalUrl: source.url,
+        status: 'USED',
         claimKeys: [`claim-${index + 1}`],
+      })),
+    );
+    expect(result.evidenceDossier?.items.slice(6)).toEqual(
+      sources.slice(6).map((source) => expect.objectContaining({
+        canonicalUrl: source.url,
+        status: 'USED',
+        claimKeys: [],
       })),
     );
   });

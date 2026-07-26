@@ -69,19 +69,25 @@ describe('editorial multi-source enrichment', () => {
     }));
   });
 
-  it('continues AUTO enrichment past two domains until the requested evidence depth is reached', async () => {
+  it('continues AUTO enrichment to ten independent documents before scoring', async () => {
     const additional = [
       document('who', 'who.int'),
       document('nih', 'nih.gov'),
       document('nature', 'nature.com'),
+      document('science', 'science.org'),
+      document('cnrs', 'cnrs.fr'),
+      document('insee', 'insee.fr'),
+      document('oecd', 'oecd.org'),
+      document('europa', 'europa.eu'),
+      document('un', 'un.org'),
     ];
     const client = clientWith(document('rss', 'inserm.fr'), additional);
     const enrichWithSerper = vi.fn();
 
     const result = await enrichEditorialTopicSources(client, 'candidate-1', {
       requiredDomains: 2,
-      minimumDocuments: 4,
-      maximumDocuments: 6,
+      minimumDocuments: 10,
+      maximumDocuments: 10,
     }, {
       searchCorpus: vi.fn(async () => additional.map((item, index) => ({
         documentId: item.id,
@@ -97,12 +103,22 @@ describe('editorial multi-source enrichment', () => {
 
     expect(result).toMatchObject({
       enrichmentStatus: 'SUFFICIENT',
-      sourcesAccepted: 3,
+      sourcesAccepted: 9,
       documentsBefore: 1,
-      documentsAfter: 4,
-      independentDomainsAfter: 4,
+      documentsAfter: 10,
+      independentDomainsAfter: 10,
     });
-    expect(result.reusedCorpusDocuments).toEqual(['who', 'nih', 'nature']);
+    expect(result.reusedCorpusDocuments).toEqual([
+      'who',
+      'nih',
+      'nature',
+      'science',
+      'cnrs',
+      'insee',
+      'oecd',
+      'europa',
+      'un',
+    ]);
     expect(enrichWithSerper).not.toHaveBeenCalled();
   });
 

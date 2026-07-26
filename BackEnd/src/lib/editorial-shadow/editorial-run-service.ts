@@ -20,7 +20,7 @@ const editorialLog = logger.child({ module: 'EditorialShadow' });
 const EXPECTED_EMBEDDING_DIMENSIONS = 1_536;
 const MAX_WINDOW_MS = 7 * 24 * 60 * 60 * 1_000;
 const RUN_LEASE_MS = 15 * 60_000;
-const MAX_PRE_CANDIDATE_ENRICHMENT_DOCUMENTS = 6;
+const MAX_PRE_CANDIDATE_ENRICHMENT_DOCUMENTS = 10;
 
 interface EditorialDocumentRow {
   id: string;
@@ -451,10 +451,7 @@ async function enrichSourcePoorCandidates(
       config.maxDocuments,
       Math.max(MAX_PRE_CANDIDATE_ENRICHMENT_DOCUMENTS, requiredDomains),
     );
-    const enrichmentTargets = [...new Set([
-      Math.min(maximumDocuments, Math.max(requiredDomains, 4)),
-      maximumDocuments,
-    ])];
+    const enrichmentTargets = [maximumDocuments];
     let refreshedCluster = candidate.cluster;
     let rescored = candidate.score;
     let enrichment: Awaited<ReturnType<typeof enrich>> | null = null;

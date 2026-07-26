@@ -21,8 +21,19 @@ export interface IndexedEvidenceSnapshot {
 }
 
 export interface EvidenceUsage {
+  /**
+   * Evidence attached to an exact claim/item. These references remain the
+   * source of truth for claimEvidence and claimKeys.
+   */
   sourceUrls?: string[];
   documentIds?: string[];
+  /**
+   * Evidence that was actually transmitted to the generator or auditor.
+   * Consulted evidence is USED and may be exposed as an article source even
+   * when no precise claim association was produced.
+   */
+  consultedSourceUrls?: string[];
+  consultedDocumentIds?: string[];
   claimKeysByUrl?: Record<string, string[]>;
   claimKeysByDocumentId?: Record<string, string[]>;
 }
@@ -107,10 +118,16 @@ export function markEvidenceDossierUsage(
   dossier: EvidenceDossier,
   usage: EvidenceUsage,
 ): EvidenceDossier {
-  const usedUrls = new Set((usage.sourceUrls ?? [])
+  const usedUrls = new Set([
+    ...(usage.sourceUrls ?? []),
+    ...(usage.consultedSourceUrls ?? []),
+  ]
     .map(normalizeArticleSourceUrl)
     .filter((url): url is string => Boolean(url)));
-  const usedDocumentIds = new Set(usage.documentIds ?? []);
+  const usedDocumentIds = new Set([
+    ...(usage.documentIds ?? []),
+    ...(usage.consultedDocumentIds ?? []),
+  ]);
   let foundEvidenceUsed = false;
   let unindexedEvidenceUsed = false;
   const items = dossier.items.map((item) => {
