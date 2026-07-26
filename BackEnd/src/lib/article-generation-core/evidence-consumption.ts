@@ -137,7 +137,12 @@ export function markEvidenceDossierUsage(
     ]);
     if (item.status === 'FOUND') {
       foundEvidenceUsed = true;
-      return { ...item, claimKeys, traceability: 'DEGRADED' as const };
+      return {
+        ...item,
+        status: 'USED' as const,
+        claimKeys,
+        traceability: 'DEGRADED' as const,
+      };
     }
     if (item.status === 'PERSISTED' || item.chunkIds.length === 0) {
       unindexedEvidenceUsed = true;
@@ -191,6 +196,24 @@ export function extractStructuredArticleEvidenceUsage(
       claimKeysByUrl.set(url, keys);
     }
   }
+  for (const section of structuredContent.sections ?? []) {
+    for (const item of section.items ?? []) {
+      const urls = [
+        ...(item.sourceUrls ?? []),
+        ...(item.sourceIds ?? []).map((sourceId) => urlBySourceId.get(sourceId)),
+      ]
+        .map(normalizeArticleSourceUrl)
+        .filter((url): url is string => Boolean(url));
+      const claimKeys = (item.claimIds?.length ? item.claimIds : [item.id])
+        .filter((claimKey): claimKey is string => Boolean(claimKey));
+      for (const url of urls) {
+        sourceUrls.add(url);
+        const keys = claimKeysByUrl.get(url) ?? new Set<string>();
+        claimKeys.forEach((claimKey) => keys.add(claimKey));
+        claimKeysByUrl.set(url, keys);
+      }
+    }
+  }
   return {
     sourceUrls: [...sourceUrls],
     claimKeysByUrl: Object.fromEntries(
@@ -200,11 +223,11 @@ export function extractStructuredArticleEvidenceUsage(
 }
 
 export function usedEvidenceUrls(dossier: EvidenceDossier): string[] {
-  return dossier.items
+  return unique(dossier.items
     .filter((item) => item.status === 'USED')
     .flatMap((item) => [item.canonicalUrl, ...(item.discoveredUrls ?? [])])
     .map(normalizeArticleSourceUrl)
-    .filter((url): url is string => Boolean(url));
+    .filter((url): url is string => Boolean(url)));
 }
 
 function unique(values: string[]): string[] {

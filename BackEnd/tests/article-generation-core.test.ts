@@ -17,6 +17,7 @@ const { resolveArticleGenerationPolicy } = await import(
   '../src/lib/article-generation-core/policy.js'
 );
 const {
+  extractStructuredArticleEvidenceUsage,
   markEvidenceDossierUsage,
   usedEvidenceUrls,
 } = await import('../src/lib/article-generation-core/evidence-consumption.js');
@@ -220,7 +221,7 @@ describe('Article Generation Core', () => {
     });
   });
 
-  it('keeps unpersisted radar/search findings out of final used evidence', () => {
+  it('marks cited FOUND evidence USED for a degraded private draft', () => {
     const dossier = markEvidenceDossierUsage({
       mode: 'USER_REQUEST',
       items: [{
@@ -250,17 +251,50 @@ describe('Article Generation Core', () => {
     });
 
     expect(dossier).toMatchObject({
-      usedEvidenceItems: 0,
+      usedEvidenceItems: 1,
       degradedReasons: [
         'FOUND_NOT_PERSISTED',
         'FOUND_EVIDENCE_USED_FOR_PRIVATE_DRAFT',
       ],
       items: [expect.objectContaining({
-        status: 'FOUND',
+        status: 'USED',
         claimKeys: ['claim-1'],
       })],
     });
-    expect(usedEvidenceUrls(dossier)).toEqual([]);
+    expect(usedEvidenceUrls(dossier)).toEqual([
+      'https://publisher.example/story',
+    ]);
+  });
+
+  it('counts source references attached to structured section items as USED evidence', () => {
+    const usage = extractStructuredArticleEvidenceUsage({
+      version: 1,
+      format: 'epion-article-v1',
+      lead: {},
+      sections: [{
+        id: 'facts',
+        type: 'facts',
+        items: [{
+          id: 'fact-1',
+          text: 'Corroborated fact',
+          claimIds: ['claim-1'],
+          sourceIds: ['src-one', 'src-two'],
+        }],
+      }],
+      claims: [],
+      sources: [
+        { id: 'src-one', url: 'https://one.example/story' },
+        { id: 'src-two', url: 'https://two.example/story' },
+      ],
+    });
+
+    expect(usage).toMatchObject({
+      sourceUrls: ['https://one.example/story', 'https://two.example/story'],
+      claimKeysByUrl: {
+        'https://one.example/story': ['claim-1'],
+        'https://two.example/story': ['claim-1'],
+      },
+    });
   });
 
   it('recomputes USED from the current generation output instead of preserving stale usage', () => {

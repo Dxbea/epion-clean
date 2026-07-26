@@ -179,14 +179,28 @@ describe('editorial shadow run persistence', () => {
       eventAt: new Date('2026-07-18T11:00:00Z'),
       embedding: vector(1, 0),
     };
-    const enriched = {
+    const enriched = [{
       ...initial,
       id: 'document-b',
       title: 'Confirmation indépendante de cette annonce',
       domain: 'beta.example',
       sourceId: 'source-b',
-      embedding: vector(0.93, 0.25),
-    };
+      embedding: vector(0.98, 0.1),
+    }, {
+      ...initial,
+      id: 'document-c',
+      title: 'Troisieme confirmation independante',
+      domain: 'gamma.example',
+      sourceId: 'source-c',
+      embedding: vector(0.97, 0.12),
+    }, {
+      ...initial,
+      id: 'document-d',
+      title: 'Contexte independant supplementaire',
+      domain: 'delta.example',
+      sourceId: 'source-d',
+      embedding: vector(0.96, 0.15),
+    }];
     const transaction = {
       editorialTopic: {
         deleteMany: vi.fn(async () => ({ count: 0 })),
@@ -209,24 +223,26 @@ describe('editorial shadow run persistence', () => {
         update: vi.fn(async () => ({})),
       },
       editorialTopic: {
-        findUnique: vi.fn(async () => ({ documents: [{ documentId: 'document-a' }, { documentId: 'document-b' }] })),
+        findUnique: vi.fn(async () => ({
+          documents: [initial, ...enriched].map((document) => ({ documentId: document.id })),
+        })),
       },
       $queryRaw: vi.fn(async () => [initial]),
       $transaction: vi.fn(async (operation) => operation(transaction)),
     } as unknown as PrismaClient;
     const enrichTopicSources = vi.fn(async () => ({
       enrichmentStatus: 'SUFFICIENT' as const,
-      sourcesFound: 2,
-      sourcesAccepted: 1,
+      sourcesFound: 4,
+      sourcesAccepted: 3,
       sourcesRejected: 0,
       independentDomainsBefore: 1,
-      independentDomainsAfter: 2,
+      independentDomainsAfter: 4,
       documentsBefore: 1,
-      documentsAfter: 2,
-      independentDomains: ['alpha.example', 'beta.example'],
+      documentsAfter: 4,
+      independentDomains: ['alpha.example', 'beta.example', 'delta.example', 'gamma.example'],
       rejectionReasons: [],
       serperQueries: [],
-      reusedCorpusDocuments: ['document-b'],
+      reusedCorpusDocuments: enriched.map((document) => document.id),
       newlyIngestedDocuments: [],
     }));
 
@@ -237,7 +253,7 @@ describe('editorial shadow run persistence', () => {
       now,
       enrichment: {
         enrichTopicSources,
-        loadIndexedDocuments: vi.fn(async () => [initial, enriched].map((document) => ({
+        loadIndexedDocuments: vi.fn(async () => [initial, ...enriched].map((document) => ({
           ...document,
           embedding: document.embedding.slice(1, -1).split(',').map(Number),
         }))),
@@ -246,6 +262,7 @@ describe('editorial shadow run persistence', () => {
 
     expect(enrichTopicSources).toHaveBeenCalledWith(expect.anything(), 'candidate-1', expect.objectContaining({
       requiredDomains: 2,
+      minimumDocuments: 4,
       promoteCandidate: false,
     }));
     expect(result.proposedCandidates).toBe(1);

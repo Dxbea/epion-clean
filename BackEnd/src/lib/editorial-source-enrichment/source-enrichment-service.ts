@@ -64,7 +64,13 @@ type TopicDocument = {
 export async function enrichEditorialTopicSources(
   client: PrismaClient,
   candidateId: string,
-  input: { requiredDomains: number; maximumDocuments: number; now?: Date; promoteCandidate?: boolean },
+  input: {
+    requiredDomains: number;
+    minimumDocuments?: number;
+    maximumDocuments: number;
+    now?: Date;
+    promoteCandidate?: boolean;
+  },
   overrides: EditorialSourceEnrichmentDependencies = {},
 ): Promise<EditorialSourceEnrichmentDiagnostics> {
   const candidate = await client.editorialCandidate.findUnique({
@@ -114,6 +120,12 @@ export async function enrichEditorialTopicSources(
   const domains = new Set(diagnostics.independentDomains);
   const attachedTitles = candidate.topic.documents.map((item) => item.document.title).filter((title): title is string => Boolean(title?.trim()));
   const capacity = Math.max(0, input.maximumDocuments - attached.size);
+  const minimumDocuments = Math.min(
+    input.maximumDocuments,
+    Math.max(input.minimumDocuments ?? input.requiredDomains, input.requiredDomains),
+  );
+  const needsMoreEvidence = () =>
+    domains.size < input.requiredDomains || attached.size < minimumDocuments;
 
   const attach = async (documentId: string, domain: string, similarity: number, origin: 'CORPUS' | 'SERPER'): Promise<boolean> => {
     const normalizedDomain = normalizeDomain(domain);
@@ -167,7 +179,7 @@ export async function enrichEditorialTopicSources(
     return true;
   };
 
-  if (capacity > 0 && domains.size < input.requiredDomains) {
+  if (capacity > 0 && needsMoreEvidence()) {
     const searchCorpus = overrides.searchCorpus ?? ((query, options) => searchDocumentCorpus(client, query, options));
     // Vector retrieval is an optimisation, never a reason to skip the web fallback.
     const corpus = await searchCorpus(candidate.topic.label, {
@@ -175,12 +187,12 @@ export async function enrichEditorialTopicSources(
     }).catch(() => []);
     diagnostics.sourcesFound += corpus.length;
     for (const result of corpus) {
-      if (domains.size >= input.requiredDomains || attached.size >= input.maximumDocuments) break;
+      if (!needsMoreEvidence() || attached.size >= input.maximumDocuments) break;
       await attach(result.documentId, result.domain, result.similarity, 'CORPUS');
     }
   }
 
-  if (domains.size < input.requiredDomains && attached.size < input.maximumDocuments) {
+  if (needsMoreEvidence() && attached.size < input.maximumDocuments) {
     const enrichWithSerper = overrides.enrichWithSerper ?? enrichEditorialEvidenceWithSerper;
     const existingEvidence = candidate.topic.documents.map((item, index) => ({
       evidenceKey: `topic_${item.documentId}`,
@@ -197,7 +209,10 @@ export async function enrichEditorialTopicSources(
     }));
     const serper: EditorialSerperEnrichmentResult = await enrichWithSerper(client, {
       topic: candidate.topic.label,
-      reasons: ['INSUFFICIENT_DOMAIN_DIVERSITY'],
+      reasons: [
+        ...(domains.size < input.requiredDomains ? ['INSUFFICIENT_DOMAIN_DIVERSITY' as const] : []),
+        ...(attached.size < minimumDocuments ? ['INSUFFICIENT_CLAIM_COVERAGE' as const] : []),
+      ],
       existingEvidence,
       language: candidate.topic.language,
       now: input.now,
@@ -213,7 +228,7 @@ export async function enrichEditorialTopicSources(
     }
     diagnostics.sourcesFound += serper.evidence.length;
     for (const evidence of serper.evidence) {
-      if (domains.size >= input.requiredDomains || attached.size >= input.maximumDocuments) break;
+      if (!needsMoreEvidence() || attached.size >= input.maximumDocuments) break;
       await attach(evidence.documentId, evidence.domain, 0.55, 'SERPER');
     }
   }
@@ -222,7 +237,7 @@ export async function enrichEditorialTopicSources(
   diagnostics.independentDomainsAfter = diagnostics.independentDomains.length;
   diagnostics.documentsAfter = attached.size;
   diagnostics.sourcesRejected = diagnostics.rejectionReasons.length;
-  diagnostics.enrichmentStatus = domains.size >= input.requiredDomains ? 'SUFFICIENT' : 'INSUFFICIENT';
+  diagnostics.enrichmentStatus = !needsMoreEvidence() ? 'SUFFICIENT' : 'INSUFFICIENT';
   await client.editorialTopic.update({
     where: { id: candidate.topic.id },
     data: { independentDomainCount: domains.size, documentCount: attached.size },

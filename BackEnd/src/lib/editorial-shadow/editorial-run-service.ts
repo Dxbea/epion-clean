@@ -436,7 +436,9 @@ async function enrichSourcePoorCandidates(
 
   for (const candidate of candidates) {
     const sourcePoor = candidate.score.rationale.reasons.some((reason) =>
-      reason === 'insufficient_evidence_documents' || reason === 'insufficient_independent_domains');
+      reason === 'insufficient_evidence_documents'
+      || reason === 'insufficient_independent_domains'
+      || reason === 'editorial_score_below_threshold');
     if (!sourcePoor) {
       finalized.push(candidate);
       continue;
@@ -445,36 +447,51 @@ async function enrichSourcePoorCandidates(
     const requiredDomains = candidate.score.riskLevel === 'HIGH'
       ? Math.max(config.minProposalDomains, 3)
       : config.minProposalDomains;
-    const enrichment = await enrich(client, candidate.candidateId, {
-      requiredDomains,
-      maximumDocuments: Math.min(
-        config.maxDocuments,
-        Math.max(MAX_PRE_CANDIDATE_ENRICHMENT_DOCUMENTS, requiredDomains),
-      ),
-      now,
-      promoteCandidate: false,
-    });
-    const topic = await client.editorialTopic.findUnique({
-      where: { id: candidate.topicId },
-      select: { documents: { select: { documentId: true } } },
-    });
-    if (!topic) throw new Error(`Editorial topic not found after enrichment: ${candidate.topicId}`);
-    const documentIds = topic.documents.map((document) => document.documentId);
-    const refreshedDocuments = await loadDocuments(client, {
-      windowStart: new Date(0),
-      windowEnd,
-      embeddingModel,
-      maxDocuments: Math.max(config.maxDocuments, documentIds.length),
-      documentIds,
-    });
-    const originalIds = new Set(candidate.cluster.members.map((member) => member.document.id));
-    const additionalDocuments = refreshedDocuments.filter((document) => !originalIds.has(document.id));
-    const refreshedCluster = additionalDocuments.length > 0
-      ? extendEditorialCluster(candidate.cluster, additionalDocuments, config)
-      : candidate.cluster;
-    const rescored = scoreEditorialCluster(refreshedCluster, windowEnd, config);
+    const maximumDocuments = Math.min(
+      config.maxDocuments,
+      Math.max(MAX_PRE_CANDIDATE_ENRICHMENT_DOCUMENTS, requiredDomains),
+    );
+    const enrichmentTargets = [...new Set([
+      Math.min(maximumDocuments, Math.max(requiredDomains, 4)),
+      maximumDocuments,
+    ])];
+    let refreshedCluster = candidate.cluster;
+    let rescored = candidate.score;
+    let enrichment: Awaited<ReturnType<typeof enrich>> | null = null;
+
+    for (const minimumDocuments of enrichmentTargets) {
+      if (rescored.rationale.proposalEligible) break;
+      enrichment = await enrich(client, candidate.candidateId, {
+        requiredDomains,
+        minimumDocuments,
+        maximumDocuments,
+        now,
+        promoteCandidate: false,
+      });
+      const topic = await client.editorialTopic.findUnique({
+        where: { id: candidate.topicId },
+        select: { documents: { select: { documentId: true } } },
+      });
+      if (!topic) throw new Error(`Editorial topic not found after enrichment: ${candidate.topicId}`);
+      const documentIds = topic.documents.map((document) => document.documentId);
+      const refreshedDocuments = await loadDocuments(client, {
+        windowStart: new Date(0),
+        windowEnd,
+        embeddingModel,
+        maxDocuments: Math.max(config.maxDocuments, documentIds.length),
+        documentIds,
+      });
+      const existingIds = new Set(refreshedCluster.members.map((member) => member.document.id));
+      const additionalDocuments = refreshedDocuments.filter((document) => !existingIds.has(document.id));
+      if (additionalDocuments.length > 0) {
+        refreshedCluster = extendEditorialCluster(refreshedCluster, additionalDocuments, config);
+      }
+      rescored = scoreEditorialCluster(refreshedCluster, windowEnd, config);
+    }
+
     const reasons = [...rescored.rationale.reasons];
-    if (enrichment.enrichmentStatus === 'INSUFFICIENT' &&
+    if (enrichment?.enrichmentStatus === 'INSUFFICIENT'
+      && !rescored.rationale.proposalEligible &&
       !reasons.includes('SOURCE_ENRICHMENT_INSUFFICIENT')) {
       reasons.push('SOURCE_ENRICHMENT_INSUFFICIENT');
     }
@@ -487,7 +504,7 @@ async function enrichSourcePoorCandidates(
           ...rescored.rationale,
           reasons,
           proposalEligible: reasons.length === 0,
-          enrichment,
+          ...(enrichment ? { enrichment } : {}),
         },
       },
     });

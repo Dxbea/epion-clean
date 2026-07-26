@@ -69,6 +69,43 @@ describe('editorial multi-source enrichment', () => {
     }));
   });
 
+  it('continues AUTO enrichment past two domains until the requested evidence depth is reached', async () => {
+    const additional = [
+      document('who', 'who.int'),
+      document('nih', 'nih.gov'),
+      document('nature', 'nature.com'),
+    ];
+    const client = clientWith(document('rss', 'inserm.fr'), additional);
+    const enrichWithSerper = vi.fn();
+
+    const result = await enrichEditorialTopicSources(client, 'candidate-1', {
+      requiredDomains: 2,
+      minimumDocuments: 4,
+      maximumDocuments: 6,
+    }, {
+      searchCorpus: vi.fn(async () => additional.map((item, index) => ({
+        documentId: item.id,
+        canonicalUrl: item.canonicalUrl,
+        domain: item.domain,
+        title: item.title,
+        publishedAt: null,
+        content: `Independent evidence ${index + 1}`,
+        similarity: 0.9 - index * 0.03,
+      }))),
+      enrichWithSerper,
+    });
+
+    expect(result).toMatchObject({
+      enrichmentStatus: 'SUFFICIENT',
+      sourcesAccepted: 3,
+      documentsBefore: 1,
+      documentsAfter: 4,
+      independentDomainsAfter: 4,
+    });
+    expect(result.reusedCorpusDocuments).toEqual(['who', 'nih', 'nature']);
+    expect(enrichWithSerper).not.toHaveBeenCalled();
+  });
+
   it('uses Serper only when the corpus is insufficient and counts one same-domain result', async () => {
     const client = clientWith(document('rss', 'inserm.fr'), [
       document('serper-a', 'independent.example', false),

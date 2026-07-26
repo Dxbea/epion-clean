@@ -4,6 +4,7 @@ import {
   enqueueDocumentJob,
   type DocumentJobData,
 } from '../document-corpus/document-queue.js';
+import { normalizeArticleSourceUrl } from '../article-source-service.js';
 import { buildEvidenceDossier } from './evidence-dossier.js';
 import {
   persistWebEvidenceCandidates,
@@ -43,13 +44,14 @@ export async function prepareEvidenceCorpus(
   input: PrepareEvidenceCorpusInput,
 ): Promise<PreparedEvidenceCorpus> {
   const policy = resolveArticleGenerationPolicy(input.request.mode, input.request.policy);
+  const maximumCandidates = Math.min(
+    input.persistence.maxCandidates ?? policy.evidence.maximumSources,
+    policy.evidence.maximumSources,
+  );
   const persistence = await persistWebEvidenceCandidates(dependencies.client, {
     ...input.persistence,
     mode: input.request.mode,
-    maxCandidates: Math.min(
-      input.persistence.maxCandidates ?? policy.evidence.maximumSources,
-      policy.evidence.maximumSources,
-    ),
+    maxCandidates: maximumCandidates,
   });
   const queueFailures: Array<{ documentId: string; error: string }> = [];
   let queuedForCorpus = 0;
@@ -77,14 +79,23 @@ export async function prepareEvidenceCorpus(
     && policy.latency.corpusWaitMs > 0
     ? !await waitForDocuments(dependencies, documentIds, policy.latency.corpusWaitMs)
     : false;
+  const normalizedRolesByUrl = new Map(Object.entries(input.rolesByUrl ?? {})
+    .map(([url, role]) => [normalizeArticleSourceUrl(url), role] as const)
+    .filter((entry): entry is [string, EvidenceRole] => Boolean(entry[0])));
   const rolesByDocumentId = Object.fromEntries(persistence.persisted.map((item) => [
     item.documentId,
-    input.rolesByUrl?.[item.requestedUrl] ?? 'CONTEXT',
+    normalizedRolesByUrl.get(normalizeArticleSourceUrl(item.requestedUrl) ?? '') ?? 'CONTEXT',
   ]));
   const dossier = await buildEvidenceDossier(dependencies.client, {
     mode: input.request.mode,
     documentIds,
     rolesByDocumentId,
+    foundEvidence: input.persistence.candidates.slice(0, maximumCandidates).map((candidate) => ({
+      url: candidate.url,
+      title: candidate.title,
+      role: normalizedRolesByUrl.get(normalizeArticleSourceUrl(candidate.url) ?? '') ?? 'CONTEXT',
+      provenance: input.persistence.provider,
+    })),
   });
   if (queueFailures.length > 0) {
     dossier.traceability = 'DEGRADED';

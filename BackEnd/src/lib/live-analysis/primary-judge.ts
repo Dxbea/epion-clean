@@ -30,6 +30,50 @@ import {
     normalizeStructuredArticle,
     structuredArticleToMarkdown,
 } from '../structured-article.js';
+import { extractStructuredArticleEvidenceUsage } from '../article-generation-core/evidence-consumption.js';
+
+interface GenerationEvidenceCoverage {
+    sources: number;
+    domains: number;
+}
+
+function generationEvidenceTarget(factCheckContext: FactCheckContext): GenerationEvidenceCoverage {
+    const urls = new Set(factCheckContext.sources.map((source) => source.url).filter(Boolean));
+    const domains = new Set(factCheckContext.sources
+        .map((source) => source.domain.trim().toLowerCase())
+        .filter(Boolean));
+    const sources = urls.size >= 8 ? 4 : urls.size >= 4 ? 3 : Math.min(urls.size, 2);
+    return {
+        sources,
+        domains: Math.min(domains.size, sources, 3),
+    };
+}
+
+function generatedEvidenceCoverage(content: GeneratedContent | undefined): GenerationEvidenceCoverage {
+    const usage = extractStructuredArticleEvidenceUsage(content?.structuredContent);
+    const urls = new Set(usage.sourceUrls ?? []);
+    const domains = new Set([...urls].flatMap((url) => {
+        try {
+            return [new URL(url).hostname.toLowerCase().replace(/^www\./, '')];
+        } catch {
+            return [];
+        }
+    }));
+    return { sources: urls.size, domains: domains.size };
+}
+
+function meetsGenerationEvidenceTarget(
+    content: GeneratedContent | undefined,
+    target: GenerationEvidenceCoverage,
+): boolean {
+    const coverage = generatedEvidenceCoverage(content);
+    return coverage.sources >= target.sources && coverage.domains >= target.domains;
+}
+
+function generationEvidenceCoverageRank(content: GeneratedContent | undefined): number {
+    const coverage = generatedEvidenceCoverage(content);
+    return coverage.sources * 10 + coverage.domains;
+}
 
 function normalizeOpinionQuestion(input: unknown): GeneratedContent['opinionQuestion'] {
     if (!input || typeof input !== 'object') return null;
@@ -65,6 +109,7 @@ async function runGenerateAndAnalyze(
     options: { language?: string; style?: string }
 ): Promise<JudgeVerdict> {
     const sourceRefs = buildSourceRefs(factCheckContext.sources);
+    const evidenceTarget = generationEvidenceTarget(factCheckContext);
     const sourcesWithIds = factCheckContext.sources.map((source, index) => ({
         ...source,
         sourceId: sourceRefs[index]?.id,
@@ -100,6 +145,7 @@ Tu as DEUX MISSIONS dans cette réponse unique :
 - N'invente AUCUNE information (zéro hallucination). Si les sources n'en parlent pas, n'en parle pas.
 - Langue : ${langLabel}
 - ${styleInstruction}
+- Lorsque le dossier le permet, utilise au moins ${evidenceTarget.sources} sources distinctes issues d'au moins ${evidenceTarget.domains} domaines distincts dans les claims/items structures. N'associe une source a une affirmation que si elle l'etaye reellement.
 - Le contenu ("content") DOIT être en Markdown valide avec titres ##, ###, citations et liens
 - Cite tes sources inline : "Selon Reuters [1]..." avec le numéro de la source
 - Produis aussi "structuredContent" au format Epion compact.
@@ -189,7 +235,34 @@ ${sourcesBlock}
 
 Réponds UNIQUEMENT le JSON.`;
 
-    return executeJudgeCall(systemPrompt, userPrompt, topic, true);
+    const firstVerdict = await executeJudgeCall(systemPrompt, userPrompt, topic, true);
+    if (meetsGenerationEvidenceTarget(firstVerdict.generatedContent, evidenceTarget)
+        || evidenceTarget.sources <= 1) {
+        return firstVerdict;
+    }
+
+    const firstCoverage = generatedEvidenceCoverage(firstVerdict.generatedContent);
+    logger.warn('Generated article evidence coverage is insufficient; retrying once', {
+        module: 'PrimaryJudge',
+        availableSources: factCheckContext.sources.length,
+        usedSources: firstCoverage.sources,
+        usedDomains: firstCoverage.domains,
+        requiredSources: evidenceTarget.sources,
+        requiredDomains: evidenceTarget.domains,
+    });
+    const repairedVerdict = await executeJudgeCall(
+        systemPrompt,
+        `${userPrompt}
+
+## CORRECTION OBLIGATOIRE
+La reponse precedente ne couvrait pas assez de preuves. Regenere l'objet complet en utilisant au moins ${evidenceTarget.sources} sources distinctes issues d'au moins ${evidenceTarget.domains} domaines distincts dans structuredContent.claims ou structuredContent.sections[].items. N'ajoute jamais une source a une affirmation qu'elle n'etaye pas.`,
+        topic,
+        true,
+    );
+    return generationEvidenceCoverageRank(repairedVerdict.generatedContent)
+        > generationEvidenceCoverageRank(firstVerdict.generatedContent)
+        ? repairedVerdict
+        : firstVerdict;
 }
 
 // ─── Mode: Analyze only (existing article) ──────────────────────────────────

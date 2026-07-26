@@ -60,7 +60,6 @@ export async function buildEvidenceDossier(
         },
       });
 
-  const persistedUrls = new Set(documents.map((document) => document.canonicalUrl));
   const items: EvidenceItem[] = documents.map((document) => {
     const chunkIds = document.chunks.map((chunk) => chunk.id);
     const used = usedDocumentIds.has(document.id);
@@ -83,10 +82,15 @@ export async function buildEvidenceDossier(
       traceability: degraded ? 'DEGRADED' : 'COMPLETE',
     };
   });
+  const persistedUrls = new Set(items
+    .flatMap((item) => [item.canonicalUrl, ...(item.discoveredUrls ?? [])])
+    .map(normalizeArticleSourceUrl)
+    .filter((url): url is string => Boolean(url)));
 
   for (const found of input.foundEvidence ?? []) {
     const canonicalUrl = normalizeArticleSourceUrl(found.url);
     if (!canonicalUrl || persistedUrls.has(canonicalUrl)) continue;
+    persistedUrls.add(canonicalUrl);
     items.push({
       ingestedDocumentId: null,
       chunkIds: [],

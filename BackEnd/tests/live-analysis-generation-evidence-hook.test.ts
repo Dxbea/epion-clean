@@ -184,4 +184,96 @@ describe('live-analysis generation evidence hook', () => {
       })],
     });
   });
+
+  it('keeps a rich USER_REQUEST dossier and exposes several genuinely cited sources', async () => {
+    const sources = Array.from({ length: 9 }, (_, index) => ({
+      url: `https://source-${index + 1}.example/story`,
+      title: `Source ${index + 1}`,
+      content: `Evidence ${index + 1}`,
+      domain: `source-${index + 1}.example`,
+      score: 0.9 - index * 0.02,
+      provider: 'web' as const,
+    }));
+    investigateArticle.mockResolvedValue({
+      sources,
+      routingDecision: {
+        route: 'MIXED',
+        query_factual: 'facts',
+        query_critical: 'criticism',
+        query_contextual: 'context',
+      },
+    });
+    const dossier = {
+      mode: 'USER_REQUEST' as const,
+      items: sources.map((source, index) => ({
+        ingestedDocumentId: `doc-${index + 1}`,
+        chunkIds: [],
+        sourceId: `durable-${index + 1}`,
+        canonicalUrl: source.url,
+        domain: source.domain,
+        title: source.title,
+        role: index === 0 ? 'PRIMARY' as const : 'CONTEXT' as const,
+        status: 'PERSISTED' as const,
+        claimKeys: [],
+        provenance: 'SERPER' as const,
+        traceability: 'COMPLETE' as const,
+      })),
+      traceability: 'COMPLETE' as const,
+      degradedReasons: [],
+      persistedDocuments: sources.length,
+      indexedDocuments: 0,
+      usedEvidenceItems: 0,
+    };
+    const verdict = {
+      contentIntent: 'REPORT' as const,
+      globalScore: 82,
+      pillarScores: {
+        transparency: { score: 82, quote: '', reasoning: '' },
+        editorial: { score: 82, quote: '', reasoning: '' },
+        semantic: { score: 82, quote: '', reasoning: '' },
+        logic: { score: 82, quote: '', reasoning: '' },
+      },
+    };
+    runPrimaryJudgeWithGeneration.mockResolvedValue({
+      ...verdict,
+      generatedContent: {
+        title: 'Multi-source article',
+        summary: 'Summary',
+        content: 'Content',
+        tags: [],
+        imagePrompt: null,
+        wikipedia_search_query: null,
+        structuredContent: {
+          version: 1,
+          format: 'epion-article-v1',
+          lead: {},
+          sections: [{ id: 'facts', type: 'facts', title: 'Facts', body: 'Body' }],
+          claims: sources.slice(0, 4).map((source, index) => ({
+            id: `claim-${index + 1}`,
+            text: `Supported claim ${index + 1}`,
+            sourceUrls: [source.url],
+            support: 'strong',
+          })),
+          sources: sources.map((source, index) => ({
+            id: `src-${index + 1}`,
+            url: source.url,
+          })),
+        },
+      },
+    });
+    runAuditorJudge.mockResolvedValue(verdict);
+
+    const result = await runLiveAnalysisWithGeneration('Rich topic', {
+      onEvidenceGathered: async () => dossier,
+    });
+
+    expect(result.sources).toHaveLength(9);
+    expect(result.evidenceDossier?.usedEvidenceItems).toBe(4);
+    expect(result.evidenceDossier?.items.filter((item) => item.status === 'USED')).toEqual(
+      sources.slice(0, 4).map((source, index) => expect.objectContaining({
+        canonicalUrl: source.url,
+        claimKeys: [`claim-${index + 1}`],
+      })),
+    );
+  });
 });
